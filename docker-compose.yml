@@ -1,0 +1,78 @@
+services:
+  # Build all packages
+  build:
+    build:
+      context: .
+      target: development
+
+  # Run tests
+  test:
+    build:
+      context: .
+      target: development
+    command: pnpm test
+
+  # Lint
+  lint:
+    build:
+      context: .
+      target: development
+    command: pnpm lint
+
+  # Interactive agent loop with dashboard
+  vole:
+    build:
+      context: .
+      target: production
+    stdin_open: true
+    tty: true
+    command: ["start"]
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+
+  # Single task run
+  run:
+    build:
+      context: .
+      target: production
+    command: ["run"]
+    env_file:
+      - .env
+
+  # Shell into production image
+  sh:
+    build:
+      context: .
+      target: production
+    stdin_open: true
+    tty: true
+    entrypoint: sh
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+
+  # Dev mode — mount source, build inside container, iterate fast
+  # Usage: docker compose run --rm dev
+  #   Then inside: pnpm build && vole paw create telegram
+  dev:
+    build:
+      context: .
+      target: development
+    stdin_open: true
+    tty: true
+    entrypoint: sh
+    volumes:
+      - ./src/core/src:/app/src/core/src
+      - ./src/paw-sdk/src:/app/src/paw-sdk/src
+      - ./src/skill-sdk/src:/app/src/skill-sdk/src
+      - ./paws/paw-dashboard/src:/app/paws/paw-dashboard/src
+      - ./paws/paw-dashboard/vole-paw.json:/app/paws/paw-dashboard/vole-paw.json
+      - ./vole.config.mjs:/app/vole.config.mjs
+      - ./assets:/app/assets
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env

@@ -1,0 +1,54 @@
+{
+  "brain": "./.openvole/paws/paw-ollama",
+
+  "paws": [
+    {
+      "name": "./.openvole/paws/paw-ollama",
+      "allow": {
+        "network": ["127.0.0.1"],
+        "env": ["OLLAMA_HOST", "OLLAMA_MODEL", "OLLAMA_API_KEY"]
+      }
+    },
+    {
+      "name": "./.openvole/paws/paw-dashboard",
+      "allow": {
+        "listen": [3001],
+        "env": ["VOLE_DASHBOARD_PORT"]
+      }
+    },
+    {
+      "name": "./.openvole/paws/paw-telegram",
+      "allow": {
+        "network": ["api.telegram.org"],
+        "env": ["TELEGRAM_BOT_TOKEN", "TELEGRAM_ALLOW_FROM"]
+      }
+    },
+    {
+      "name": "./.openvole/paws/paw-mcp",
+      "allow": {
+        "network": ["127.0.0.1"],
+        "env": []
+      }
+    }
+  ],
+
+  "skills": [],
+
+  "loop": {
+    "maxIterations": 10,
+    "confirmBeforeAct": true,
+    "taskConcurrency": 1,
+    "logLevel": "info"
+  },
+
+  "toolProfiles": {
+    "paw": {
+      "deny": ["shell_exec", "shell_exec_background", "fs_write", "fs_edit", "fs_mkdir"]
+    }
+  },
+
+  "heartbeat": {
+    "enabled": false,
+    "intervalMinutes": 30
+  }
+}

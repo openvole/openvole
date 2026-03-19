@@ -1,0 +1,40 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Environment & secrets
+.env
+.env.local
+.env.*.local
+
+# OpenVole runtime (lock file, installed skills, paws, cache)
+.openvole/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Puppeteer cache
+.cache/
+
+# Coverage
+coverage/
+
+# Local references
+.local/
+
+CLAUDE.md
+.claude/
+.clawhub/
