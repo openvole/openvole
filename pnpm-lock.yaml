@@ -17,13 +17,13 @@ importers:
 
   .openvole/paws/paw-browser:
     dependencies:
-      '@openvole/paw-sdk':
-        specifier: workspace:*
-        version: link:../../../src/paw-sdk
       puppeteer:
         specifier: ^24.0.0
         version: 24.39.1(typescript@5.9.3)
     devDependencies:
+      '@openvole/paw-sdk':
+        specifier: workspace:*
+        version: link:../../../src/paw-sdk
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.15
@@ -35,11 +35,10 @@ importers:
         version: 5.9.3
 
   .openvole/paws/paw-compact:
-    dependencies:
+    devDependencies:
       '@openvole/paw-sdk':
         specifier: workspace:*
         version: link:../../../src/paw-sdk
-    devDependencies:
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.15
@@ -52,9 +51,6 @@ importers:
 
   .openvole/paws/paw-dashboard:
     dependencies:
-      '@openvole/paw-sdk':
-        specifier: workspace:*
-        version: link:../../../src/paw-sdk
       ws:
         specifier: ^8.18.0
         version: 8.19.0
@@ -62,6 +58,9 @@ importers:
         specifier: ^3.23.0
         version: 3.25.76
     devDependencies:
+      '@openvole/paw-sdk':
+        specifier: workspace:*
+        version: link:../../../src/paw-sdk
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.15
@@ -77,13 +76,13 @@ importers:
 
   .openvole/paws/paw-filesystem:
     dependencies:
-      '@openvole/paw-sdk':
-        specifier: workspace:*
-        version: link:../../../src/paw-sdk
       glob:
         specifier: ^11.0.0
         version: 11.1.0
     devDependencies:
+      '@openvole/paw-sdk':
+        specifier: workspace:*
+        version: link:../../../src/paw-sdk
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.15
@@ -99,10 +98,10 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: ^1.0.0
         version: 1.27.1(zod@3.25.76)
+    devDependencies:
       '@openvole/paw-sdk':
         specifier: workspace:*
         version: link:../../../src/paw-sdk
-    devDependencies:
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.15
@@ -114,11 +113,10 @@ importers:
         version: 5.9.3
 
   .openvole/paws/paw-memory:
-    dependencies:
+    devDependencies:
       '@openvole/paw-sdk':
         specifier: workspace:*
         version: link:../../../src/paw-sdk
-    devDependencies:
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.15
@@ -131,13 +129,13 @@ importers:
 
   .openvole/paws/paw-ollama:
     dependencies:
-      '@openvole/paw-sdk':
-        specifier: workspace:*
-        version: link:../../../src/paw-sdk
       ollama:
         specifier: ^0.5.0
         version: 0.5.18
     devDependencies:
+      '@openvole/paw-sdk':
+        specifier: workspace:*
+        version: link:../../../src/paw-sdk
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.15
@@ -149,11 +147,10 @@ importers:
         version: 5.9.3
 
   .openvole/paws/paw-session:
-    dependencies:
+    devDependencies:
       '@openvole/paw-sdk':
         specifier: workspace:*
         version: link:../../../src/paw-sdk
-    devDependencies:
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.15
@@ -166,13 +163,13 @@ importers:
 
   .openvole/paws/paw-shell:
     dependencies:
-      '@openvole/paw-sdk':
-        specifier: workspace:*
-        version: link:../../../src/paw-sdk
       execa:
         specifier: ^9.5.0
         version: 9.6.1
     devDependencies:
+      '@openvole/paw-sdk':
+        specifier: workspace:*
+        version: link:../../../src/paw-sdk
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.15
@@ -185,13 +182,13 @@ importers:
 
   .openvole/paws/paw-telegram:
     dependencies:
-      '@openvole/paw-sdk':
-        specifier: workspace:*
-        version: link:../../../src/paw-sdk
       grammy:
         specifier: ^1.30.0
         version: 1.41.1
     devDependencies:
+      '@openvole/paw-sdk':
+        specifier: workspace:*
+        version: link:../../../src/paw-sdk
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.15
@@ -237,25 +234,6 @@ importers:
         version: 2.1.9(@types/node@22.19.15)
 
   src/paw-sdk:
-    dependencies:
-      zod:
-        specifier: ^3.23.0
-        version: 3.25.76
-    devDependencies:
-      '@types/node':
-        specifier: ^22.0.0
-        version: 22.19.15
-      tsup:
-        specifier: ^8.3.0
-        version: 8.5.1(postcss@8.5.8)(tsx@4.21.0)(typescript@5.9.3)(yaml@2.8.2)
-      typescript:
-        specifier: ^5.6.0
-        version: 5.9.3
-      vitest:
-        specifier: ^2.1.0
-        version: 2.1.9(@types/node@22.19.15)
-
-  src/skill-sdk:
     dependencies:
       zod:
         specifier: ^3.23.0

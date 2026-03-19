@@ -145,7 +145,7 @@ export async function createEngine(
 	toolRegistry.register('__core__', coreTools, true)
 
 	// Wire up query sources so Paws can query skills and tasks
-	pawRegistry.setQuerySources(skillRegistry, taskQueue)
+	pawRegistry.setQuerySources(skillRegistry, taskQueue, scheduler)
 
 	// Wire up the task runner
 	taskQueue.setRunner(async (task) => {
@@ -160,8 +160,6 @@ export async function createEngine(
 			rateLimiter,
 		})
 	})
-
-	let heartbeatTimer: ReturnType<typeof setInterval> | undefined
 
 	const engine: VoleEngine = {
 		bus,
@@ -216,24 +214,28 @@ export async function createEngine(
 			// Final resolver pass
 			skillRegistry.resolve()
 
-			// Start heartbeat timer
+			// Start heartbeat via scheduler (shows up in Schedules panel)
 			if (config.heartbeat.enabled) {
 				const heartbeatMdPath = path.resolve(projectRoot, 'HEARTBEAT.md')
-				const intervalMs = config.heartbeat.intervalMinutes * 60_000
-				heartbeatTimer = setInterval(async () => {
-					let heartbeatContent = ''
-					try {
-						heartbeatContent = await fs.readFile(heartbeatMdPath, 'utf-8')
-					} catch {
-						// No HEARTBEAT.md — use default prompt
-					}
+				scheduler.add(
+					'__heartbeat__',
+					'Heartbeat wake-up',
+					config.heartbeat.intervalMinutes,
+					async () => {
+						let heartbeatContent = ''
+						try {
+							heartbeatContent = await fs.readFile(heartbeatMdPath, 'utf-8')
+						} catch {
+							// No HEARTBEAT.md — use default prompt
+						}
 
-					const input = heartbeatContent
-						? `Heartbeat wake-up. Review your HEARTBEAT.md jobs and act on what is needed:\n\n${heartbeatContent}`
-						: 'Heartbeat wake-up. Check active skills and decide if any actions are needed.'
+						const input = heartbeatContent
+							? `Heartbeat wake-up. Review your HEARTBEAT.md jobs and act on what is needed:\n\n${heartbeatContent}`
+							: 'Heartbeat wake-up. Check active skills and decide if any actions are needed.'
 
-					taskQueue.enqueue(input, 'heartbeat')
-				}, intervalMs)
+						taskQueue.enqueue(input, 'heartbeat')
+					},
+				)
 				engineLogger.info(`Heartbeat enabled — interval: ${config.heartbeat.intervalMinutes}m`)
 			}
 
@@ -250,7 +252,6 @@ export async function createEngine(
 
 		async shutdown() {
 			engineLogger.info('Shutting down...')
-			if (heartbeatTimer) clearInterval(heartbeatTimer)
 			scheduler.clearAll()
 			for (const paw of pawRegistry.list()) {
 				await pawRegistry.unload(paw.name)

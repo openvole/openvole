@@ -32,6 +32,10 @@ export interface QueryableTaskQueue {
 	enqueue(input: string, source?: 'user' | 'schedule' | 'paw', options?: { sessionId?: string; metadata?: Record<string, unknown> }): { id: string }
 }
 
+export interface QueryableScheduler {
+	list(): Array<{ id: string; input: string; intervalMinutes: number; createdAt: number }>
+}
+
 /** Manages loaded Paws and their lifecycle */
 export class PawRegistry {
 	private paws = new Map<string, PawInstance>()
@@ -45,6 +49,7 @@ export class PawRegistry {
 	private configToManifest = new Map<string, string>()
 	private skillRegistry?: QueryableSkillRegistry
 	private taskQueue?: QueryableTaskQueue
+	private scheduler?: QueryableScheduler
 
 	constructor(
 		private bus: MessageBus,
@@ -62,9 +67,10 @@ export class PawRegistry {
 	}
 
 	/** Inject queryable registries (called after construction to avoid circular deps) */
-	setQuerySources(skills: QueryableSkillRegistry, tasks: QueryableTaskQueue): void {
+	setQuerySources(skills: QueryableSkillRegistry, tasks: QueryableTaskQueue, scheduler?: QueryableScheduler): void {
 		this.skillRegistry = skills
 		this.taskQueue = tasks
+		this.scheduler = scheduler
 	}
 
 	/** Load and register a Paw */
@@ -548,7 +554,11 @@ export class PawRegistry {
 					input: t.input,
 					status: t.status,
 					createdAt: t.createdAt,
+					startedAt: (t as Record<string, unknown>).startedAt,
+					completedAt: (t as Record<string, unknown>).completedAt,
 				})) ?? []
+			case 'schedules':
+				return this.scheduler?.list() ?? []
 			default:
 				return { error: `Unknown query type: ${type}` }
 		}
