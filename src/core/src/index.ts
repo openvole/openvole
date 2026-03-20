@@ -100,6 +100,7 @@ import { SchedulerStore } from './core/scheduler.js'
 import { createCoreTools } from './tool/core-tools.js'
 import { RateLimiter } from './core/rate-limiter.js'
 import { Vault } from './core/vault.js'
+import { closeLogger } from './core/logger.js'
 
 export interface VoleEngine {
 	bus: ReturnType<typeof createMessageBus>
@@ -273,6 +274,7 @@ export async function createEngine(
 			}
 			toolRegistry.clear()
 			engineLogger.info('Shutdown complete')
+			closeLogger()
 		},
 	}
 

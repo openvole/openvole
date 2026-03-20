@@ -21,6 +21,7 @@ export interface LoopConfig {
 	taskConcurrency: number
 	/** Max messages before triggering compact hooks (0 = disabled) */
 	compactThreshold: number
+	/** @deprecated Use top-level "log" config instead */
 	logLevel: 'debug' | 'info' | 'warn' | 'error'
 	/** Rate limits (undefined = no limits) */
 	rateLimits?: RateLimits

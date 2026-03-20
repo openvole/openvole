@@ -128,6 +128,7 @@ describe('SchedulerStore', () => {
 			scheduler.setPersistence(savePath)
 
 			scheduler.add('__heartbeat__', 'heartbeat', 30, vi.fn())
+			await new Promise((r) => setTimeout(r, 50))
 			scheduler.add('user-schedule', 'user task', 5, vi.fn())
 
 			await new Promise((r) => setTimeout(r, 100))
