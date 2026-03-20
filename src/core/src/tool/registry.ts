@@ -73,6 +73,7 @@ export class ToolRegistry {
 			name: t.name,
 			description: t.description,
 			pawName: t.pawName,
+			parameters: t.parameters,
 		}))
 	}
 

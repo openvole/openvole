@@ -22,6 +22,7 @@ export interface ToolSummary {
 	name: string
 	description: string
 	pawName: string
+	parameters?: unknown
 }
 
 export interface ActiveSkill {

@@ -81,12 +81,14 @@ describe('ToolRegistry', () => {
 	})
 
 	describe('summaries', () => {
-		it('returns name, description, and pawName', () => {
+		it('returns name, description, pawName, and parameters', () => {
 			registry.register('paw-a', [makeTool('tool-1', 'Desc 1')], true)
 			const summaries = registry.summaries()
-			expect(summaries).toEqual([
-				{ name: 'tool-1', description: 'Desc 1', pawName: 'paw-a' },
-			])
+			expect(summaries).toHaveLength(1)
+			expect(summaries[0].name).toBe('tool-1')
+			expect(summaries[0].description).toBe('Desc 1')
+			expect(summaries[0].pawName).toBe('paw-a')
+			expect(summaries[0]).toHaveProperty('parameters')
 		})
 	})
 

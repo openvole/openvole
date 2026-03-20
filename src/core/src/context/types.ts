@@ -3,6 +3,8 @@ export interface ToolSummary {
 	name: string
 	description: string
 	pawName: string
+	/** Parameter schema (Zod) — passed to Brain Paw for function calling */
+	parameters?: unknown
 }
 
 /** A Skill whose required tools are all satisfied (compact — Brain reads full instructions on demand) */
