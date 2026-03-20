@@ -251,8 +251,10 @@ export async function createEngine(
 
 						taskQueue.enqueue(input, 'heartbeat')
 					},
+					undefined,
+					config.heartbeat.runOnStart ?? false,
 				)
-				engineLogger.info(`Heartbeat enabled — interval: ${config.heartbeat.intervalMinutes}m`)
+				engineLogger.info(`Heartbeat enabled — interval: ${config.heartbeat.intervalMinutes}m${config.heartbeat.runOnStart ? ', running now' : ''}`)
 			}
 
 			engineLogger.info(

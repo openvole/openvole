@@ -65,6 +65,7 @@ export class SchedulerStore {
 		intervalMinutes: number,
 		onTick: () => void,
 		createdAt?: number,
+		immediate = false,
 	): void {
 		// Cancel existing schedule with same ID (idempotent upsert)
 		if (this.schedules.has(id)) {
@@ -72,6 +73,9 @@ export class SchedulerStore {
 		}
 
 		const intervalMs = intervalMinutes * 60_000
+		if (immediate) {
+			setTimeout(onTick, 0)
+		}
 		const timer = setInterval(onTick, intervalMs)
 
 		this.schedules.set(id, {

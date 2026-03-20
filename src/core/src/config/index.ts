@@ -37,6 +37,8 @@ export interface ToolProfile {
 export interface HeartbeatConfig {
 	enabled: boolean
 	intervalMinutes: number
+	/** If true, run heartbeat immediately on startup (default: false) */
+	runOnStart?: boolean
 }
 
 /** Security configuration */
