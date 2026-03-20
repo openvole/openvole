@@ -162,6 +162,18 @@ export async function runAgentLoop(
 
 		// Check if the Brain says we're done
 		if (plan.done) {
+			// Detect if the Brain narrated tool calls instead of executing them
+			if (plan.response && plan.actions.length === 0 && plan.response.startsWith('Calling tools:')) {
+				logger.warn('Brain narrated tool calls instead of executing them — forcing retry')
+				enrichedContext.messages.push({
+					role: 'error',
+					content: 'You described tool calls as text instead of executing them. Use function calling to invoke tools — do not write tool calls as text. Try again.',
+					timestamp: Date.now(),
+				})
+				plan.done = false
+				continue
+			}
+
 			if (plan.response) {
 				task.result = plan.response
 				io.notify(plan.response)
