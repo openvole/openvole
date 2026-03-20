@@ -625,7 +625,7 @@ async function handleToolCommand(
 			const taskQueue = new TaskQueue(bus, 1)
 			const scheduler = new SchedulerStore()
 			scheduler.setPersistence(path.resolve(projectRoot, '.openvole', 'schedules.json'))
-			await scheduler.restore()
+			await scheduler.loadFromDisk()
 			const vault = new Vault(
 				path.resolve(projectRoot, '.openvole', 'vault.json'),
 				process.env.VOLE_VAULT_KEY,

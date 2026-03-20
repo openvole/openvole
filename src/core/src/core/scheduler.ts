@@ -38,6 +38,28 @@ export class SchedulerStore {
 		this.tickHandler = handler
 	}
 
+	/** Load schedule data from disk without starting cron jobs (for read-only access) */
+	async loadFromDisk(): Promise<void> {
+		if (!this.savePath) return
+		try {
+			const raw = await fs.readFile(this.savePath, 'utf-8')
+			const persisted = JSON.parse(raw) as PersistedSchedule[]
+			for (const s of persisted) {
+				// Store with a dummy stopped job — just for data access
+				const job = new Cron(s.cron, { timezone: 'UTC', paused: true }, () => {})
+				this.schedules.set(s.id, {
+					id: s.id,
+					input: s.input,
+					cron: s.cron,
+					job,
+					createdAt: s.createdAt,
+				})
+			}
+		} catch {
+			// No file or invalid
+		}
+	}
+
 	/** Load persisted schedules from disk and restart their jobs */
 	async restore(): Promise<void> {
 		if (!this.savePath || !this.tickHandler) return
