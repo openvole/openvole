@@ -583,14 +583,34 @@ async function handleToolCommand(
 				}
 			}
 
-			const engine = await createEngine(projectRoot)
-			await engine.start()
+			// Lightweight boot — only register core tools (no paw spawning)
+			const { createMessageBus } = await import('./core/bus.js')
+			const { ToolRegistry } = await import('./tool/registry.js')
+			const { SchedulerStore } = await import('./core/scheduler.js')
+			const { TaskQueue } = await import('./core/task.js')
+			const { SkillRegistry } = await import('./skill/registry.js')
+			const { Vault } = await import('./core/vault.js')
+			const { createCoreTools } = await import('./tool/core-tools.js')
 
-			const tool = engine.toolRegistry.get(toolName)
+			const bus = createMessageBus()
+			const toolRegistry = new ToolRegistry(bus)
+			const skillRegistry = new SkillRegistry(bus, toolRegistry, projectRoot)
+			const taskQueue = new TaskQueue(bus, 1)
+			const scheduler = new SchedulerStore()
+			scheduler.setPersistence(path.resolve(projectRoot, '.openvole', 'schedules.json'))
+			await scheduler.restore()
+			const vault = new Vault(
+				path.resolve(projectRoot, '.openvole', 'vault.json'),
+				process.env.VOLE_VAULT_KEY,
+			)
+			await vault.init()
+			const coreTools = createCoreTools(scheduler, taskQueue, projectRoot, skillRegistry, vault)
+			toolRegistry.register('__core__', coreTools, true)
+
+			const tool = toolRegistry.get(toolName)
 			if (!tool) {
-				logger.error(`Tool "${toolName}" not found`)
-				logger.info('Run "vole tool list" to see available tools')
-				await engine.shutdown()
+				logger.error(`Tool "${toolName}" not found in core tools`)
+				logger.info('Core tools only — paw tools require a running "vole start" instance')
 				process.exit(1)
 			}
 
@@ -605,7 +625,7 @@ async function handleToolCommand(
 				process.exit(1)
 			}
 
-			await engine.shutdown()
+			scheduler.clearAll()
 			break
 		}
 
