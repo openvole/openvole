@@ -139,10 +139,10 @@
   },
 
   "security": {
-    "_comment_sandboxFilesystem": "If true, paws can only access files inside .openvole/ (default: true)",
+    "_comment_sandboxFilesystem": "If true, paws can only access .openvole/ plus allowedPaths below (default: true). .openvole/ is always accessible.",
     "sandboxFilesystem": true,
 
-    "_comment_allowedPaths": "Additional paths paws can access when sandboxed",
+    "_comment_allowedPaths": "Extra paths outside .openvole/ that paws can access when sandboxed",
     "allowedPaths": ["/tmp/exports", "~/documents/shared"]
   }
 }
