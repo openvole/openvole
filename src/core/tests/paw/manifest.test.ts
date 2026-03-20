@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import * as fs from 'node:fs/promises'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import * as os from 'node:os'
@@ -108,8 +108,10 @@ describe('readPawManifest', () => {
 		await fs.mkdir(pawDir, { recursive: true })
 		await fs.writeFile(path.join(pawDir, 'vole-paw.json'), 'not json{{{', 'utf-8')
 
+		const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
 		const result = await readPawManifest(pawDir)
 		expect(result).toBeNull()
+		spy.mockRestore()
 	})
 
 	it('applies defaults for optional fields', async () => {
