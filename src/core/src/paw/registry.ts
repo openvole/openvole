@@ -577,7 +577,13 @@ export class PawRegistry {
 				clearTimeout(timeout)
 				const registration = params as {
 					tools?: Array<{ name: string; description: string }>
-					hooks?: { perceive?: boolean; observe?: boolean }
+					hooks?: {
+						bootstrap?: boolean
+						perceive?: boolean
+						observe?: boolean
+						compact?: boolean
+						schedule?: string[]
+					}
 				}
 
 				// Register tools from subprocess Paw using manifest tool descriptions
@@ -591,6 +597,17 @@ export class PawRegistry {
 							this.executeRemoteTool(pawName, t.name, toolParams),
 					}))
 					this.toolRegistry.register(pawName, toolDefs, false)
+				}
+
+				// Track hooks for subprocess Paws
+				if (registration.hooks?.bootstrap) {
+					this.bootstrapPaws.push(pawName)
+				}
+				if (registration.hooks?.observe) {
+					this.observeHookPaws.push(pawName)
+				}
+				if (registration.hooks?.compact) {
+					this.compactPaws.push(pawName)
 				}
 
 				logger.info(`Paw "${pawName}" registered with ${registration.tools?.length ?? 0} tools`)

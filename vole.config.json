@@ -1,8 +1,8 @@
 {
-  "brain": "./.openvole/paws/paw-ollama",
+  "brain": "/Users/kursataydemir/limnr/pawhub/paws/paw-ollama",
   "paws": [
     {
-      "name": "./.openvole/paws/paw-ollama",
+      "name": "/Users/kursataydemir/limnr/pawhub/paws/paw-ollama",
       "allow": {
         "network": [
           "127.0.0.1"
@@ -16,7 +16,7 @@
       }
     },
     {
-      "name": "./.openvole/paws/paw-dashboard",
+      "name": "/Users/kursataydemir/limnr/pawhub/paws/paw-dashboard",
       "allow": {
         "listen": [
           3001
@@ -27,7 +27,7 @@
       }
     },
     {
-      "name": "./.openvole/paws/paw-telegram",
+      "name": "/Users/kursataydemir/limnr/pawhub/paws/paw-telegram",
       "allow": {
         "network": [
           "api.telegram.org"
@@ -39,7 +39,7 @@
       }
     },
     {
-      "name": "./.openvole/paws/paw-browser",
+      "name": "/Users/kursataydemir/limnr/pawhub/paws/paw-browser",
       "allow": {
         "network": [
           "*"
@@ -50,9 +50,21 @@
       }
     },
     {
-      "name": "./.openvole/paws/paw-memory",
+      "name": "/Users/kursataydemir/limnr/pawhub/paws/paw-memory",
       "allow": {
         "env": ["VOLE_MEMORY_DIR"]
+      }
+    },
+    {
+      "name": "/Users/kursataydemir/limnr/pawhub/paws/paw-session",
+      "allow": {
+        "env": ["VOLE_SESSION_TTL"]
+      }
+    },
+    {
+      "name": "/Users/kursataydemir/limnr/pawhub/paws/paw-compact",
+      "allow": {
+        "env": ["VOLE_COMPACT_KEEP_RECENT"]
       }
     }
   ],
@@ -61,7 +73,7 @@
     "skill-web-summary"
   ],
   "loop": {
-    "maxIterations": 10,
+    "maxIterations": 25,
     "confirmBeforeAct": false,
     "taskConcurrency": 1,
     "logLevel": "debug"

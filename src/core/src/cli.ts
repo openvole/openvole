@@ -156,7 +156,7 @@ async function startInteractive(projectRoot: string): Promise<void> {
 				return
 			}
 			if (trimmed) {
-				engine.run(trimmed)
+				engine.run(trimmed, 'user', 'cli:default')
 			}
 			promptUser()
 		})
@@ -217,9 +217,80 @@ async function initProject(projectRoot: string): Promise<void> {
 			taskConcurrency: 1,
 			logLevel: 'info',
 		},
+		heartbeat: {
+			enabled: false,
+			intervalMinutes: 30,
+		},
 	}
 	await fs.writeFile(configPath, JSON.stringify(config, null, 2) + '\n', 'utf-8')
+
+	// Create .openvole directory structure
+	await fs.mkdir(path.join(projectRoot, '.openvole', 'skills'), { recursive: true })
+	await fs.mkdir(path.join(projectRoot, '.openvole', 'skills', 'clawhub'), { recursive: true })
+	await fs.mkdir(path.join(projectRoot, '.openvole', 'memory'), { recursive: true })
+	await fs.mkdir(path.join(projectRoot, '.openvole', 'sessions'), { recursive: true })
+	await fs.mkdir(path.join(projectRoot, '.openvole', 'workspace'), { recursive: true })
+
+	// Create default MEMORY.md
+	await fs.writeFile(
+		path.join(projectRoot, '.openvole', 'memory', 'MEMORY.md'),
+		'# Memory\n\nLong-term memory for the agent. Store important facts, user preferences, and decisions here.\n',
+		'utf-8',
+	)
+
+	// Create HEARTBEAT.md inside .openvole
+	await fs.writeFile(
+		path.join(projectRoot, '.openvole', 'HEARTBEAT.md'),
+		'# Heartbeat\n\n## Jobs\n\n<!-- Add recurring jobs here -->\n',
+		'utf-8',
+	)
+
+	// Create identity files
+	await fs.writeFile(
+		path.join(projectRoot, '.openvole', 'SOUL.md'),
+		'# Soul\n\nThe agent\'s personality, tone, and identity.\n\n## Identity\n- Name: OpenVole Agent\n- Personality: Helpful, concise, and proactive\n- Tone: Professional but friendly\n',
+		'utf-8',
+	)
+	await fs.writeFile(
+		path.join(projectRoot, '.openvole', 'USER.md'),
+		'# User\n\nInformation about the user.\n\n## Profile\n- Name:\n- Timezone:\n- Language: English\n',
+		'utf-8',
+	)
+	await fs.writeFile(
+		path.join(projectRoot, '.openvole', 'AGENT.md'),
+		'# Agent\n\nOperating rules and behavioral guidelines.\n\n## Rules\n- Always be helpful and direct\n- Ask for clarification when a request is ambiguous\n- Save important findings to memory for future reference\n- Store credentials in the vault, never in workspace or memory\n- When reading API docs or instructions, save them to workspace immediately\n',
+		'utf-8',
+	)
+
+	// Create .env template
+	await fs.writeFile(
+		path.join(projectRoot, '.env'),
+		'# OpenVole Environment\nVOLE_LOG_LEVEL=info\n',
+		'utf-8',
+	)
+
+	// Create .gitignore
+	try {
+		await fs.access(path.join(projectRoot, '.gitignore'))
+	} catch {
+		await fs.writeFile(
+			path.join(projectRoot, '.gitignore'),
+			'node_modules/\n.env\n.openvole/\n.DS_Store\n',
+			'utf-8',
+		)
+	}
+
 	logger.info('Created vole.config.json')
+	logger.info('Created .openvole/')
+	logger.info('  skills/        — local and ClawHub skills')
+	logger.info('  memory/        — agent memory (MEMORY.md + daily logs)')
+	logger.info('  sessions/      — session transcripts')
+	logger.info('Created HEARTBEAT.md')
+	logger.info('Created .env')
+	logger.info('')
+	logger.info('Next: install paws and start')
+	logger.info('  npm install @openvole/paw-ollama @openvole/paw-memory')
+	logger.info('  npx vole start')
 }
 
 async function handlePawCommand(
@@ -440,13 +511,16 @@ async function handleToolCommand(
 			const { TaskQueue } = await import('./core/task.js')
 			const { SkillRegistry } = await import('./skill/registry.js')
 			const { createCoreTools } = await import('./tool/core-tools.js')
+			const { Vault } = await import('./core/vault.js')
 
 			const bus = createMessageBus()
 			const toolRegistry = new ToolRegistry(bus)
 			const skillRegistry = new SkillRegistry(bus, toolRegistry, projectRoot)
 			const taskQueue = new TaskQueue(bus, 1)
 			const scheduler = new SchedulerStore()
-			const coreTools = createCoreTools(scheduler, taskQueue, projectRoot, skillRegistry)
+			const vault = new Vault(path.resolve(projectRoot, '.openvole', 'vault.json'), process.env.VOLE_VAULT_KEY)
+			await vault.init()
+			const coreTools = createCoreTools(scheduler, taskQueue, projectRoot, skillRegistry, vault)
 			toolRegistry.register('__core__', coreTools, true)
 
 			for (const entry of toolRegistry.list()) {

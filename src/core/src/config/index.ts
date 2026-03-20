@@ -40,6 +40,14 @@ export interface HeartbeatConfig {
 	intervalMinutes: number
 }
 
+/** Security configuration */
+export interface SecurityConfig {
+	/** If true, paws can only access files inside .openvole/ directory. Default: true */
+	sandboxFilesystem?: boolean
+	/** Additional paths paws are allowed to access outside .openvole/ */
+	allowedPaths?: string[]
+}
+
 /** The full OpenVole configuration */
 export interface VoleConfig {
 	brain?: string
@@ -49,6 +57,8 @@ export interface VoleConfig {
 	heartbeat: HeartbeatConfig
 	/** Tool profiles per task source — restrict which tools can be used */
 	toolProfiles?: Record<string, ToolProfile>
+	/** Security settings */
+	security?: SecurityConfig
 }
 
 /** CLI-managed lock file — tracks installed paws and skills */
@@ -102,6 +112,7 @@ export function defineConfig(config: Partial<VoleConfig>): VoleConfig {
 			...config.heartbeat,
 		},
 		toolProfiles: config.toolProfiles,
+		security: config.security,
 	}
 }
 
@@ -137,6 +148,7 @@ async function loadUserConfig(configPath: string): Promise<VoleConfig> {
 				...config.heartbeat,
 			},
 			toolProfiles: config.toolProfiles,
+			security: config.security,
 		}
 	} catch {
 		// JSON not found or invalid, try JS candidates
@@ -166,6 +178,7 @@ async function loadUserConfig(configPath: string): Promise<VoleConfig> {
 					...config.heartbeat,
 				},
 				toolProfiles: config.toolProfiles,
+		security: config.security,
 			}
 		} catch {
 			continue

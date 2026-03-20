@@ -5,6 +5,7 @@ import type { ToolDefinition } from './types.js'
 import type { SchedulerStore } from '../core/scheduler.js'
 import type { TaskQueue } from '../core/task.js'
 import type { SkillRegistry } from '../skill/registry.js'
+import type { Vault } from '../core/vault.js'
 
 /** Create the built-in core tools that are always available to the Brain */
 export function createCoreTools(
@@ -12,8 +13,19 @@ export function createCoreTools(
 	taskQueue: TaskQueue,
 	projectRoot: string,
 	skillRegistry: SkillRegistry,
+	vault: Vault,
 ): ToolDefinition[] {
-	const heartbeatPath = path.resolve(projectRoot, 'HEARTBEAT.md')
+	const heartbeatPath = path.resolve(projectRoot, '.openvole', 'HEARTBEAT.md')
+	const workspaceDir = path.resolve(projectRoot, '.openvole', 'workspace')
+
+	/** Validate that a resolved path stays inside the workspace directory */
+	function resolveWorkspacePath(relativePath: string): string | null {
+		const resolved = path.resolve(workspaceDir, relativePath)
+		if (!resolved.startsWith(workspaceDir + path.sep) && resolved !== workspaceDir) {
+			return null
+		}
+		return resolved
+	}
 
 	return [
 		// === Scheduling tools ===
@@ -155,6 +167,193 @@ export function createCoreTools(
 				}
 			},
 		},
+
+		// === Workspace tools ===
+		{
+			name: 'workspace_write',
+			description: 'Write a file to the workspace scratch space (.openvole/workspace/). Creates parent directories automatically.',
+			parameters: z.object({
+				path: z.string().describe('File path relative to the workspace directory'),
+				content: z.string().describe('Content to write to the file'),
+			}),
+			async execute(params) {
+				const { path: relPath, content } = params as { path: string; content: string }
+				const resolved = resolveWorkspacePath(relPath)
+				if (!resolved) {
+					return { ok: false, error: 'Invalid path — must stay inside workspace directory' }
+				}
+				await fs.mkdir(path.dirname(resolved), { recursive: true })
+				await fs.writeFile(resolved, content, 'utf-8')
+				return { ok: true, path: relPath }
+			},
+		},
+		{
+			name: 'workspace_read',
+			description: 'Read a file from the workspace scratch space (.openvole/workspace/).',
+			parameters: z.object({
+				path: z.string().describe('File path relative to the workspace directory'),
+			}),
+			async execute(params) {
+				const { path: relPath } = params as { path: string }
+				const resolved = resolveWorkspacePath(relPath)
+				if (!resolved) {
+					return { ok: false, error: 'Invalid path — must stay inside workspace directory' }
+				}
+				try {
+					const content = await fs.readFile(resolved, 'utf-8')
+					return { ok: true, content }
+				} catch {
+					return { ok: false, error: `File not found: ${relPath}` }
+				}
+			},
+		},
+		{
+			name: 'workspace_list',
+			description: 'List files and directories in the workspace scratch space (.openvole/workspace/). Returns recursive listing with file sizes.',
+			parameters: z.object({
+				path: z.string().optional().describe('Subdirectory to list (relative to workspace root). Defaults to root.'),
+			}),
+			async execute(params) {
+				const { path: relPath } = params as { path?: string }
+				const resolved = relPath ? resolveWorkspacePath(relPath) : workspaceDir
+				if (!resolved) {
+					return { ok: false, error: 'Invalid path — must stay inside workspace directory' }
+				}
+				try {
+					const files = await listFilesWithSizes(resolved)
+					return { ok: true, files }
+				} catch {
+					return { ok: true, files: [] }
+				}
+			},
+		},
+		{
+			name: 'workspace_delete',
+			description: 'Delete a file or directory from the workspace scratch space (.openvole/workspace/).',
+			parameters: z.object({
+				path: z.string().describe('File or directory path relative to the workspace directory'),
+			}),
+			async execute(params) {
+				const { path: relPath } = params as { path: string }
+				const resolved = resolveWorkspacePath(relPath)
+				if (!resolved) {
+					return { ok: false, error: 'Invalid path — must stay inside workspace directory' }
+				}
+				try {
+					await fs.rm(resolved, { recursive: true })
+					return { ok: true }
+				} catch {
+					return { ok: false, error: `Not found: ${relPath}` }
+				}
+			},
+		},
+
+		// === Vault tools ===
+		{
+			name: 'vault_store',
+			description: 'Store a key-value pair in the secure vault with context metadata. Write-once: fails if key already exists (delete first to update).',
+			parameters: z.object({
+				key: z.string().describe('Key name for the stored value'),
+				value: z.string().describe('Value to store (will be encrypted if VOLE_VAULT_KEY is set)'),
+				source: z.enum(['user', 'tool', 'brain']).optional().describe('Who stored this value. Defaults to brain.'),
+				meta: z.record(z.string()).optional().describe('Context metadata — e.g. { "service": "vibegigs", "handle": "bumblebee", "url": "https://vibegigs.com" }'),
+			}),
+			async execute(params) {
+				const { key, value, source, meta } = params as { key: string; value: string; source?: string; meta?: Record<string, string> }
+				const ok = await vault.store(key, value, source ?? 'brain', meta)
+				if (!ok) {
+					return { ok: false, error: 'Key already exists' }
+				}
+				return { ok: true, key }
+			},
+		},
+		{
+			name: 'vault_get',
+			description: 'Retrieve a value from the secure vault by key.',
+			parameters: z.object({
+				key: z.string().describe('Key name to retrieve'),
+			}),
+			async execute(params) {
+				const { key } = params as { key: string }
+				const value = await vault.get(key)
+				if (value === null) {
+					return { ok: false, error: `Key not found: ${key}` }
+				}
+				return { ok: true, value }
+			},
+		},
+		{
+			name: 'vault_list',
+			description: 'List all keys in the vault with their sources and creation dates. Never returns values.',
+			parameters: z.object({}),
+			async execute() {
+				const entries = await vault.list()
+				return { ok: true, entries }
+			},
+		},
+		{
+			name: 'vault_delete',
+			description: 'Delete a key from the secure vault.',
+			parameters: z.object({
+				key: z.string().describe('Key name to delete'),
+			}),
+			async execute(params) {
+				const { key } = params as { key: string }
+				const ok = await vault.delete(key)
+				if (!ok) {
+					return { ok: false, error: `Key not found: ${key}` }
+				}
+				return { ok: true }
+			},
+		},
+
+		// === Web tools ===
+		{
+			name: 'web_fetch',
+			description: 'Fetch a URL and return its content as text. Use for APIs, web pages, JSON endpoints, or downloading text content. Much lighter than browser_navigate — use this when you just need the content, not browser interaction.',
+			parameters: z.object({
+				url: z.string().describe('The URL to fetch'),
+				method: z.enum(['GET', 'POST', 'PUT', 'DELETE']).optional().describe('HTTP method. Defaults to GET.'),
+				headers: z.record(z.string()).optional().describe('Request headers (e.g. { "Authorization": "Bearer ..." })'),
+				body: z.string().optional().describe('Request body for POST/PUT'),
+			}),
+			async execute(params) {
+				const { url, method, headers, body } = params as {
+					url: string
+					method?: string
+					headers?: Record<string, string>
+					body?: string
+				}
+				try {
+					const response = await fetch(url, {
+						method: method ?? 'GET',
+						headers,
+						body,
+					})
+
+					const contentType = response.headers.get('content-type') ?? ''
+					const text = await response.text()
+
+					// Truncate very large responses
+					const maxLen = 50_000
+					const content = text.length > maxLen
+						? text.substring(0, maxLen) + `\n\n[Truncated — ${text.length} chars total]`
+						: text
+
+					return {
+						ok: response.ok,
+						status: response.status,
+						contentType,
+						content,
+					}
+				} catch (err) {
+					return {
+						ok: false,
+						error: err instanceof Error ? err.message : String(err),
+					}
+				}
+			},
+		},
 	]
 }
 
@@ -171,4 +370,25 @@ async function listFilesRecursive(dir: string, prefix = ''): Promise<string[]> {
 		}
 	}
 	return files
+}
+
+/** Recursively list files with sizes relative to a directory */
+async function listFilesWithSizes(
+	dir: string,
+	prefix = '',
+): Promise<Array<{ path: string; size: number; type: 'file' | 'directory' }>> {
+	const entries = await fs.readdir(dir, { withFileTypes: true })
+	const results: Array<{ path: string; size: number; type: 'file' | 'directory' }> = []
+	for (const entry of entries) {
+		const rel = prefix ? `${prefix}/${entry.name}` : entry.name
+		const fullPath = path.join(dir, entry.name)
+		if (entry.isDirectory()) {
+			results.push({ path: rel, size: 0, type: 'directory' })
+			results.push(...(await listFilesWithSizes(fullPath, rel)))
+		} else {
+			const stat = await fs.stat(fullPath)
+			results.push({ path: rel, size: stat.size, type: 'file' })
+		}
+	}
+	return results
 }

@@ -24,7 +24,7 @@ interface PendingRequest {
 	timer: ReturnType<typeof setTimeout>
 }
 
-const DEFAULT_TIMEOUT_MS = 30_000
+const DEFAULT_TIMEOUT_MS = 120_000
 
 /** Transport abstraction that handles both Node IPC and stdio JSON-RPC */
 export class IpcTransport {

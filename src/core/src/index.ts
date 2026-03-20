@@ -21,6 +21,8 @@ export type { LoopDependencies } from './core/loop.js'
 export { TaskQueue } from './core/task.js'
 export type { AgentTask, TaskStatus } from './core/task.js'
 export { SchedulerStore } from './core/scheduler.js'
+export { Vault } from './core/vault.js'
+export type { VaultEntry } from './core/vault.js'
 export { PHASE_ORDER } from './core/hooks.js'
 export type { LoopPhase } from './core/hooks.js'
 export { RateLimiter } from './core/rate-limiter.js'
@@ -97,6 +99,7 @@ import * as fs from 'node:fs/promises'
 import { SchedulerStore } from './core/scheduler.js'
 import { createCoreTools } from './tool/core-tools.js'
 import { RateLimiter } from './core/rate-limiter.js'
+import { Vault } from './core/vault.js'
 
 export interface VoleEngine {
 	bus: ReturnType<typeof createMessageBus>
@@ -139,9 +142,18 @@ export async function createEngine(
 	const rateLimiter = new RateLimiter()
 	const taskQueue = new TaskQueue(bus, config.loop.taskConcurrency, rateLimiter, config.loop.rateLimits)
 	const scheduler = new SchedulerStore()
+	scheduler.setPersistence(path.resolve(projectRoot, '.openvole', 'schedules.json'))
+	scheduler.setTickHandler((input) => {
+		taskQueue.enqueue(input, 'schedule')
+	})
+	const vault = new Vault(
+		path.resolve(projectRoot, '.openvole', 'vault.json'),
+		process.env.VOLE_VAULT_KEY,
+	)
+	await vault.init()
 
 	// Register built-in core tools
-	const coreTools = createCoreTools(scheduler, taskQueue, projectRoot, skillRegistry)
+	const coreTools = createCoreTools(scheduler, taskQueue, projectRoot, skillRegistry, vault)
 	toolRegistry.register('__core__', coreTools, true)
 
 	// Wire up query sources so Paws can query skills and tasks
@@ -214,9 +226,12 @@ export async function createEngine(
 			// Final resolver pass
 			skillRegistry.resolve()
 
+			// Restore persisted schedules from disk
+			await scheduler.restore()
+
 			// Start heartbeat via scheduler (shows up in Schedules panel)
 			if (config.heartbeat.enabled) {
-				const heartbeatMdPath = path.resolve(projectRoot, 'HEARTBEAT.md')
+				const heartbeatMdPath = path.resolve(projectRoot, '.openvole', 'HEARTBEAT.md')
 				scheduler.add(
 					'__heartbeat__',
 					'Heartbeat wake-up',

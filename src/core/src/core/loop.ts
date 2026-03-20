@@ -135,6 +135,9 @@ export async function runAgentLoop(
 		// === THINK ===
 		logger.debug(`Phase: ${PHASE_ORDER[1]}`)
 		const plan = await runThink(enrichedContext, pawRegistry)
+		if (plan && plan !== 'BRAIN_ERROR') {
+			logger.info(`Brain plan: done=${plan.done}, actions=${plan.actions.length}, response=${plan.response ? plan.response.substring(0, 100) + '...' : 'none'}`)
+		}
 
 		if (!plan) {
 			// No Brain Paw configured — no-op Think
@@ -185,6 +188,16 @@ export async function runAgentLoop(
 		// === ACT ===
 		logger.debug(`Phase: ${PHASE_ORDER[2]}`)
 		if (plan.actions.length > 0) {
+			// Record the Brain's tool call intent in context so it sees its own reasoning on next iteration
+			const toolCallSummary = plan.actions.map((a) => `${a.tool}(${JSON.stringify(a.params)})`).join(', ')
+			enrichedContext.messages.push({
+				role: 'brain',
+				content: plan.response || `Calling tools: ${toolCallSummary}`,
+				toolCall: plan.actions.length === 1
+					? { name: plan.actions[0].tool, params: plan.actions[0].params }
+					: { name: 'multiple', params: plan.actions.map((a) => ({ tool: a.tool, params: a.params })) },
+				timestamp: Date.now(),
+			})
 			// Check tool execution rate limit
 			if (rateLimiter && rateLimits?.toolExecutionsPerTask != null) {
 				const incoming = plan.actions.length
