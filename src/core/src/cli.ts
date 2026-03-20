@@ -245,6 +245,13 @@ async function initProject(projectRoot: string): Promise<void> {
 		'utf-8',
 	)
 
+	// Create BRAIN.md (custom system prompt — optional, overrides default)
+	await fs.writeFile(
+		path.join(projectRoot, '.openvole', 'BRAIN.md'),
+		'# Brain\n\nCustom system prompt for the agent. Edit this to change how the Brain reasons and responds.\nDelete this file to use the built-in default prompt.\n\n<!-- Write your custom prompt below -->\n',
+		'utf-8',
+	)
+
 	// Create identity files
 	await fs.writeFile(
 		path.join(projectRoot, '.openvole', 'SOUL.md'),
