@@ -13,7 +13,6 @@ describe('defineConfig', () => {
 		expect(config.loop.confirmBeforeAct).toBe(true)
 		expect(config.loop.taskConcurrency).toBe(1)
 		expect(config.loop.compactThreshold).toBe(50)
-		expect(config.loop.logLevel).toBe('info')
 		expect(config.heartbeat.enabled).toBe(false)
 		expect(config.heartbeat.intervalMinutes).toBe(30)
 	})
@@ -25,14 +24,12 @@ describe('defineConfig', () => {
 				confirmBeforeAct: false,
 				taskConcurrency: 3,
 				compactThreshold: 100,
-				logLevel: 'debug',
 			},
 		})
 		expect(config.loop.maxIterations).toBe(20)
 		expect(config.loop.confirmBeforeAct).toBe(false)
 		expect(config.loop.taskConcurrency).toBe(3)
 		expect(config.loop.compactThreshold).toBe(100)
-		expect(config.loop.logLevel).toBe('debug')
 	})
 
 	it('merges partial loop config with defaults', () => {

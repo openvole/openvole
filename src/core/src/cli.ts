@@ -215,7 +215,6 @@ async function initProject(projectRoot: string): Promise<void> {
 			maxIterations: 10,
 			confirmBeforeAct: true,
 			taskConcurrency: 1,
-			logLevel: 'info',
 		},
 		heartbeat: {
 			enabled: false,

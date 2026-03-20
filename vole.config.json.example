@@ -101,9 +101,6 @@
     "_comment_compactThreshold": "Trigger context compaction when messages exceed this count (0 = disabled)",
     "compactThreshold": 50,
 
-    "_comment_logLevel": "Logging verbosity: error | warn | info | debug | trace",
-    "logLevel": "info",
-
     "_comment_rateLimits": "Prevent runaway API costs",
     "rateLimits": {
       "llmCallsPerMinute": 30,

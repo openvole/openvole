@@ -21,8 +21,6 @@ export interface LoopConfig {
 	taskConcurrency: number
 	/** Max messages before triggering compact hooks (0 = disabled) */
 	compactThreshold: number
-	/** @deprecated Use top-level "log" config instead */
-	logLevel: 'debug' | 'info' | 'warn' | 'error'
 	/** Rate limits (undefined = no limits) */
 	rateLimits?: RateLimits
 }
@@ -81,7 +79,6 @@ const DEFAULT_LOOP_CONFIG: LoopConfig = {
 	confirmBeforeAct: true,
 	taskConcurrency: 1,
 	compactThreshold: 50,
-	logLevel: 'info',
 	rateLimits: undefined,
 }
 
