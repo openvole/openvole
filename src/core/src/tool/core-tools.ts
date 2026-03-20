@@ -173,11 +173,15 @@ export function createCoreTools(
 			name: 'workspace_write',
 			description: 'Write a file to the workspace scratch space (.openvole/workspace/). Creates parent directories automatically.',
 			parameters: z.object({
-				path: z.string().describe('File path relative to the workspace directory'),
+				path: z.string().optional().describe('File path relative to the workspace directory'),
+				file: z.string().optional().describe('Alias for path'),
 				content: z.string().describe('Content to write to the file'),
 			}),
 			async execute(params) {
-				const { path: relPath, content } = params as { path: string; content: string }
+				const p = params as { path?: string; file?: string; content: string }
+				const relPath = p.path ?? p.file
+				const content = p.content
+				if (!relPath) return { ok: false, error: 'Missing path or file parameter' }
 				const resolved = resolveWorkspacePath(relPath)
 				if (!resolved) {
 					return { ok: false, error: 'Invalid path — must stay inside workspace directory' }
@@ -191,10 +195,13 @@ export function createCoreTools(
 			name: 'workspace_read',
 			description: 'Read a file from the workspace scratch space (.openvole/workspace/).',
 			parameters: z.object({
-				path: z.string().describe('File path relative to the workspace directory'),
+				path: z.string().optional().describe('File path relative to the workspace directory'),
+				file: z.string().optional().describe('Alias for path'),
 			}),
 			async execute(params) {
-				const { path: relPath } = params as { path: string }
+				const p = params as { path?: string; file?: string }
+				const relPath = p.path ?? p.file
+				if (!relPath) return { ok: false, error: 'Missing path or file parameter' }
 				const resolved = resolveWorkspacePath(relPath)
 				if (!resolved) {
 					return { ok: false, error: 'Invalid path — must stay inside workspace directory' }
@@ -231,10 +238,13 @@ export function createCoreTools(
 			name: 'workspace_delete',
 			description: 'Delete a file or directory from the workspace scratch space (.openvole/workspace/).',
 			parameters: z.object({
-				path: z.string().describe('File or directory path relative to the workspace directory'),
+				path: z.string().optional().describe('File or directory path relative to the workspace directory'),
+				file: z.string().optional().describe('Alias for path'),
 			}),
 			async execute(params) {
-				const { path: relPath } = params as { path: string }
+				const p = params as { path?: string; file?: string }
+				const relPath = p.path ?? p.file
+				if (!relPath) return { ok: false, error: 'Missing path or file parameter' }
 				const resolved = resolveWorkspacePath(relPath)
 				if (!resolved) {
 					return { ok: false, error: 'Invalid path — must stay inside workspace directory' }

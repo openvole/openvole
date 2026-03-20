@@ -91,6 +91,7 @@
   },
   "heartbeat": {
     "enabled": true,
-    "intervalMinutes": 30
+    "intervalMinutes": 30,
+    "runOnStart": true
   }
 }

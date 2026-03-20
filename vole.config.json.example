@@ -132,7 +132,8 @@
   "heartbeat": {
     "_comment": "Periodic wake-up — Brain checks HEARTBEAT.md and acts on jobs",
     "enabled": true,
-    "intervalMinutes": 30
+    "intervalMinutes": 30,
+    "runOnStart": true
   },
 
   "security": {
