@@ -317,23 +317,37 @@ async function handlePawCommand(
 		}
 
 		case 'list': {
-			const engine = await createEngine(projectRoot)
-			await engine.start()
-			const paws = engine.pawRegistry.list()
+			// Lightweight — read manifests without spawning paws
+			const config = await (await import('./config/index.js')).loadConfig(
+				path.resolve(projectRoot, 'vole.config.json'),
+			)
+			const { normalizePawConfig } = await import('./config/index.js')
+			const { readPawManifest, resolvePawPath } = await import('./paw/manifest.js')
+
+			const paws: Array<{ name: string; tools: number; type: string }> = []
+			for (const pawEntry of config.paws) {
+				const pawConfig = normalizePawConfig(pawEntry)
+				const pawPath = resolvePawPath(pawConfig.name, projectRoot)
+				const manifest = await readPawManifest(pawPath)
+				if (manifest) {
+					paws.push({
+						name: manifest.name,
+						tools: manifest.tools.length,
+						type: manifest.inProcess ? 'in-process' : 'subprocess',
+					})
+				}
+			}
+
 			if (paws.length === 0) {
-				logger.info('No Paws loaded')
+				logger.info('No Paws configured')
 			} else {
-				logger.info('PAW                     TOOLS    TYPE         HEALTHY')
+				logger.info('PAW                          TOOLS    TYPE')
 				for (const paw of paws) {
-					const tools = engine.toolRegistry.toolsForPaw(paw.name)
-					const type = paw.inProcess ? 'in-process' : 'subprocess'
-					const healthy = paw.healthy ? 'yes' : 'NO'
 					logger.info(
-						`${paw.name.padEnd(24)}${String(tools.length).padEnd(9)}${type.padEnd(13)}${healthy}`,
+						`${paw.name.padEnd(29)}${String(paw.tools).padEnd(9)}${paw.type}`,
 					)
 				}
 			}
-			await engine.shutdown()
 			break
 		}
 
@@ -413,13 +427,27 @@ async function handleSkillCommand(
 		}
 
 		case 'list': {
-			const engine = await createEngine(projectRoot)
-			await engine.start()
-			const skills = engine.skillRegistry.list()
+			// Lightweight — load SKILL.md files without spawning paws
+			const config = await (await import('./config/index.js')).loadConfig(
+				path.resolve(projectRoot, 'vole.config.json'),
+			)
+			const { SkillRegistry } = await import('./skill/registry.js')
+			const { createMessageBus } = await import('./core/bus.js')
+			const { ToolRegistry } = await import('./tool/registry.js')
+
+			const bus = createMessageBus()
+			const toolRegistry = new ToolRegistry(bus)
+			const skillRegistry = new SkillRegistry(bus, toolRegistry, projectRoot)
+
+			for (const skillName of config.skills) {
+				await skillRegistry.load(skillName)
+			}
+
+			const skills = skillRegistry.list()
 			if (skills.length === 0) {
-				logger.info('No Skills loaded')
+				logger.info('No Skills configured')
 			} else {
-				logger.info('SKILL                          STATUS     MISSING TOOLS')
+				logger.info('SKILL                          STATUS     MISSING')
 				for (const skill of skills) {
 					const status = skill.active ? 'active' : 'inactive'
 					const missing = skill.missingTools.length > 0
@@ -430,7 +458,6 @@ async function handleSkillCommand(
 					)
 				}
 			}
-			await engine.shutdown()
 			break
 		}
 
