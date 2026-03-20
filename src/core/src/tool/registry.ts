@@ -5,6 +5,50 @@ import { createLogger } from '../core/logger.js'
 
 const logger = createLogger('tool-registry')
 
+/** Convert a Zod schema to a serializable JSON Schema object */
+function zodToJsonSchema(schema: unknown): Record<string, unknown> | undefined {
+	if (!schema || typeof schema !== 'object') return undefined
+
+	try {
+		const zodSchema = schema as { _def?: { shape?: () => Record<string, unknown> }; shape?: Record<string, unknown> }
+		const shape = typeof zodSchema._def?.shape === 'function' ? zodSchema._def.shape() : zodSchema.shape
+		if (!shape || typeof shape !== 'object') return undefined
+
+		const properties: Record<string, unknown> = {}
+		const required: string[] = []
+
+		for (const [key, val] of Object.entries(shape)) {
+			const field = val as { _def?: { typeName?: string; description?: string; innerType?: { _def?: { typeName?: string; values?: string[] } }; values?: string[] } }
+			const isOptional = field?._def?.typeName === 'ZodOptional' || field?._def?.typeName === 'ZodDefault'
+			const inner = isOptional ? field?._def?.innerType?._def : field?._def
+			const typeName = inner?.typeName
+
+			let type = 'string'
+			if (typeName === 'ZodNumber') type = 'number'
+			else if (typeName === 'ZodBoolean') type = 'boolean'
+			else if (typeName === 'ZodRecord') type = 'object'
+
+			const prop: Record<string, unknown> = { type }
+			const description = field?._def?.description
+			if (description) prop.description = description
+			if (typeName === 'ZodEnum') {
+				prop.enum = inner?.values
+			}
+
+			properties[key] = prop
+			if (!isOptional) required.push(key)
+		}
+
+		return {
+			type: 'object',
+			properties,
+			...(required.length > 0 ? { required } : {}),
+		}
+	} catch {
+		return undefined
+	}
+}
+
 export class ToolRegistry {
 	private tools = new Map<string, ToolRegistryEntry>()
 
@@ -73,7 +117,7 @@ export class ToolRegistry {
 			name: t.name,
 			description: t.description,
 			pawName: t.pawName,
-			parameters: t.parameters,
+			parameters: zodToJsonSchema(t.parameters),
 		}))
 	}
 
