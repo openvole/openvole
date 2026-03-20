@@ -652,7 +652,6 @@ async function handleToolCommand(
 				process.exit(1)
 			}
 
-			scheduler.clearAll()
 			break
 		}
 

@@ -28,7 +28,7 @@ export class Vault {
 
 	async init(): Promise<void> {
 		if (!this.encryptionKey) {
-			logger.warn('VOLE_VAULT_KEY not set — vault values will be stored in plain text')
+			logger.debug('VOLE_VAULT_KEY not set — vault values will be stored in plain text')
 		}
 
 		try {

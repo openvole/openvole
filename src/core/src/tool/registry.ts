@@ -31,7 +31,7 @@ export class ToolRegistry {
 				execute: tool.execute,
 			})
 
-			logger.info(`Registered tool "${tool.name}" from "${pawName}"`)
+			logger.debug(`Registered tool "${tool.name}" from "${pawName}"`)
 			this.bus.emit('tool:registered', { toolName: tool.name, pawName })
 		}
 	}
