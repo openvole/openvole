@@ -33,7 +33,7 @@ export interface QueryableTaskQueue {
 }
 
 export interface QueryableScheduler {
-	list(): Array<{ id: string; input: string; intervalMinutes: number; createdAt: number }>
+	list(): Array<{ id: string; input: string; cron: string; nextRun?: string; createdAt: number }>
 }
 
 /** Manages loaded Paws and their lifecycle */

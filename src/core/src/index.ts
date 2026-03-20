@@ -233,10 +233,12 @@ export async function createEngine(
 			// Start heartbeat via scheduler (shows up in Schedules panel)
 			if (config.heartbeat.enabled) {
 				const heartbeatMdPath = path.resolve(projectRoot, '.openvole', 'HEARTBEAT.md')
+				// Convert intervalMinutes to cron expression (e.g. 30 → "*/30 * * * *")
+				const heartbeatCron = `*/${config.heartbeat.intervalMinutes} * * * *`
 				scheduler.add(
 					'__heartbeat__',
 					'Heartbeat wake-up',
-					config.heartbeat.intervalMinutes,
+					heartbeatCron,
 					async () => {
 						let heartbeatContent = ''
 						try {
@@ -254,7 +256,7 @@ export async function createEngine(
 					undefined,
 					config.heartbeat.runOnStart ?? false,
 				)
-				engineLogger.info(`Heartbeat enabled — interval: ${config.heartbeat.intervalMinutes}m${config.heartbeat.runOnStart ? ', running now' : ''}`)
+				engineLogger.info(`Heartbeat enabled — cron: ${heartbeatCron}${config.heartbeat.runOnStart ? ', running now' : ''}`)
 			}
 
 			engineLogger.info(

@@ -22,6 +22,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "croner": "^10.0.1",
     "dotenv": "^16.4.0",
     "execa": "^9.5.0",
     "mitt": "^3.0.1",
@@ -49,5 +50,12 @@
     "directory": "src/core"
   },
   "homepage": "https://github.com/openvole/openvole",
-  "keywords": ["ai", "agent", "microkernel", "llm", "tools", "mcp"]
+  "keywords": [
+    "ai",
+    "agent",
+    "microkernel",
+    "llm",
+    "tools",
+    "mcp"
+  ]
 }

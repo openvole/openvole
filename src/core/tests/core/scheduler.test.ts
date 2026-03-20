@@ -21,32 +21,33 @@ describe('SchedulerStore', () => {
 	describe('add', () => {
 		it('creates a schedule', () => {
 			const onTick = vi.fn()
-			scheduler.add('test-1', 'do something', 5, onTick)
+			scheduler.add('test-1', 'do something', '*/5 * * * *', onTick)
 
 			const list = scheduler.list()
 			expect(list).toHaveLength(1)
 			expect(list[0].id).toBe('test-1')
 			expect(list[0].input).toBe('do something')
-			expect(list[0].intervalMinutes).toBe(5)
+			expect(list[0].cron).toBe('*/5 * * * *')
+			expect(list[0].nextRun).toBeDefined()
 			expect(list[0].createdAt).toBeTypeOf('number')
 		})
 
 		it('replaces existing schedule with same ID', () => {
 			const onTick1 = vi.fn()
 			const onTick2 = vi.fn()
-			scheduler.add('same-id', 'first', 5, onTick1)
-			scheduler.add('same-id', 'second', 10, onTick2)
+			scheduler.add('same-id', 'first', '*/5 * * * *', onTick1)
+			scheduler.add('same-id', 'second', '0 13 * * *', onTick2)
 
 			const list = scheduler.list()
 			expect(list).toHaveLength(1)
 			expect(list[0].input).toBe('second')
-			expect(list[0].intervalMinutes).toBe(10)
+			expect(list[0].cron).toBe('0 13 * * *')
 		})
 	})
 
 	describe('cancel', () => {
 		it('removes a schedule', () => {
-			scheduler.add('to-cancel', 'task', 5, vi.fn())
+			scheduler.add('to-cancel', 'task', '*/5 * * * *', vi.fn())
 			expect(scheduler.cancel('to-cancel')).toBe(true)
 			expect(scheduler.list()).toHaveLength(0)
 		})
@@ -58,20 +59,16 @@ describe('SchedulerStore', () => {
 
 	describe('list', () => {
 		it('returns all schedules', () => {
-			scheduler.add('a', 'task-a', 1, vi.fn())
-			scheduler.add('b', 'task-b', 2, vi.fn())
-			scheduler.add('c', 'task-c', 3, vi.fn())
-
-			const list = scheduler.list()
-			expect(list).toHaveLength(3)
-			expect(list.map((s) => s.id)).toEqual(['a', 'b', 'c'])
+			scheduler.add('s1', 'task 1', '*/5 * * * *', vi.fn())
+			scheduler.add('s2', 'task 2', '0 9 * * 1', vi.fn())
+			expect(scheduler.list()).toHaveLength(2)
 		})
 	})
 
 	describe('clearAll', () => {
 		it('removes everything', () => {
-			scheduler.add('x', 'task-x', 1, vi.fn())
-			scheduler.add('y', 'task-y', 2, vi.fn())
+			scheduler.add('s1', 'task 1', '*/5 * * * *', vi.fn())
+			scheduler.add('s2', 'task 2', '0 9 * * *', vi.fn())
 			scheduler.clearAll()
 			expect(scheduler.list()).toHaveLength(0)
 		})
@@ -82,37 +79,34 @@ describe('SchedulerStore', () => {
 			const savePath = path.join(tmpDir, 'schedules.json')
 			scheduler.setPersistence(savePath)
 
-			scheduler.add('persist-1', 'do thing', 15, vi.fn())
+			scheduler.add('persist-1', 'persistent task', '*/10 * * * *', vi.fn())
 
-			// Wait for async persist to complete
 			await new Promise((r) => setTimeout(r, 100))
 
 			const raw = await fs.readFile(savePath, 'utf-8')
 			const data = JSON.parse(raw)
 			expect(data).toHaveLength(1)
 			expect(data[0].id).toBe('persist-1')
-			expect(data[0].input).toBe('do thing')
-			expect(data[0].intervalMinutes).toBe(15)
+			expect(data[0].cron).toBe('*/10 * * * *')
 		})
 
 		it('restore reads from disk and recreates schedules', async () => {
 			const savePath = path.join(tmpDir, 'schedules.json')
+			await fs.writeFile(
+				savePath,
+				JSON.stringify([{ id: 'restored-1', input: 'restored task', cron: '*/10 * * * *', createdAt: Date.now() }]),
+			)
 
-			// Write persisted data manually
-			const persisted = [
-				{ id: 'restored-1', input: 'restored task', intervalMinutes: 10, createdAt: Date.now() },
-			]
-			await fs.writeFile(savePath, JSON.stringify(persisted), 'utf-8')
+			const newScheduler = new SchedulerStore()
+			newScheduler.setPersistence(savePath)
+			newScheduler.setTickHandler(vi.fn())
+			await newScheduler.restore()
 
-			const tickHandler = vi.fn()
-			scheduler.setPersistence(savePath)
-			scheduler.setTickHandler(tickHandler)
-			await scheduler.restore()
-
-			const list = scheduler.list()
+			const list = newScheduler.list()
 			expect(list).toHaveLength(1)
 			expect(list[0].id).toBe('restored-1')
-			expect(list[0].input).toBe('restored task')
+			expect(list[0].cron).toBe('*/10 * * * *')
+			newScheduler.clearAll()
 		})
 
 		it('restore handles missing file gracefully', async () => {
@@ -127,9 +121,9 @@ describe('SchedulerStore', () => {
 			const savePath = path.join(tmpDir, 'schedules.json')
 			scheduler.setPersistence(savePath)
 
-			scheduler.add('__heartbeat__', 'heartbeat', 30, vi.fn())
+			scheduler.add('__heartbeat__', 'heartbeat', '*/30 * * * *', vi.fn())
 			await new Promise((r) => setTimeout(r, 50))
-			scheduler.add('user-schedule', 'user task', 5, vi.fn())
+			scheduler.add('user-schedule', 'user task', '*/5 * * * *', vi.fn())
 
 			await new Promise((r) => setTimeout(r, 100))
 

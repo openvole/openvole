@@ -1,5 +1,6 @@
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
+import { Cron } from 'croner'
 import { createLogger } from './logger.js'
 
 const logger = createLogger('scheduler')
@@ -7,20 +8,21 @@ const logger = createLogger('scheduler')
 interface ScheduleEntry {
 	id: string
 	input: string
-	intervalMinutes: number
-	timer: ReturnType<typeof setInterval>
+	/** Cron expression (e.g. "0 13 * * *" for daily at 1 PM UTC) */
+	cron: string
+	job: Cron
 	createdAt: number
 }
 
-/** Persisted schedule data (no timer handle) */
+/** Persisted schedule data (no job handle) */
 interface PersistedSchedule {
 	id: string
 	input: string
-	intervalMinutes: number
+	cron: string
 	createdAt: number
 }
 
-/** Persistent store for recurring schedules — saves to .openvole/schedules.json */
+/** Persistent store for recurring schedules using cron expressions */
 export class SchedulerStore {
 	private schedules = new Map<string, ScheduleEntry>()
 	private savePath: string | undefined
@@ -36,7 +38,7 @@ export class SchedulerStore {
 		this.tickHandler = handler
 	}
 
-	/** Load persisted schedules from disk and restart their timers */
+	/** Load persisted schedules from disk and restart their jobs */
 	async restore(): Promise<void> {
 		if (!this.savePath || !this.tickHandler) return
 
@@ -45,7 +47,7 @@ export class SchedulerStore {
 			const persisted = JSON.parse(raw) as PersistedSchedule[]
 
 			for (const s of persisted) {
-				this.add(s.id, s.input, s.intervalMinutes, () => {
+				this.add(s.id, s.input, s.cron, () => {
 					this.tickHandler!(s.input)
 				}, s.createdAt)
 			}
@@ -62,7 +64,7 @@ export class SchedulerStore {
 	add(
 		id: string,
 		input: string,
-		intervalMinutes: number,
+		cron: string,
 		onTick: () => void,
 		createdAt?: number,
 		immediate = false,
@@ -72,21 +74,22 @@ export class SchedulerStore {
 			this.cancel(id, true)
 		}
 
-		const intervalMs = intervalMinutes * 60_000
 		if (immediate) {
 			setTimeout(onTick, 0)
 		}
-		const timer = setInterval(onTick, intervalMs)
+
+		const job = new Cron(cron, { timezone: 'UTC' }, onTick)
 
 		this.schedules.set(id, {
 			id,
 			input,
-			intervalMinutes,
-			timer,
+			cron,
+			job,
 			createdAt: createdAt ?? Date.now(),
 		})
 
-		logger.info(`Schedule "${id}" created — every ${intervalMinutes}m: "${input.substring(0, 80)}"`)
+		const next = job.nextRun()
+		logger.info(`Schedule "${id}" created — cron: ${cron} (next: ${next?.toISOString() ?? 'unknown'}): "${input.substring(0, 80)}"`)
 		this.persist()
 	}
 
@@ -95,7 +98,7 @@ export class SchedulerStore {
 		const entry = this.schedules.get(id)
 		if (!entry) return false
 
-		clearInterval(entry.timer)
+		entry.job.stop()
 		this.schedules.delete(id)
 		logger.info(`Schedule "${id}" cancelled`)
 		if (!skipPersist) this.persist()
@@ -103,11 +106,12 @@ export class SchedulerStore {
 	}
 
 	/** List all active schedules */
-	list(): Array<{ id: string; input: string; intervalMinutes: number; createdAt: number }> {
-		return Array.from(this.schedules.values()).map(({ id, input, intervalMinutes, createdAt }) => ({
+	list(): Array<{ id: string; input: string; cron: string; nextRun?: string; createdAt: number }> {
+		return Array.from(this.schedules.values()).map(({ id, input, cron, job, createdAt }) => ({
 			id,
 			input,
-			intervalMinutes,
+			cron,
+			nextRun: job.nextRun()?.toISOString(),
 			createdAt,
 		}))
 	}
@@ -115,7 +119,7 @@ export class SchedulerStore {
 	/** Clear all schedules (for shutdown) */
 	clearAll(): void {
 		for (const entry of this.schedules.values()) {
-			clearInterval(entry.timer)
+			entry.job.stop()
 		}
 		this.schedules.clear()
 		logger.info('All schedules cleared')
@@ -128,10 +132,10 @@ export class SchedulerStore {
 		// Don't persist the heartbeat — it's recreated from config on startup
 		const toSave: PersistedSchedule[] = Array.from(this.schedules.values())
 			.filter((s) => s.id !== '__heartbeat__')
-			.map(({ id, input, intervalMinutes, createdAt }) => ({
+			.map(({ id, input, cron, createdAt }) => ({
 				id,
 				input,
-				intervalMinutes,
+				cron,
 				createdAt,
 			}))
 

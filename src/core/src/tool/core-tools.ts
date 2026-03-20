@@ -31,22 +31,28 @@ export function createCoreTools(
 		// === Scheduling tools ===
 		{
 			name: 'schedule_task',
-			description: 'Create a recurring scheduled task that runs at a fixed interval',
+			description: 'Create a recurring scheduled task using a cron expression. Examples: "0 13 * * *" = daily at 1 PM UTC, "*/30 * * * *" = every 30 minutes, "0 9 * * 1" = every Monday at 9 AM UTC.',
 			parameters: z.object({
 				id: z.string().describe('Unique schedule ID (for cancellation)'),
 				input: z.string().describe('The task input to enqueue each time'),
-				intervalMinutes: z.number().describe('How often to run (in minutes)'),
+				cron: z.string().describe('Cron expression in UTC (minute hour day month weekday). Examples: "0 13 * * *" for daily 1 PM, "*/30 * * * *" for every 30 min'),
 			}),
 			async execute(params) {
-				const { id, input, intervalMinutes } = params as {
+				const { id, input, cron } = params as {
 					id: string
 					input: string
-					intervalMinutes: number
+					cron: string
 				}
-				scheduler.add(id, input, intervalMinutes, () => {
-					taskQueue.enqueue(input, 'schedule')
-				})
-				return { ok: true, id, intervalMinutes }
+				try {
+					scheduler.add(id, input, cron, () => {
+						taskQueue.enqueue(input, 'schedule')
+					})
+					const schedules = scheduler.list()
+					const entry = schedules.find((s) => s.id === id)
+					return { ok: true, id, cron, nextRun: entry?.nextRun }
+				} catch (err) {
+					return { ok: false, error: `Invalid cron expression: ${err instanceof Error ? err.message : err}` }
+				}
 			},
 		},
 		{
