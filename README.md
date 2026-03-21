@@ -444,6 +444,37 @@ npx vole clawhub install summarize
 └── HEARTBEAT.md             ← recurring job definitions
 ```
 
+## OpenVole vs OpenClaw
+
+Both are open-source AI agent frameworks. Different philosophies, many shared concepts.
+
+| | OpenVole | OpenClaw |
+|---|---|---|
+| **Philosophy** | Microkernel — empty core, everything is a plugin | Batteries-included — 25 built-in tools |
+| **Core size** | ~60KB | ~8MB |
+| **Skills** | SKILL.md (same format, compatible) | SKILL.md |
+| **Skill marketplace** | ClawHub-compatible (`vole clawhub install`) | ClawHub (13K+ skills) |
+| **Skill loading** | Progressive on-demand | Progressive on-demand |
+| **Brain/LLM** | External Paw — core is LLM-ignorant | Configurable provider in core |
+| **Brain options** | 5 (Ollama, Claude, OpenAI, Gemini, xAI) | Multi-provider with fallback chains |
+| **Heartbeat** | HEARTBEAT.md + cron | HEARTBEAT.md + cron |
+| **Memory** | Source-isolated (user/paw/heartbeat scoped) | Shared (no source isolation) |
+| **Identity files** | BRAIN.md, SOUL.md, USER.md, AGENT.md | SOUL.md, USER.md, AGENTS.md |
+| **MCP support** | Via Paw with auto-discovery + late registration | Native in core |
+| **Channels** | 4 (Telegram, Slack, Discord, WhatsApp) | 20+ (WhatsApp, iMessage, Signal, etc.) |
+| **Plugin isolation** | Subprocess sandbox + capability permissions | Optional Docker sandbox |
+| **Tool profiles** | Per-source deny/allow lists | Channel sandboxing |
+| **Scheduling** | Cron-based, persistent, Brain-initiated | Cron + heartbeat |
+| **Sessions** | Per-session transcripts with auto-expiry | Built-in session keys |
+| **Vault** | AES-256 encrypted, write-once, metadata | N/A (env vars) |
+| **Dashboard** | Real-time web UI | Gateway web UI |
+| **CLI** | `vole` (start/run/tool call/clawhub/skill) | `openclaw` |
+| **Config** | Single JSON file | Single JSON file |
+
+OpenVole is a newborn — a tiny vole just getting started. We share the same skill format, the same heartbeat pattern, and the same MCP ecosystem as OpenClaw. Skills written for one work on the other.
+
+We're building something small, modular, and community-driven. If you like the microkernel approach — where every piece is a Paw you can swap, extend, or build yourself — come join us. Try it out, build a Paw, write a Skill, break things, and help this little vole grow.
+
 ## Philosophy
 
 > **If it connects to something, it's a Paw.**
