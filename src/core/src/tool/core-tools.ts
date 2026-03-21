@@ -68,23 +68,6 @@ export function createCoreTools(
 			},
 		},
 		{
-			name: 'run_schedule',
-			description: 'Manually trigger a scheduled task to run immediately, without waiting for its next cron tick.',
-			parameters: z.object({
-				id: z.string().describe('Schedule ID to trigger'),
-			}),
-			async execute(params) {
-				const { id } = params as { id: string }
-				const schedules = scheduler.list()
-				const entry = schedules.find((s) => s.id === id)
-				if (!entry) {
-					return { ok: false, error: `Schedule "${id}" not found` }
-				}
-				taskQueue.enqueue(entry.input, 'schedule')
-				return { ok: true, id, triggered: true }
-			},
-		},
-		{
 			name: 'list_schedules',
 			description: 'List all active scheduled tasks with cron expression and next run time',
 			parameters: z.object({}),
