@@ -226,14 +226,14 @@ async function initProject(projectRoot: string): Promise<void> {
 	// Create .openvole directory structure
 	await fs.mkdir(path.join(projectRoot, '.openvole', 'skills'), { recursive: true })
 	await fs.mkdir(path.join(projectRoot, '.openvole', 'skills', 'clawhub'), { recursive: true })
-	await fs.mkdir(path.join(projectRoot, '.openvole', 'memory'), { recursive: true })
-	await fs.mkdir(path.join(projectRoot, '.openvole', 'sessions'), { recursive: true })
 	await fs.mkdir(path.join(projectRoot, '.openvole', 'workspace'), { recursive: true })
-	await fs.mkdir(path.join(projectRoot, '.openvole', 'paws'), { recursive: true })
+	await fs.mkdir(path.join(projectRoot, '.openvole', 'paws', 'paw-memory'), { recursive: true })
+	await fs.mkdir(path.join(projectRoot, '.openvole', 'paws', 'paw-session'), { recursive: true })
+	await fs.mkdir(path.join(projectRoot, '.openvole', 'paws', 'paw-mcp'), { recursive: true })
 
 	// Create default MEMORY.md
 	await fs.writeFile(
-		path.join(projectRoot, '.openvole', 'memory', 'MEMORY.md'),
+		path.join(projectRoot, '.openvole', 'paws', 'paw-memory', 'MEMORY.md'),
 		'# Memory\n\nLong-term memory for the agent. Store important facts, user preferences, and decisions here.\n',
 		'utf-8',
 	)
@@ -289,10 +289,12 @@ async function initProject(projectRoot: string): Promise<void> {
 
 	logger.info('Created vole.config.json')
 	logger.info('Created .openvole/')
-	logger.info('  skills/        — local and ClawHub skills')
-	logger.info('  memory/        — agent memory (MEMORY.md + daily logs)')
-	logger.info('  sessions/      — session transcripts')
-	logger.info('Created HEARTBEAT.md')
+	logger.info('  skills/                — local and ClawHub skills')
+	logger.info('  workspace/             — agent scratch space')
+	logger.info('  paws/paw-memory/       — agent memory (MEMORY.md + daily logs)')
+	logger.info('  paws/paw-session/      — session transcripts')
+	logger.info('  paws/paw-mcp/          — MCP server config')
+	logger.info('Created identity files (BRAIN.md, SOUL.md, USER.md, AGENT.md, HEARTBEAT.md)')
 	logger.info('Created .env')
 	logger.info('')
 	logger.info('Next: install paws and start')
