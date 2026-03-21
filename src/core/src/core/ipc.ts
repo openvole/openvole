@@ -89,8 +89,15 @@ export class IpcTransport {
 	}
 
 	private send(message: IpcMessage): void {
+		if (this.disposed) return
 		if (this.type === 'ipc') {
-			this.childProcess.send?.(message)
+			try {
+				if (this.childProcess.connected) {
+					this.childProcess.send?.(message)
+				}
+			} catch {
+				// Channel already closed — ignore
+			}
 		} else {
 			const json = JSON.stringify(message)
 			const header = `Content-Length: ${Buffer.byteLength(json)}\r\n\r\n`

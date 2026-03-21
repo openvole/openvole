@@ -179,7 +179,7 @@ async function runSingle(
 	projectRoot: string,
 	input: string,
 ): Promise<void> {
-	const engine = await createEngine(projectRoot)
+	const engine = await createEngine(projectRoot, { headless: true })
 	await engine.start()
 	engine.run(input)
 

@@ -129,7 +129,7 @@ const engineLogger = {
 /** Create and initialize the OpenVole engine */
 export async function createEngine(
 	projectRoot: string,
-	options?: { io?: VoleIO; configPath?: string },
+	options?: { io?: VoleIO; configPath?: string; headless?: boolean },
 ): Promise<VoleEngine> {
 	const configPath =
 		options?.configPath ?? path.resolve(projectRoot, 'vole.config.ts')
@@ -174,6 +174,8 @@ export async function createEngine(
 		})
 	})
 
+	let shuttingDown = false
+
 	const engine: VoleEngine = {
 		bus,
 		toolRegistry,
@@ -185,6 +187,7 @@ export async function createEngine(
 
 		async start() {
 			engineLogger.info('Starting OpenVole...')
+			const headless = options?.headless ?? false
 
 			// Set Brain (setBrain resolves config path → manifest name after load)
 			if (config.brain) {
@@ -192,6 +195,9 @@ export async function createEngine(
 			} else {
 				engineLogger.info('No Brain Paw configured — Think step will be a no-op')
 			}
+
+			// In headless mode, skip dashboard and channel paws (telegram, slack, discord, whatsapp)
+			const headlessSkipPatterns = ['paw-dashboard', 'paw-telegram', 'paw-slack', 'paw-discord', 'paw-whatsapp']
 
 			// Load Paws (Brain first, then others, in-process last)
 			const pawConfigs = config.paws.map(normalizePawConfig)
@@ -216,6 +222,9 @@ export async function createEngine(
 
 			// Load other Paws
 			for (const pawConfig of subprocessPaws) {
+				if (headless && headlessSkipPatterns.some((p) => pawConfig.name.includes(p))) {
+					continue
+				}
 				await pawRegistry.load(pawConfig)
 			}
 
@@ -227,11 +236,16 @@ export async function createEngine(
 			// Final resolver pass
 			skillRegistry.resolve()
 
-			// Restore persisted schedules from disk
-			await scheduler.restore()
+			// Restore persisted schedules from disk (skip in headless — vole run shouldn't touch schedules)
+			if (!headless) {
+				await scheduler.restore()
+			} else {
+				// In headless mode, use loadFromDisk for read-only access (no persistence)
+				await scheduler.loadFromDisk()
+			}
 
-			// Start heartbeat via scheduler (shows up in Schedules panel)
-			if (config.heartbeat.enabled) {
+			// Start heartbeat via scheduler (skip in headless mode)
+			if (config.heartbeat.enabled && !headless) {
 				const heartbeatMdPath = path.resolve(projectRoot, '.openvole', 'HEARTBEAT.md')
 				// Convert intervalMinutes to cron expression (e.g. 30 → "*/30 * * * *")
 				const heartbeatCron = `*/${config.heartbeat.intervalMinutes} * * * *`
@@ -271,8 +285,11 @@ export async function createEngine(
 		},
 
 		async shutdown() {
+			if (shuttingDown) return
+			shuttingDown = true
 			engineLogger.info('Shutting down...')
 			scheduler.clearAll()
+			taskQueue.cancelAll()
 			for (const paw of pawRegistry.list()) {
 				await pawRegistry.unload(paw.name)
 			}

@@ -108,6 +108,21 @@ export class TaskQueue {
 		return false
 	}
 
+	/** Cancel all queued tasks (for shutdown) */
+	cancelAll(): void {
+		while (this.queue.length > 0) {
+			const task = this.queue.shift()!
+			task.status = 'cancelled'
+			task.completedAt = Date.now()
+			this.completed.push(task)
+			this.bus.emit('task:cancelled', { taskId: task.id })
+		}
+		// Mark running tasks as cancelled
+		for (const task of this.running.values()) {
+			task.status = 'cancelled'
+		}
+	}
+
 	/** Get all tasks (queued + running + completed) */
 	list(): AgentTask[] {
 		return [

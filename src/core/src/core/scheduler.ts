@@ -80,8 +80,8 @@ export class SchedulerStore {
 			if (persisted.length > 0) {
 				logger.info(`Restored ${persisted.length} schedule(s) from disk`)
 			}
-		} catch {
-			// No file or invalid — start fresh
+		} catch (err) {
+			logger.warn(`Could not restore schedules: ${err}`)
 		}
 	}
 
@@ -141,8 +141,9 @@ export class SchedulerStore {
 		}))
 	}
 
-	/** Clear all schedules (for shutdown) */
+	/** Clear all schedules (for shutdown). Disables persistence so the file is never overwritten. */
 	clearAll(): void {
+		this.savePath = undefined
 		for (const entry of this.schedules.values()) {
 			entry.job.stop()
 		}
@@ -152,7 +153,9 @@ export class SchedulerStore {
 
 	/** Save schedules to disk */
 	private async persist(): Promise<void> {
-		if (!this.savePath) return
+		// Snapshot path and data synchronously so concurrent clearAll() can't interfere
+		const targetPath = this.savePath
+		if (!targetPath) return
 
 		// Don't persist the heartbeat — it's recreated from config on startup
 		const toSave: PersistedSchedule[] = Array.from(this.schedules.values())
@@ -164,9 +167,25 @@ export class SchedulerStore {
 				createdAt,
 			}))
 
+		// Safety: never overwrite a non-empty file with an empty array.
+		// If we have nothing to save but the file has schedules, skip the write.
+		if (toSave.length === 0) {
+			try {
+				const existing = await fs.readFile(targetPath, 'utf-8')
+				const parsed = JSON.parse(existing) as unknown[]
+				if (parsed.length > 0) {
+					logger.warn(`Refusing to overwrite ${parsed.length} persisted schedule(s) with empty list`)
+					return
+				}
+			} catch {
+				// File doesn't exist or is invalid — safe to write []
+			}
+		}
+
 		try {
-			await fs.mkdir(path.dirname(this.savePath), { recursive: true })
-			await fs.writeFile(this.savePath, JSON.stringify(toSave, null, 2) + '\n', 'utf-8')
+			await fs.mkdir(path.dirname(targetPath), { recursive: true })
+			await fs.writeFile(targetPath, JSON.stringify(toSave, null, 2) + '\n', 'utf-8')
+			logger.debug(`Persisted ${toSave.length} schedule(s) to disk`)
 		} catch (err) {
 			logger.error(`Failed to persist schedules: ${err}`)
 		}
