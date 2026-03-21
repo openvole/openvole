@@ -8,6 +8,7 @@ dist/
 .env
 .env.local
 .env.*.local
+vole.config.json
 
 # OpenVole runtime (lock file, installed skills, paws, cache)
 .openvole/
