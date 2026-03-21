@@ -20,7 +20,10 @@ npm install openvole \
   @openvole/paw-filesystem \
   @openvole/paw-mcp
 
-# Create config
+# Scaffold .openvole/ directory with identity files
+npx vole init
+
+# Overwrite config with full setup
 cat > vole.config.json << 'EOF'
 {
   "brain": "@openvole/paw-ollama",
@@ -95,10 +98,10 @@ cat > vole.config.json << 'EOF'
   ],
   "skills": [],
   "loop": {
-    "maxIterations": 10,
+    "maxIterations": 25,
     "confirmBeforeAct": false,
     "taskConcurrency": 1,
-    "logLevel": "info"
+    "compactThreshold": 50
   },
   "toolProfiles": {
     "paw": {
@@ -108,6 +111,9 @@ cat > vole.config.json << 'EOF'
   "heartbeat": {
     "enabled": true,
     "intervalMinutes": 30
+  },
+  "security": {
+    "sandboxFilesystem": true
   }
 }
 EOF
@@ -125,39 +131,13 @@ TELEGRAM_BOT_TOKEN=
 TELEGRAM_ALLOW_FROM=
 EOF
 
-# Create HEARTBEAT.md
-cat > HEARTBEAT.md << 'EOF'
-# Heartbeat
-
-## Jobs
-
-<!-- Add recurring jobs here. Examples:
-- Check for unread emails and summarize urgent ones
-- Poll https://status.example.com and alert if any service is down
--->
-EOF
-
 # Create workspace directory for shell/filesystem paws
 mkdir -p workspace
-
-# Create .gitignore
-cat > .gitignore << 'EOF'
-node_modules/
-.env
-.openvole/
-.DS_Store
-workspace/
-EOF
-
-# Install Chrome for browser paw
-echo ""
-echo "Installing Chrome for browser automation..."
-npx puppeteer browsers install chrome 2>/dev/null || echo "Chrome install skipped — run manually: npx puppeteer browsers install chrome"
 
 echo ""
 echo "✅ OpenVole (full) ready!"
 echo ""
-echo "   Includes: Brain + Memory + Sessions + Compaction + Dashboard"
+echo "   Includes: Brain + Memory + Session + Compact + Dashboard"
 echo "             + Telegram + Browser + Shell + Filesystem + MCP"
 echo ""
 echo "   Next steps:"

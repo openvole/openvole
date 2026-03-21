@@ -1,5 +1,5 @@
 #!/bin/bash
-# OpenVole Basic Setup — Brain + Memory + Dashboard
+# OpenVole Basic Setup — Brain + Memory + Session + Compact + Dashboard
 # Usage: curl -fsSL https://raw.githubusercontent.com/openvole/openvole/main/presets/basic.sh | bash
 
 set -e
@@ -8,9 +8,12 @@ echo "🐹 Setting up OpenVole (basic)..."
 
 # Initialize project
 npm init -y > /dev/null 2>&1
-npm install openvole @openvole/paw-ollama @openvole/paw-memory @openvole/paw-dashboard
+npm install openvole @openvole/paw-ollama @openvole/paw-memory @openvole/paw-session @openvole/paw-compact @openvole/paw-dashboard
 
-# Create config
+# Scaffold .openvole/ directory with identity files
+npx vole init
+
+# Overwrite config with basic setup
 cat > vole.config.json << 'EOF'
 {
   "brain": "@openvole/paw-ollama",
@@ -29,6 +32,18 @@ cat > vole.config.json << 'EOF'
       }
     },
     {
+      "name": "@openvole/paw-session",
+      "allow": {
+        "env": ["VOLE_SESSION_TTL"]
+      }
+    },
+    {
+      "name": "@openvole/paw-compact",
+      "allow": {
+        "env": ["VOLE_COMPACT_KEEP_RECENT"]
+      }
+    },
+    {
       "name": "@openvole/paw-dashboard",
       "allow": {
         "listen": [3001],
@@ -38,10 +53,10 @@ cat > vole.config.json << 'EOF'
   ],
   "skills": [],
   "loop": {
-    "maxIterations": 10,
+    "maxIterations": 25,
     "confirmBeforeAct": false,
     "taskConcurrency": 1,
-    "logLevel": "info"
+    "compactThreshold": 50
   }
 }
 EOF
@@ -54,18 +69,10 @@ VOLE_LOG_LEVEL=info
 VOLE_DASHBOARD_PORT=3001
 EOF
 
-# Create .gitignore
-cat > .gitignore << 'EOF'
-node_modules/
-.env
-.openvole/
-.DS_Store
-EOF
-
 echo ""
 echo "✅ OpenVole (basic) ready!"
 echo ""
-echo "   Includes: Brain (Ollama) + Memory + Dashboard"
+echo "   Includes: Brain (Ollama) + Memory + Session + Compact + Dashboard"
 echo ""
 echo "   Make sure Ollama is running, then:"
 echo "   npx vole start"

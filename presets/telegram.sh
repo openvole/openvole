@@ -1,5 +1,5 @@
 #!/bin/bash
-# OpenVole Telegram Setup — Brain + Memory + Dashboard + Telegram + Browser
+# OpenVole Telegram Setup — Brain + Memory + Session + Compact + Dashboard + Telegram + Browser
 # Usage: curl -fsSL https://raw.githubusercontent.com/openvole/openvole/main/presets/telegram.sh | bash
 
 set -e
@@ -8,9 +8,12 @@ echo "🐹 Setting up OpenVole (telegram)..."
 
 # Initialize project
 npm init -y > /dev/null 2>&1
-npm install openvole @openvole/paw-ollama @openvole/paw-memory @openvole/paw-dashboard @openvole/paw-telegram @openvole/paw-browser
+npm install openvole @openvole/paw-ollama @openvole/paw-memory @openvole/paw-session @openvole/paw-compact @openvole/paw-dashboard @openvole/paw-telegram @openvole/paw-browser
 
-# Create config
+# Scaffold .openvole/ directory with identity files
+npx vole init
+
+# Overwrite config with telegram setup
 cat > vole.config.json << 'EOF'
 {
   "brain": "@openvole/paw-ollama",
@@ -26,6 +29,18 @@ cat > vole.config.json << 'EOF'
       "name": "@openvole/paw-memory",
       "allow": {
         "env": ["VOLE_MEMORY_DIR"]
+      }
+    },
+    {
+      "name": "@openvole/paw-session",
+      "allow": {
+        "env": ["VOLE_SESSION_TTL"]
+      }
+    },
+    {
+      "name": "@openvole/paw-compact",
+      "allow": {
+        "env": ["VOLE_COMPACT_KEEP_RECENT"]
       }
     },
     {
@@ -52,10 +67,10 @@ cat > vole.config.json << 'EOF'
   ],
   "skills": [],
   "loop": {
-    "maxIterations": 10,
+    "maxIterations": 25,
     "confirmBeforeAct": false,
     "taskConcurrency": 1,
-    "logLevel": "info"
+    "compactThreshold": 50
   },
   "toolProfiles": {
     "paw": {
@@ -82,32 +97,10 @@ TELEGRAM_BOT_TOKEN=
 TELEGRAM_ALLOW_FROM=
 EOF
 
-# Create HEARTBEAT.md
-cat > HEARTBEAT.md << 'EOF'
-# Heartbeat
-
-## Jobs
-
-<!-- Add recurring jobs here -->
-EOF
-
-# Create .gitignore
-cat > .gitignore << 'EOF'
-node_modules/
-.env
-.openvole/
-.DS_Store
-EOF
-
-# Install Chrome for browser paw
-echo ""
-echo "Installing Chrome for browser automation..."
-npx puppeteer browsers install chrome 2>/dev/null || echo "Chrome install skipped — run manually: npx puppeteer browsers install chrome"
-
 echo ""
 echo "✅ OpenVole (telegram) ready!"
 echo ""
-echo "   Includes: Brain (Ollama) + Memory + Dashboard + Telegram + Browser"
+echo "   Includes: Brain (Ollama) + Memory + Session + Compact + Dashboard + Telegram + Browser"
 echo ""
 echo "   Next steps:"
 echo "   1. Edit .env — add TELEGRAM_BOT_TOKEN and TELEGRAM_ALLOW_FROM"
