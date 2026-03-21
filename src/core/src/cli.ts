@@ -1087,7 +1087,15 @@ async function handleClawHubCommand(
 					logger.info(`  requires env: ${definition.requires.env.join(', ')}`)
 				}
 			} else {
-				logger.warn(`Installed "${skillName}" but could not parse SKILL.md — add to vole.config.json manually`)
+				// Check if it's an OpenClaw plugin instead of a skill
+				const fsCheck = await import('node:fs/promises')
+				const pluginJsonPath = path.resolve(projectRoot, '.openvole', 'skills', 'clawhub', skillDir ?? skillName, 'openclaw.plugin.json')
+				try {
+					await fsCheck.access(pluginJsonPath)
+					logger.error(`"${skillName}" is an OpenClaw plugin, not a skill. OpenVole does not support OpenClaw plugins — use Paws instead.`)
+				} catch {
+					logger.warn(`Installed "${skillName}" but could not parse SKILL.md — add to vole.config.json manually`)
+				}
 			}
 			break
 		}

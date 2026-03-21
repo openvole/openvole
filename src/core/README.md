@@ -26,8 +26,11 @@ A fresh OpenVole installation has zero tools, zero skills, zero opinions. This i
 ```bash
 mkdir my-agent && cd my-agent
 npm init -y
-npm install openvole @openvole/paw-ollama @openvole/paw-memory @openvole/paw-dashboard
+npm install openvole
 npx vole init
+npx vole paw add @openvole/paw-ollama
+npx vole paw add @openvole/paw-memory
+npx vole paw add @openvole/paw-dashboard
 ```
 
 Edit `vole.config.json`:
@@ -141,7 +144,7 @@ Perceive → Think → Act → Observe → loop
 **Paws are tool providers.** They connect OpenVole to the outside world — APIs, databases, browsers, messaging platforms. Each Paw runs in an isolated subprocess with capability-based permissions.
 
 ```bash
-npm install @openvole/paw-telegram
+npx vole paw add @openvole/paw-telegram
 ```
 
 ### Skills
@@ -312,7 +315,15 @@ When context grows too large, `paw-compact` summarizes old messages while preser
 
 ### Dashboard
 
-Real-time web UI at `localhost:3001` — paws, tools, skills, tasks, schedules, live events.
+Real-time web UI — powered by `paw-dashboard`, another Paw you install like any other. Shows paws, tools, skills, tasks, schedules, and live events.
+
+```bash
+npx vole paw add @openvole/paw-dashboard
+```
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/openvole/openvole/main/assets/example/paw-dashboard/paw-dashboard.png" alt="OpenVole Dashboard" width="800">
+</p>
 
 ## Official Paws (22)
 
@@ -362,7 +373,8 @@ All paws live in [PawHub](https://github.com/openvole/pawhub) and are installed 
 Install from npm:
 
 ```bash
-npm install @openvole/paw-telegram @openvole/paw-browser
+npx vole paw add @openvole/paw-telegram
+npx vole paw add @openvole/paw-browser
 ```
 
 ## CLI
