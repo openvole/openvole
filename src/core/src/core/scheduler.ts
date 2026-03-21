@@ -38,14 +38,16 @@ export class SchedulerStore {
 		this.tickHandler = handler
 	}
 
-	/** Load schedule data from disk without starting cron jobs (for read-only access) */
+	/** Load schedule data from disk without starting cron jobs (for read-only access). Never persists. */
 	async loadFromDisk(): Promise<void> {
 		if (!this.savePath) return
+		const savedPath = this.savePath
+		// Temporarily disable persistence so read-only access can't overwrite the file
+		this.savePath = undefined
 		try {
-			const raw = await fs.readFile(this.savePath, 'utf-8')
+			const raw = await fs.readFile(savedPath, 'utf-8')
 			const persisted = JSON.parse(raw) as PersistedSchedule[]
 			for (const s of persisted) {
-				// Store with a dummy stopped job — just for data access
 				const job = new Cron(s.cron, { timezone: 'UTC', paused: true }, () => {})
 				this.schedules.set(s.id, {
 					id: s.id,
@@ -58,6 +60,7 @@ export class SchedulerStore {
 		} catch {
 			// No file or invalid
 		}
+		this.savePath = savedPath
 	}
 
 	/** Load persisted schedules from disk and restart their jobs */
