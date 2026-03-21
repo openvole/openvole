@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/vole.png" alt="OpenVole" width="200">
+  <img src="https://raw.githubusercontent.com/openvole/openvole/main/assets/vole.png" alt="OpenVole" width="200">
 </p>
 
 <h1 align="center">OpenVole</h1>
@@ -91,23 +91,23 @@ curl -fsSL https://raw.githubusercontent.com/openvole/openvole/main/presets/full
                               |
                               v
 ┌─────────────────────────────────────────────────────────────┐
-│                       VoleEngine                             │
-│                                                              │
-│   Tool Registry ──── Skill Registry ──── Paw Registry        │
-│        |                   |                  |              │
+│                       VoleEngine                            │
+│                                                             │
+│   Tool Registry ──── Skill Registry ──── Paw Registry       │
+│        |                   |                  |             │
 │   ┌────────────────────────────────────────────────┐        │
-│   │              Agent Loop (per task)              │        │
-│   │                                                 │        │
+│   │              Agent Loop (per task)             │        │
+│   │                                                │        │
 │   │   PERCEIVE ─── THINK ─── ACT ─── OBSERVE       │        │
-│   │       |           |        |         |          │        │
-│   │   Enrich      Brain    Execute   Process        │        │
-│   │   context     plans    tools     results        │        │
-│   │                                                 │        │
-│   └─────────────────────────────────────────────────┘        │
-│                                                              │
-│   Task Queue ──── Scheduler ──── Message Bus                 │
-│                                                              │
-└──────┬──────────┬──────────┬──────────┬──────────────────────┘
+│   │       |           |        |         |         │        │
+│   │   Enrich      Brain    Execute   Process       │        │
+│   │   context     plans    tools     results       │        │
+│   │                                                │        │
+│   └────────────────────────────────────────────────┘        │
+│                                                             │
+│   Task Queue ──── Scheduler ──── Message Bus                │
+│                                                             │
+└──────┬──────────┬──────────┬──────────┬─────────────────────┘
        |          |          |          |
   [Brain Paw] [Channel]  [Tools]   [In-Process]
    Ollama     Telegram   Browser    Compact
