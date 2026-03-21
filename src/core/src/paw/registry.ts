@@ -488,6 +488,23 @@ export class PawRegistry {
 			return this.handleQuery(type)
 		})
 
+		// Handle Paw → Core: late tool registration (e.g. MCP tools discovered after initial registration)
+		transport.onRequest('register_tools', async (params) => {
+			const { tools } = params as { tools: Array<{ name: string; description: string }> }
+			if (tools && tools.length > 0) {
+				const toolDefs = tools.map((t) => ({
+					name: t.name,
+					description: t.description,
+					parameters: {} as import('zod').ZodSchema,
+					execute: async (toolParams: unknown) =>
+						this.executeRemoteTool(pawName, t.name, toolParams),
+				}))
+				this.toolRegistry.register(pawName, toolDefs, false)
+				logger.info(`Paw "${pawName}" late-registered ${tools.length} tool(s)`)
+			}
+			return { ok: true }
+		})
+
 		// Handle Paw → Core: create a task (for channel Paws that receive inbound messages)
 		transport.onRequest('create_task', async (params) => {
 			const { input, source, sessionId, metadata } = params as {
@@ -602,6 +619,18 @@ export class PawRegistry {
 				// Track hooks for subprocess Paws
 				if (registration.hooks?.bootstrap) {
 					this.bootstrapPaws.push(pawName)
+				}
+				if (registration.hooks?.perceive) {
+					const config = this.paws.get(pawName)?.config
+					const hookConfig = config?.hooks?.perceive
+					const hasTools = (registration.tools?.length ?? 0) > 0
+					this.perceiveHooks.push({
+						pawName,
+						order: hookConfig?.order ?? 100,
+						pipeline: hookConfig?.pipeline ?? true,
+						hasTools,
+					})
+					this.perceiveHooks.sort((a, b) => a.order - b.order)
 				}
 				if (registration.hooks?.observe) {
 					this.observeHookPaws.push(pawName)

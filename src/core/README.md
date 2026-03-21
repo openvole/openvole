@@ -53,7 +53,7 @@ Edit `vole.config.json`:
     }
   ],
   "skills": [],
-  "loop": { "maxIterations": 10, "logLevel": "info" }
+  "loop": { "maxIterations": 25, "compactThreshold": 50 }
 }
 ```
 
@@ -112,11 +112,12 @@ curl -fsSL https://raw.githubusercontent.com/openvole/openvole/main/presets/full
   [Brain Paw] [Channel]  [Tools]   [In-Process]
    Ollama     Telegram   Browser    Compact
    Claude     Slack      Shell      Memory
-   OpenAI     Discord    MCP
-   Gemini     WhatsApp   Email/GitHub/Calendar
+   OpenAI     Discord    MCP        Session
+   Gemini     WhatsApp   Email/Resend/GitHub/Calendar
+   xAI
 ```
 
-19 official Paws: 4 Brain, 4 Channel, 7 Tool, 4 Infrastructure.
+22 official Paws: 5 Brain, 4 Channel, 8 Tool, 4 Infrastructure.
 
 ## Core Concepts
 
@@ -170,6 +171,7 @@ The Brain is a Paw — the core is LLM-ignorant. Swap models by swapping Brain P
 - `@openvole/paw-claude` — Anthropic Claude models
 - `@openvole/paw-openai` — OpenAI models
 - `@openvole/paw-gemini` — Google Gemini models
+- `@openvole/paw-xai` — xAI Grok models
 
 ## Features
 
@@ -190,22 +192,28 @@ The Brain is a Paw — the core is LLM-ignorant. Swap models by swapping Brain P
 
 ### Heartbeat
 
-Periodic wake-up — the Brain checks `HEARTBEAT.md` and decides what to do. No user input needed.
+Periodic wake-up — the Brain checks `HEARTBEAT.md` and decides what to do. No user input needed. Uses cron expressions:
 
 ```json
-{ "heartbeat": { "enabled": true, "intervalMinutes": 30 } }
+{ "heartbeat": { "enabled": true, "cron": "*/30 * * * *" } }
 ```
 
 ### Persistent Scheduling
 
-Brain-created schedules are stored in `.openvole/schedules.json` and survive restarts. The heartbeat is recreated from config on each startup.
+Brain-created schedules use cron expressions and are stored in `.openvole/schedules.json`, surviving restarts. The heartbeat is recreated from config on each startup (intervalMinutes is auto-converted to cron).
+
+```
+"0 13 * * *"     — daily at 1 PM UTC
+"*/30 * * * *"   — every 30 minutes
+"0 9 * * 1"      — every Monday at 9 AM
+```
 
 ### Memory (Source-Isolated)
 
 Persistent memory with daily logs scoped by task source:
 
 ```
-.openvole/memory/
+.openvole/paws/paw-memory/
 ├── MEMORY.md       # Shared long-term facts
 ├── user/           # CLI session logs
 ├── paw/            # Telegram/Slack logs
@@ -214,11 +222,47 @@ Persistent memory with daily logs scoped by task source:
 
 ### Sessions
 
-Conversation continuity across messages. Auto-expiring transcripts per session ID.
+Conversation continuity across messages. Auto-expiring transcripts per session ID. Session data lives in `.openvole/paws/paw-session/`, organized by session ID (e.g., `cli:default/`, `telegram:123/`).
 
 ### MCP Support
 
-Bridge 1000+ MCP servers into the tool registry via `paw-mcp`. MCP tools appear alongside Paw tools — the Brain doesn't know the difference.
+Bridge 1000+ community MCP servers into the tool registry via `paw-mcp`. MCP tools appear alongside Paw tools — the Brain doesn't know the difference.
+
+- MCP tools are **auto-discovered at runtime** as MCP servers connect
+- **Late tool registration** — tools appear after the engine starts, not at boot
+- MCP config lives in `.openvole/paws/paw-mcp/servers.json` (not in the installed package)
+
+Example `.openvole/paws/paw-mcp/servers.json`:
+
+```json
+{
+  "servers": [
+    {
+      "name": "resend",
+      "command": "npx",
+      "args": ["-y", "resend-mcp"],
+      "env": { "RESEND_API_KEY": "$RESEND_API_KEY" }
+    }
+  ]
+}
+```
+
+### Late Tool Registration
+
+Any Paw can discover and register tools at runtime using the `register_tools` mechanism — not just MCP. Tools registered this way appear in the tool registry like any other tool. This is a generic capability of the engine, not an MCP-specific feature.
+
+### Local Paw Config
+
+Each Paw has its own local config directory at `.openvole/paws/<name>/`. The installed npm package stays immutable — all user configuration lives in the local paw directory.
+
+```
+.openvole/paws/
+├── paw-memory/     ← memory data (MEMORY.md, daily logs)
+├── paw-session/    ← session transcripts
+└── paw-mcp/        ← MCP config (servers.json)
+```
+
+Example: `paw-mcp` reads its `servers.json` from `.openvole/paws/paw-mcp/`, not from `node_modules/`.
 
 ### Rate Limiting
 
@@ -238,12 +282,12 @@ Customize agent behavior with optional markdown files in `.openvole/`:
 
 | File | Purpose |
 |------|---------|
-| `BRAIN.md` | Custom system prompt (overrides default) |
+| `BRAIN.md` | Custom system prompt — **overrides the default system prompt entirely** |
 | `SOUL.md` | Agent personality and tone |
 | `USER.md` | User profile and preferences |
 | `AGENT.md` | Operating rules and constraints |
 
-All Brain Paws (Ollama, Claude, OpenAI, Gemini) load these on startup.
+All Brain Paws (Ollama, Claude, OpenAI, Gemini, xAI) load these on startup.
 
 ### Workspace
 
@@ -270,11 +314,11 @@ When context grows too large, `paw-compact` summarizes old messages while preser
 
 Real-time web UI at `localhost:3001` — paws, tools, skills, tasks, schedules, live events.
 
-## Official Paws (19)
+## Official Paws (22)
 
 All paws live in [PawHub](https://github.com/openvole/pawhub) and are installed via npm.
 
-### Brain (4)
+### Brain (5)
 
 | Paw | Purpose |
 |-----|---------|
@@ -282,6 +326,7 @@ All paws live in [PawHub](https://github.com/openvole/pawhub) and are installed 
 | `paw-claude` | Anthropic Claude models |
 | `paw-openai` | OpenAI models |
 | `paw-gemini` | Google Gemini models |
+| `paw-xai` | xAI Grok models |
 
 ### Channel (4)
 
@@ -292,7 +337,7 @@ All paws live in [PawHub](https://github.com/openvole/pawhub) and are installed 
 | `paw-discord` | Discord bot channel |
 | `paw-whatsapp` | WhatsApp bot channel |
 
-### Tool (7)
+### Tool (8)
 
 | Paw | Purpose |
 |-----|---------|
@@ -301,6 +346,7 @@ All paws live in [PawHub](https://github.com/openvole/pawhub) and are installed 
 | `paw-filesystem` | File system operations |
 | `paw-mcp` | MCP server bridge |
 | `paw-email` | Email sending |
+| `paw-resend` | Email via Resend API |
 | `paw-github` | GitHub integration |
 | `paw-calendar` | Calendar integration |
 
@@ -361,8 +407,8 @@ Single `vole.config.json` — plain JSON, no imports:
   "brain": "@openvole/paw-ollama",
   "paws": ["@openvole/paw-ollama", "@openvole/paw-memory"],
   "skills": ["clawhub/summarize"],
-  "loop": { "maxIterations": 10, "logLevel": "info" },
-  "heartbeat": { "enabled": false, "intervalMinutes": 30 },
+  "loop": { "maxIterations": 25, "compactThreshold": 50 },
+  "heartbeat": { "enabled": false, "cron": "*/30 * * * *" },
   "toolProfiles": { "paw": { "deny": ["shell_exec"] } }
 }
 ```
@@ -373,6 +419,29 @@ OpenVole loads [OpenClaw](https://openclaw.ai) skills natively — same `SKILL.m
 
 ```bash
 npx vole clawhub install summarize
+```
+
+## .openvole Directory Structure
+
+```
+.openvole/
+├── paws/
+│   ├── paw-memory/          ← memory data
+│   │   ├── MEMORY.md
+│   │   └── user/, paw/, heartbeat/
+│   ├── paw-session/         ← session transcripts
+│   │   └── cli:default/, telegram:123/
+│   └── paw-mcp/             ← MCP config
+│       └── servers.json
+├── workspace/               ← agent scratch space
+├── skills/                  ← local and clawhub skills
+├── vault.json               ← encrypted key-value store
+├── schedules.json           ← persistent cron schedules
+├── BRAIN.md                 ← custom system prompt
+├── SOUL.md                  ← agent personality
+├── USER.md                  ← user profile
+├── AGENT.md                 ← operating rules
+└── HEARTBEAT.md             ← recurring job definitions
 ```
 
 ## Philosophy
