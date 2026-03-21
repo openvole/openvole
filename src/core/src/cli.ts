@@ -229,6 +229,7 @@ async function initProject(projectRoot: string): Promise<void> {
 	await fs.mkdir(path.join(projectRoot, '.openvole', 'memory'), { recursive: true })
 	await fs.mkdir(path.join(projectRoot, '.openvole', 'sessions'), { recursive: true })
 	await fs.mkdir(path.join(projectRoot, '.openvole', 'workspace'), { recursive: true })
+	await fs.mkdir(path.join(projectRoot, '.openvole', 'paws'), { recursive: true })
 
 	// Create default MEMORY.md
 	await fs.writeFile(
