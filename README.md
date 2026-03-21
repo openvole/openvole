@@ -1,9 +1,17 @@
-# OpenVole
+<p align="center">
+  <img src="assets/vole.png" alt="OpenVole" width="200">
+</p>
 
-**Micro-agent core. The smallest possible thing that other useful things can be built on top of.**
+<h1 align="center">OpenVole</h1>
 
-[![npm](https://img.shields.io/npm/v/openvole)](https://www.npmjs.com/package/openvole)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+<p align="center">
+  <strong>Micro-agent core. The smallest possible thing that other useful things can be built on top of.</strong>
+</p>
+
+<p align="center">
+  <a href="https://www.npmjs.com/package/openvole"><img src="https://img.shields.io/npm/v/openvole" alt="npm"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
+</p>
 
 ---
 
