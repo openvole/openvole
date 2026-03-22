@@ -220,13 +220,11 @@ export async function createEngine(
 				}
 			}
 
-			// Load other Paws
-			for (const pawConfig of subprocessPaws) {
-				if (headless && headlessSkipPatterns.some((p) => pawConfig.name.includes(p))) {
-					continue
-				}
-				await pawRegistry.load(pawConfig)
-			}
+			// Load other Paws in parallel
+			const pawsToLoad = headless
+				? subprocessPaws.filter((p) => !headlessSkipPatterns.some((pat) => p.name.includes(pat)))
+				: subprocessPaws
+			await Promise.all(pawsToLoad.map((pawConfig) => pawRegistry.load(pawConfig)))
 
 			// Load Skills
 			for (const skillName of config.skills) {
