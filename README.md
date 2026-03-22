@@ -120,7 +120,7 @@ curl -fsSL https://raw.githubusercontent.com/openvole/openvole/main/presets/full
    xAI
 ```
 
-22 official Paws: 5 Brain, 4 Channel, 8 Tool, 4 Infrastructure.
+21 official Paws: 5 Brain, 4 Channel, 8 Tool, 4 Infrastructure.
 
 ## Core Concepts
 
@@ -325,7 +325,7 @@ npx vole paw add @openvole/paw-dashboard
   <img src="https://raw.githubusercontent.com/openvole/openvole/main/assets/example/paw-dashboard/paw-dashboard.png" alt="OpenVole Dashboard" width="800">
 </p>
 
-## Official Paws (22)
+## Official Paws (21)
 
 All paws live in [PawHub](https://github.com/openvole/pawhub) and are installed via npm.
 
@@ -382,7 +382,7 @@ npx vole paw add @openvole/paw-browser
 ```bash
 npx vole init                              # Initialize project
 npx vole start                             # Start agent (interactive)
-npx vole run "summarize my emails"         # Single task
+npx vole run "summarize my emails"         # Single task (headless — no dashboard/channels)
 
 npx vole paw add @openvole/paw-telegram    # Install a Paw
 npx vole paw list                          # List loaded Paws
@@ -397,18 +397,65 @@ npx vole tool call list_schedules          # Call a tool directly (no Brain)
 
 ## Security
 
-| Concern | Approach |
-|---------|----------|
-| Paw isolation | Subprocess sandbox — Paws can't escape |
-| Credentials | Each Paw owns its secrets — core never sees them |
-| Runaway agent | maxIterations + rate limiting + confirmBeforeAct |
-| Channel safety | Tool profiles restrict tools per task source |
-| Permissions | Intersection of manifest requests and config grants |
-| Filesystem sandbox | `sandboxFilesystem` + `allowedPaths` restrict file access |
+### Filesystem Sandbox
+
+**Enabled by default.** Every subprocess Paw runs with Node.js permission model restrictions:
+
+- **Read access**: Paw's own package directory, project root, `.openvole/`, `node_modules/`, OS temp directory, parent directories (for module resolution)
+- **Write access**: `.openvole/paws/<paw-name>/` (paw's own data directory), OS temp directory
+- **Network**: Blocked by default — allowed when paw has `network` or `listen` permissions granted
+- **Child processes**: Blocked by default — allowed only when user grants `childProcess: true` in config
+- **Additional paths**: Grant via `allow.filesystem` in paw config or `security.allowedPaths` globally
+- **Opt-out**: Set `security.sandboxFilesystem: false` to disable (not recommended)
 
 ```json
-{ "security": { "sandboxFilesystem": true, "allowedPaths": ["/home/user/projects"] } }
+{
+  "security": {
+    "sandboxFilesystem": true,
+    "allowedPaths": ["/home/user/projects"]
+  },
+  "paws": [
+    {
+      "name": "@openvole/paw-shell",
+      "allow": {
+        "filesystem": ["./"],
+        "env": ["VOLE_SHELL_ALLOWED_DIRS"],
+        "childProcess": true
+      }
+    }
+  ]
+}
 ```
+
+Paws that need child process access (paw-shell, paw-browser, paw-mcp) must have it explicitly granted — this prevents arbitrary code execution from untrusted paws.
+
+**Important:** Non-Node child processes (shell commands, Chrome, etc.) are not restricted by the filesystem sandbox — Node's permission model only applies to Node processes. Granting `childProcess: true` effectively gives the paw unrestricted filesystem access through spawned commands. Only grant this to paws you trust.
+
+### For Paw Developers
+
+If your Paw spawns external processes — `child_process.exec()`, `spawn()`, launching binaries (e.g. Puppeteer spawning Chrome), or starting server processes (e.g. MCP servers) — users will need to grant `childProcess: true` in their config for your Paw. Document this in your Paw's README so users know to add it. Paws that only make HTTP requests, read/write files, or communicate over IPC do not need it.
+
+### Capability-Based Permissions
+
+Every Paw declares what it needs in its manifest. The user grants permissions in config. Effective permissions are the **intersection** — a Paw can only access what it requested AND what the user approved.
+
+| Layer | What it controls |
+|-------|-----------------|
+| `network` | Outbound network domains |
+| `listen` | Port binding |
+| `filesystem` | File/directory access paths |
+| `env` | Environment variables passed to subprocess |
+| `childProcess` | Ability to spawn child processes |
+
+### Additional Safeguards
+
+| Concern | Approach |
+|---------|----------|
+| Paw isolation | Subprocess sandbox with Node.js `--permission` flags |
+| Credentials | Each Paw owns its secrets — core never sees them |
+| Runaway agent | `maxIterations` + rate limiting + `confirmBeforeAct` |
+| Channel safety | Tool profiles restrict which tools each task source can use |
+| Vault | AES-256-GCM encryption, write-once semantics |
 
 ## Configuration
 
@@ -474,7 +521,7 @@ Both are open-source AI agent frameworks. Different philosophies, many shared co
 | **Identity files** | BRAIN.md, SOUL.md, USER.md, AGENT.md | SOUL.md, USER.md, AGENTS.md |
 | **MCP support** | Via Paw with auto-discovery + late registration | Native in core |
 | **Channels** | 4 (Telegram, Slack, Discord, WhatsApp) | 20+ (WhatsApp, iMessage, Signal, etc.) |
-| **Plugin isolation** | Subprocess sandbox + capability permissions | Optional Docker sandbox |
+| **Plugin isolation** | Node.js permission sandbox (default on) + capability permissions | Optional Docker sandbox |
 | **Tool profiles** | Per-source deny/allow lists | Channel sandboxing |
 | **Scheduling** | Cron-based, persistent, Brain-initiated | Cron + heartbeat |
 | **Sessions** | Per-session transcripts with auto-expiry | Built-in session keys |

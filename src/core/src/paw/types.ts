@@ -83,6 +83,8 @@ export interface PawManifest {
 		listen?: number[]
 		filesystem?: string[]
 		env?: string[]
+		/** If true, the Paw needs to spawn child processes */
+		childProcess?: boolean
 	}
 }
 
@@ -97,6 +99,8 @@ export interface PawConfig {
 		listen?: number[]
 		filesystem?: string[]
 		env?: string[]
+		/** If true, allow this Paw to spawn child processes */
+		childProcess?: boolean
 	}
 }
 
@@ -121,4 +125,5 @@ export interface EffectivePermissions {
 	listen: number[]
 	filesystem: string[]
 	env: string[]
+	childProcess: boolean
 }

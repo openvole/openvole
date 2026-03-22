@@ -2,7 +2,8 @@ import * as path from 'node:path'
 import { execa, type ResultPromise } from 'execa'
 import type { PawConfig, PawDefinition, PawInstance, PawManifest } from './types.js'
 import { createTransport, type IpcTransport } from '../core/ipc.js'
-import { buildSandboxEnv, computeEffectivePermissions } from './sandbox.js'
+import { buildSandboxEnv, buildPermissionFlags, computeEffectivePermissions } from './sandbox.js'
+import type { SecurityConfig } from '../config/index.js'
 import { createLogger } from '../core/logger.js'
 
 const logger = createLogger('paw-loader')
@@ -40,22 +41,33 @@ export async function loadSubprocessPaw(
 	pawPath: string,
 	manifest: PawManifest,
 	config: PawConfig,
+	projectRoot?: string,
+	security?: SecurityConfig,
 ): Promise<{ instance: PawInstance; transport: IpcTransport }> {
 	const entryPath = path.resolve(pawPath, manifest.entry)
 	const transport = manifest.transport ?? 'ipc'
 	const permissions = computeEffectivePermissions(manifest, config)
 	const env = buildSandboxEnv(permissions)
 
+	// Build filesystem permission flags if sandboxing is enabled
+	const permFlags = projectRoot
+		? buildPermissionFlags(pawPath, manifest.name, permissions, projectRoot, security)
+		: []
+
 	logger.info(
 		`Spawning subprocess Paw "${manifest.name}" (transport: ${transport}) from ${entryPath}`,
 	)
+	if (permFlags.length > 0) {
+		logger.info(`Filesystem sandbox enabled for "${manifest.name}"`)
+		logger.debug(`Sandbox flags for "${manifest.name}": ${permFlags.join(' ')}`)
+	}
 
 	const stdioConfig =
 		transport === 'ipc'
 			? (['pipe', 'pipe', 'pipe', 'ipc'] as const)
 			: (['pipe', 'pipe', 'pipe'] as const)
 
-	const child = execa('node', [entryPath], {
+	const child = execa('node', [...permFlags, entryPath], {
 		env,
 		stdio: stdioConfig,
 		reject: false,

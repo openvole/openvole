@@ -43,7 +43,7 @@ export interface HeartbeatConfig {
 
 /** Security configuration */
 export interface SecurityConfig {
-	/** If true, paws can only access files inside .openvole/ directory. Default: true */
+	/** If false, disables filesystem sandboxing for paw subprocesses. Default: true (sandboxed) */
 	sandboxFilesystem?: boolean
 	/** Additional paths paws are allowed to access outside .openvole/ */
 	allowedPaths?: string[]

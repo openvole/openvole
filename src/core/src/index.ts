@@ -159,6 +159,7 @@ export async function createEngine(
 
 	// Wire up query sources so Paws can query skills and tasks
 	pawRegistry.setQuerySources(skillRegistry, taskQueue, scheduler)
+	pawRegistry.setSecurity(config.security)
 
 	// Wire up the task runner
 	taskQueue.setRunner(async (task) => {

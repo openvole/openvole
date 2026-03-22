@@ -50,19 +50,21 @@
       }
     },
     {
-      "_comment": "Browser — web browsing and automation via Puppeteer",
+      "_comment": "Browser — web browsing and automation via Puppeteer (needs childProcess to spawn Chrome)",
       "name": "@openvole/paw-browser",
       "allow": {
         "network": ["*"],
-        "env": ["VOLE_BROWSER_HEADLESS"]
+        "env": ["VOLE_BROWSER_HEADLESS"],
+        "childProcess": true
       }
     },
     {
-      "_comment": "Shell — execute shell commands (restricted by filesystem permission)",
+      "_comment": "Shell — execute shell commands (needs childProcess to run commands)",
       "name": "@openvole/paw-shell",
       "allow": {
         "filesystem": ["./workspace"],
-        "env": ["VOLE_SHELL_ALLOWED_DIRS"]
+        "env": ["VOLE_SHELL_ALLOWED_DIRS"],
+        "childProcess": true
       }
     },
     {
@@ -74,11 +76,12 @@
       }
     },
     {
-      "_comment": "MCP — bridge to Model Context Protocol servers",
+      "_comment": "MCP — bridge to Model Context Protocol servers (needs childProcess to spawn MCP servers)",
       "name": "@openvole/paw-mcp",
       "allow": {
         "network": ["127.0.0.1"],
-        "env": []
+        "env": [],
+        "childProcess": true
       }
     }
   ],

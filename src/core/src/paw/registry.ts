@@ -50,6 +50,7 @@ export class PawRegistry {
 	private skillRegistry?: QueryableSkillRegistry
 	private taskQueue?: QueryableTaskQueue
 	private scheduler?: QueryableScheduler
+	private security?: import('../config/index.js').SecurityConfig
 
 	constructor(
 		private bus: MessageBus,
@@ -71,6 +72,11 @@ export class PawRegistry {
 		this.skillRegistry = skills
 		this.taskQueue = tasks
 		this.scheduler = scheduler
+	}
+
+	/** Set security config for filesystem sandboxing */
+	setSecurity(security?: import('../config/index.js').SecurityConfig): void {
+		this.security = security
 	}
 
 	/** Load and register a Paw */
@@ -104,7 +110,7 @@ export class PawRegistry {
 				instance = await loadInProcessPaw(pawPath, manifest, config)
 				this.registerInProcessTools(instance)
 			} else {
-				const result = await loadSubprocessPaw(pawPath, manifest, config)
+				const result = await loadSubprocessPaw(pawPath, manifest, config, this.projectRoot, this.security)
 				instance = result.instance
 				this.transports.set(pawName, result.transport)
 				this.setupTransportHandlers(pawName, result.transport)
