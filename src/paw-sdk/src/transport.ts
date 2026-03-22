@@ -14,6 +14,9 @@ type RequestHandler = (params: unknown) => Promise<unknown>
 export function createIpcTransport() {
 	const handlers = new Map<string, RequestHandler>()
 
+	// Increase max listeners — concurrent query/request calls each add a temporary listener
+	process.setMaxListeners(Math.max(process.getMaxListeners(), 25))
+
 	// Listen for incoming messages from the core
 	process.on('message', async (msg: IpcMessage) => {
 		if (!msg.method) return
