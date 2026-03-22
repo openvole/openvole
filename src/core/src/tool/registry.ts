@@ -54,20 +54,23 @@ export class ToolRegistry {
 
 	constructor(private bus: MessageBus) {}
 
-	/** Register tools from a Paw. Skips tools with conflicting names. */
+	/** Register tools from a Paw. Auto-prefixes with paw name on conflict. */
 	register(pawName: string, tools: ToolDefinition[], inProcess: boolean): void {
 		for (const tool of tools) {
-			if (this.tools.has(tool.name)) {
-				const existing = this.tools.get(tool.name)!
+			let toolName = tool.name
+			if (this.tools.has(toolName)) {
+				const existing = this.tools.get(toolName)!
+				// Auto-prefix with paw name to resolve conflict
+				const prefix = pawName.replace(/^@openvole\//, '').replace(/-/g, '_')
+				toolName = `${prefix}_${tool.name}`
 				logger.warn(
 					`Tool name conflict: "${tool.name}" already registered by "${existing.pawName}", ` +
-						`ignoring registration from "${pawName}"`,
+						`registering as "${toolName}" from "${pawName}"`,
 				)
-				continue
 			}
 
-			this.tools.set(tool.name, {
-				name: tool.name,
+			this.tools.set(toolName, {
+				name: toolName,
 				description: tool.description,
 				parameters: tool.parameters,
 				pawName,
@@ -75,8 +78,8 @@ export class ToolRegistry {
 				execute: tool.execute,
 			})
 
-			logger.debug(`Registered tool "${tool.name}" from "${pawName}"`)
-			this.bus.emit('tool:registered', { toolName: tool.name, pawName })
+			logger.debug(`Registered tool "${toolName}" from "${pawName}"`)
+			this.bus.emit('tool:registered', { toolName, pawName })
 		}
 	}
 

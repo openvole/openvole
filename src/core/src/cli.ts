@@ -373,6 +373,10 @@ async function handlePawCommand(
 					: undefined
 				await addPawToLock(projectRoot, name, manifest.version, defaultAllow)
 				await addPawToConfig(projectRoot, name, defaultAllow)
+				// Create paw data directory
+				const pawDataDir = path.join(projectRoot, '.openvole', 'paws', manifest.name.replace(/^@openvole\//, ''))
+				const { mkdir } = await import('node:fs/promises')
+				await mkdir(pawDataDir, { recursive: true })
 				logger.info(`Added ${name}@${manifest.version} to vole.config.json`)
 				if (manifest.permissions?.listen?.length) {
 					logger.info(`  listen ports: ${manifest.permissions.listen.join(', ')}`)

@@ -72,10 +72,6 @@ export function resolveSkills(
 			logger.warn(
 				`Skill "${skill.name}" deactivated (missing: ${missing.join(', ')})`,
 			)
-		} else if (!skill.active) {
-			logger.debug(
-				`Skill "${skill.name}" inactive (missing: ${missing.join(', ')})`,
-			)
 		}
 	}
 }
