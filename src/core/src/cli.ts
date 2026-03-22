@@ -368,6 +368,7 @@ async function handlePawCommand(
 							listen: manifest.permissions.listen,
 							filesystem: manifest.permissions.filesystem,
 							env: manifest.permissions.env,
+							childProcess: manifest.permissions.childProcess,
 						}
 					: undefined
 				await addPawToLock(projectRoot, name, manifest.version, defaultAllow)
