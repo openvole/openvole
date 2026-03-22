@@ -245,14 +245,8 @@ async function initProject(projectRoot: string): Promise<void> {
 		'utf-8',
 	)
 
-	// Create BRAIN.md (custom system prompt — optional, overrides default)
-	await fs.writeFile(
-		path.join(projectRoot, '.openvole', 'BRAIN.md'),
-		'# Brain\n\nCustom system prompt for the agent. Edit this to change how the Brain reasons and responds.\nDelete this file to use the built-in default prompt.\n\n<!-- Write your custom prompt below -->\n',
-		'utf-8',
-	)
-
 	// Create identity files
+	// Note: BRAIN.md is managed by each Brain Paw in .openvole/paws/<brain-name>/BRAIN.md
 	await fs.writeFile(
 		path.join(projectRoot, '.openvole', 'SOUL.md'),
 		'# Soul\n\nThe agent\'s personality, tone, and identity.\n\n## Identity\n- Name: OpenVole Agent\n- Personality: Helpful, concise, and proactive\n- Tone: Professional but friendly\n',
@@ -294,7 +288,7 @@ async function initProject(projectRoot: string): Promise<void> {
 	logger.info('  paws/paw-memory/       — agent memory (MEMORY.md + daily logs)')
 	logger.info('  paws/paw-session/      — session transcripts')
 	logger.info('  paws/paw-mcp/          — MCP server config')
-	logger.info('Created identity files (BRAIN.md, SOUL.md, USER.md, AGENT.md, HEARTBEAT.md)')
+	logger.info('Created identity files (SOUL.md, USER.md, AGENT.md, HEARTBEAT.md)')
 	logger.info('Created .env')
 	logger.info('')
 	logger.info('Next: install paws and start')

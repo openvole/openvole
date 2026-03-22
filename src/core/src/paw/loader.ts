@@ -1,3 +1,4 @@
+import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 import { execa, type ResultPromise } from 'execa'
 import type { PawConfig, PawDefinition, PawInstance, PawManifest } from './types.js'
@@ -53,6 +54,12 @@ export async function loadSubprocessPaw(
 	const permFlags = projectRoot
 		? buildPermissionFlags(pawPath, manifest.name, permissions, projectRoot, security)
 		: []
+
+	// Pre-create paw data directory so sandboxed paw can write to it
+	if (projectRoot) {
+		const pawDataDir = path.resolve(projectRoot, '.openvole', 'paws', manifest.name.replace(/^@openvole\//, ''))
+		await fs.mkdir(pawDataDir, { recursive: true })
+	}
 
 	logger.info(
 		`Spawning subprocess Paw "${manifest.name}" (transport: ${transport}) from ${entryPath}`,

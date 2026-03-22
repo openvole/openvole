@@ -210,6 +210,12 @@ export function buildPermissionFlags(
 	}
 	if (permissions.childProcess) {
 		flags.push('--allow-child-process')
+		// Child processes (npx, npm, puppeteer) need access to package caches
+		// and tool binaries in the home directory
+		const homeDir = os.homedir()
+		flags.push(`--allow-fs-read=${homeDir}`)
+		flags.push(`--allow-fs-write=${path.join(homeDir, '.npm')}`)
+		flags.push(`--allow-fs-write=${path.join(homeDir, '.cache')}`)
 	}
 	// Network access: outbound connections and port binding
 	if (permissions.network.length > 0 || permissions.listen.length > 0) {
