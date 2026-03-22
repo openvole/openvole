@@ -27,6 +27,8 @@ export class SchedulerStore {
 	private schedules = new Map<string, ScheduleEntry>()
 	private savePath: string | undefined
 	private tickHandler: ((input: string) => void) | undefined
+	private writeChain: Promise<void> = Promise.resolve()
+	private restoring = false
 
 	/** Set the file path for persistence */
 	setPersistence(filePath: string): void {
@@ -71,16 +73,20 @@ export class SchedulerStore {
 			const raw = await fs.readFile(this.savePath, 'utf-8')
 			const persisted = JSON.parse(raw) as PersistedSchedule[]
 
+			// Skip persistence during restore — we're loading existing data, not creating new
+			this.restoring = true
 			for (const s of persisted) {
 				this.add(s.id, s.input, s.cron, () => {
 					this.tickHandler!(s.input)
 				}, s.createdAt)
 			}
+			this.restoring = false
 
 			if (persisted.length > 0) {
 				logger.info(`Restored ${persisted.length} schedule(s) from disk`)
 			}
 		} catch (err) {
+			this.restoring = false
 			logger.warn(`Could not restore schedules: ${err}`)
 		}
 	}
@@ -151,9 +157,11 @@ export class SchedulerStore {
 		logger.info('All schedules cleared')
 	}
 
-	/** Save schedules to disk */
-	private async persist(): Promise<void> {
-		// Snapshot path and data synchronously so concurrent clearAll() can't interfere
+	/** Save schedules to disk (serialized — only one write at a time) */
+	private persist(): void {
+		// Skip persistence during restore — data is already on disk
+		if (this.restoring) return
+
 		const targetPath = this.savePath
 		if (!targetPath) return
 
@@ -167,27 +175,32 @@ export class SchedulerStore {
 				createdAt,
 			}))
 
-		// Safety: never overwrite a non-empty file with an empty array.
-		// If we have nothing to save but the file has schedules, skip the write.
-		if (toSave.length === 0) {
-			try {
-				const existing = await fs.readFile(targetPath, 'utf-8')
-				const parsed = JSON.parse(existing) as unknown[]
-				if (parsed.length > 0) {
-					logger.warn(`Refusing to overwrite ${parsed.length} persisted schedule(s) with empty list`)
-					return
-				}
-			} catch {
-				// File doesn't exist or is invalid — safe to write []
-			}
-		}
+		// Chain writes to prevent concurrent fs.writeFile corruption
+		this.writeChain = this.writeChain.then(async () => {
+			// Re-check path in case clearAll() ran while queued
+			if (!this.savePath) return
 
-		try {
-			await fs.mkdir(path.dirname(targetPath), { recursive: true })
-			await fs.writeFile(targetPath, JSON.stringify(toSave, null, 2) + '\n', 'utf-8')
-			logger.debug(`Persisted ${toSave.length} schedule(s) to disk`)
-		} catch (err) {
-			logger.error(`Failed to persist schedules: ${err}`)
-		}
+			// Safety: never overwrite a non-empty file with an empty array.
+			if (toSave.length === 0) {
+				try {
+					const existing = await fs.readFile(targetPath, 'utf-8')
+					const parsed = JSON.parse(existing) as unknown[]
+					if (parsed.length > 0) {
+						logger.warn(`Refusing to overwrite ${parsed.length} persisted schedule(s) with empty list`)
+						return
+					}
+				} catch {
+					// File doesn't exist or is invalid — safe to write []
+				}
+			}
+
+			try {
+				await fs.mkdir(path.dirname(targetPath), { recursive: true })
+				await fs.writeFile(targetPath, JSON.stringify(toSave, null, 2) + '\n', 'utf-8')
+				logger.debug(`Persisted ${toSave.length} schedule(s) to disk`)
+			} catch (err) {
+				logger.error(`Failed to persist schedules: ${err}`)
+			}
+		})
 	}
 }
