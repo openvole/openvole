@@ -99,5 +99,82 @@ describe('TaskQueue', () => {
 			const task = queue.enqueue('task', 'paw')
 			expect(task.source).toBe('paw')
 		})
+
+		it('accepts agent source', () => {
+			const task = queue.enqueue('task', 'agent')
+			expect(task.source).toBe('agent')
+		})
+	})
+
+	describe('parentTaskId', () => {
+		it('stores parentTaskId when provided', () => {
+			const parent = queue.enqueue('parent task')
+			const child = queue.enqueue('child task', 'agent', {
+				parentTaskId: parent.id,
+			})
+			expect(child.parentTaskId).toBe(parent.id)
+			expect(child.source).toBe('agent')
+		})
+
+		it('parentTaskId is undefined when not provided', () => {
+			const task = queue.enqueue('task')
+			expect(task.parentTaskId).toBeUndefined()
+		})
+	})
+
+	describe('cancelAll', () => {
+		it('cancels all queued tasks', () => {
+			// Don't set a runner so tasks stay queued
+			const t1 = queue.enqueue('task-1')
+			const t2 = queue.enqueue('task-2')
+			const t3 = queue.enqueue('task-3')
+
+			queue.cancelAll()
+
+			expect(t1.status).toBe('cancelled')
+			expect(t2.status).toBe('cancelled')
+			expect(t3.status).toBe('cancelled')
+			expect(t1.completedAt).toBeTypeOf('number')
+			expect(t2.completedAt).toBeTypeOf('number')
+			expect(t3.completedAt).toBeTypeOf('number')
+		})
+
+		it('emits task:cancelled for each queued task', () => {
+			const handler = vi.fn()
+			bus.on('task:cancelled', handler)
+
+			queue.enqueue('task-1')
+			queue.enqueue('task-2')
+
+			queue.cancelAll()
+
+			expect(handler).toHaveBeenCalledTimes(2)
+		})
+
+		it('marks running tasks as cancelled', async () => {
+			// Use a runner that blocks so the task stays in "running"
+			let resolveRunner: () => void
+			const runnerPromise = new Promise<void>((resolve) => {
+				resolveRunner = resolve
+			})
+
+			queue.setRunner(async () => {
+				await runnerPromise
+			})
+
+			const task = queue.enqueue('running-task')
+
+			// Let the drain loop pick up the task
+			await new Promise((r) => setTimeout(r, 10))
+
+			expect(task.status).toBe('running')
+
+			queue.cancelAll()
+
+			expect(task.status).toBe('cancelled')
+
+			// Clean up: resolve the runner so it finishes
+			resolveRunner!()
+		})
 	})
 })

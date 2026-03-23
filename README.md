@@ -539,6 +539,10 @@ OpenVole is a newborn — a tiny vole just getting started. We share the same sk
 
 We're building something small, modular, and community-driven. If you like the microkernel approach — where every piece is a Paw you can swap, extend, or build yourself — come join us. Try it out, build a Paw, write a Skill, break things, and help this little vole grow.
 
+## Context Management
+
+See [VOLECONTEXT.md](VOLECONTEXT.md) for how OpenVole builds, enriches, and compresses context — including the lifecycle hooks (bootstrap, perceive, compact, think, act, observe) and how paws inject data into the Brain's prompt.
+
 ## Contributing
 
 We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.

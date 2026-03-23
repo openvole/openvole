@@ -69,6 +69,8 @@ describe('createCoreTools', () => {
 		expect(names).toContain('vault_list')
 		expect(names).toContain('vault_delete')
 		expect(names).toContain('web_fetch')
+		expect(names).toContain('spawn_agent')
+		expect(names).toContain('get_agent_result')
 	})
 
 	it('each tool has name, description, parameters, execute', () => {
@@ -97,6 +99,109 @@ describe('createCoreTools', () => {
 			expect(result.content).toBe('{"data": "hello"}')
 
 			globalThis.fetch = originalFetch
+		})
+	})
+
+	describe('spawn_agent', () => {
+		it('creates a task with source agent and returns task_id', async () => {
+			const tool = findTool('spawn_agent')
+
+			// Simulate a running non-agent task (the "parent")
+			// We need to put a user-source task into "running" state
+			let resolveRunner: () => void
+			const runnerPromise = new Promise<void>((resolve) => {
+				resolveRunner = resolve
+			})
+			taskQueue.setRunner(async () => {
+				await runnerPromise
+			})
+			const parentTask = taskQueue.enqueue('parent task', 'user')
+
+			// Let the drain loop pick up the task
+			await new Promise((r) => setTimeout(r, 10))
+
+			const result = (await tool.execute({
+				task: 'do sub-work',
+				max_iterations: 5,
+			})) as any
+			expect(result.ok).toBe(true)
+			expect(result.task_id).toBeTypeOf('string')
+			expect(result.status).toBe('queued')
+
+			// Verify the enqueued task has source 'agent' and parentTaskId
+			const agentTask = taskQueue.get(result.task_id)
+			expect(agentTask).toBeDefined()
+			expect(agentTask!.source).toBe('agent')
+			expect(agentTask!.parentTaskId).toBe(parentTask.id)
+
+			resolveRunner!()
+		})
+
+		it('rejects recursion when caller is already a sub-agent', async () => {
+			const tool = findTool('spawn_agent')
+
+			// Simulate a running agent-source task
+			let resolveRunner: () => void
+			const runnerPromise = new Promise<void>((resolve) => {
+				resolveRunner = resolve
+			})
+			taskQueue.setRunner(async () => {
+				await runnerPromise
+			})
+			taskQueue.enqueue('agent task', 'agent')
+
+			// Let the drain loop pick up the task
+			await new Promise((r) => setTimeout(r, 10))
+
+			const result = (await tool.execute({
+				task: 'nested sub-work',
+				max_iterations: 5,
+			})) as any
+			expect(result.ok).toBe(false)
+			expect(result.error).toMatch(/sub-agents cannot spawn/i)
+
+			resolveRunner!()
+		})
+	})
+
+	describe('get_agent_result', () => {
+		it('returns queued for a queued task', async () => {
+			const tool = findTool('get_agent_result')
+
+			// Enqueue an agent task (no runner set, so it stays queued)
+			const agentTask = taskQueue.enqueue('sub-task', 'agent')
+
+			const result = (await tool.execute({ task_id: agentTask.id })) as any
+			expect(result.ok).toBe(true)
+			expect(result.status).toBe('queued')
+		})
+
+		it('returns completed with result for a completed task', async () => {
+			const tool = findTool('get_agent_result')
+
+			// Set up a runner that completes immediately and sets a result
+			taskQueue.setRunner(async (task) => {
+				task.result = 'done with sub-work'
+			})
+			const agentTask = taskQueue.enqueue('sub-task', 'agent')
+
+			// Wait for the task to complete
+			await new Promise((r) => setTimeout(r, 50))
+
+			const result = (await tool.execute({ task_id: agentTask.id })) as any
+			expect(result.ok).toBe(true)
+			expect(result.status).toBe('completed')
+			expect(result.result).toBe('done with sub-work')
+		})
+
+		it('returns not found for unknown task_id', async () => {
+			const tool = findTool('get_agent_result')
+
+			const result = (await tool.execute({
+				task_id: 'nonexistent-id',
+			})) as any
+			expect(result.ok).toBe(false)
+			expect(result.error).toMatch(/not found/i)
 		})
 	})
 
