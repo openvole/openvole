@@ -85,17 +85,6 @@ export async function runAgentLoop(
 			return
 		}
 
-		// === COMPACT — compress context if it exceeds threshold ===
-		if (
-			config.compactThreshold > 0 &&
-			context.messages.length > config.compactThreshold
-		) {
-			logger.info(
-				`Context has ${context.messages.length} messages (threshold: ${config.compactThreshold}), running compact`,
-			)
-			context = await pawRegistry.runCompactHooks(context)
-		}
-
 		logger.info(
 			`Loop running — iteration ${context.iteration + 1}/${config.maxIterations}`,
 		)
@@ -103,6 +92,19 @@ export async function runAgentLoop(
 		// === PERCEIVE (global only — lazy perceive runs in Act) ===
 		logger.debug(`Phase: ${PHASE_ORDER[0]}`)
 		const enrichedContext = await runPerceive(context, pawRegistry, toolRegistry, skillRegistry)
+
+		// === COMPACT — compress context if it exceeds threshold ===
+		// Runs after perceive so compaction sees everything before the Brain does
+		if (
+			config.compactThreshold > 0 &&
+			enrichedContext.messages.length > config.compactThreshold
+		) {
+			logger.info(
+				`Context has ${enrichedContext.messages.length} messages (threshold: ${config.compactThreshold}), running compact`,
+			)
+			const compacted = await pawRegistry.runCompactHooks(enrichedContext)
+			enrichedContext.messages = compacted.messages
+		}
 
 		// === RATE LIMIT CHECK (before Think) ===
 		if (rateLimiter && rateLimits) {
