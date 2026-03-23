@@ -36,12 +36,13 @@ describe('ToolRegistry', () => {
 			expect(handler).toHaveBeenCalledWith({ toolName: 'tool-1', pawName: 'paw-a' })
 		})
 
-		it('skips conflicts (same name from different paw)', () => {
+		it('auto-prefixes conflicts (same name from different paw)', () => {
 			registry.register('paw-a', [makeTool('shared-tool')], true)
 			registry.register('paw-b', [makeTool('shared-tool')], true)
 
-			expect(registry.list()).toHaveLength(1)
+			expect(registry.list()).toHaveLength(2)
 			expect(registry.get('shared-tool')!.pawName).toBe('paw-a')
+			expect(registry.get('paw_b_shared-tool')!.pawName).toBe('paw-b')
 		})
 	})
 

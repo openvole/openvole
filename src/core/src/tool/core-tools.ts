@@ -323,6 +323,96 @@ export function createCoreTools(
 			},
 		},
 
+		// === Sub-agent tools ===
+		{
+			name: 'spawn_agent',
+			description:
+				'Spawn a sub-agent to handle a sub-task independently. Returns a task ID to check results later. The sub-agent runs in its own context with its own iteration limit.',
+			parameters: z.object({
+				task: z.string().describe('The task description for the sub-agent'),
+				max_iterations: z
+					.number()
+					.optional()
+					.default(10)
+					.describe('Iteration limit for the sub-agent (default 10)'),
+			}),
+			async execute(params) {
+				const { task: taskInput, max_iterations } = params as {
+					task: string
+					max_iterations: number
+				}
+
+				// Prevent infinite recursion: reject if the calling task is already a sub-agent
+				const runningTasks = taskQueue.getRunning()
+				const callerIsAgent = runningTasks.some((t) => t.source === 'agent')
+				if (callerIsAgent) {
+					return {
+						ok: false,
+						error:
+							'Sub-agents cannot spawn further sub-agents. Handle this sub-task directly.',
+					}
+				}
+
+				// Find the parent task (the currently running task that invoked this tool)
+				const parentTask = runningTasks[0]
+				const parentTaskId = parentTask?.id
+
+				const agentTask = taskQueue.enqueue(taskInput, 'agent', {
+					parentTaskId,
+					metadata: { maxIterations: max_iterations },
+				})
+
+				return { ok: true, task_id: agentTask.id, status: 'queued' }
+			},
+		},
+		{
+			name: 'get_agent_result',
+			description: 'Check the status and result of a spawned sub-agent task.',
+			parameters: z.object({
+				task_id: z
+					.string()
+					.describe('The task ID returned by spawn_agent'),
+			}),
+			async execute(params) {
+				const { task_id } = params as { task_id: string }
+				const agentTask = taskQueue.get(task_id)
+
+				if (!agentTask) {
+					return { ok: false, error: 'Task not found' }
+				}
+
+				if (agentTask.status === 'queued') {
+					return { ok: true, status: 'queued' }
+				}
+
+				if (agentTask.status === 'running') {
+					return { ok: true, status: 'running' }
+				}
+
+				if (agentTask.status === 'completed') {
+					return {
+						ok: true,
+						status: 'completed',
+						result: agentTask.result ?? null,
+					}
+				}
+
+				if (agentTask.status === 'failed') {
+					return {
+						ok: true,
+						status: 'failed',
+						error: agentTask.error ?? 'Unknown error',
+					}
+				}
+
+				if (agentTask.status === 'cancelled') {
+					return { ok: true, status: 'cancelled' }
+				}
+
+				return { ok: true, status: agentTask.status }
+			},
+		},
+
 		// === Web tools ===
 		{
 			name: 'web_fetch',

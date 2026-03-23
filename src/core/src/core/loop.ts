@@ -49,7 +49,12 @@ export async function runAgentLoop(
 	let toolExecutionCount = 0
 	logger.info(`Agent loop started for task ${task.id}: "${task.input}"`)
 
-	let context = createAgentContext(task.id, config.maxIterations)
+	// Sub-agent tasks can override maxIterations via metadata
+	const effectiveMaxIterations =
+		task.source === 'agent' && typeof task.metadata?.maxIterations === 'number'
+			? task.metadata.maxIterations
+			: config.maxIterations
+	let context = createAgentContext(task.id, effectiveMaxIterations)
 
 	// Set task source in metadata so Paws (e.g. paw-memory) can scope by source
 	context.metadata.taskSource = task.source
@@ -76,7 +81,7 @@ export async function runAgentLoop(
 
 	for (
 		context.iteration = 0;
-		context.iteration < config.maxIterations;
+		context.iteration < effectiveMaxIterations;
 		context.iteration++
 	) {
 		// Check cancellation
@@ -323,12 +328,12 @@ export async function runAgentLoop(
 		Object.assign(context, enrichedContext)
 	}
 
-	if (context.iteration >= config.maxIterations) {
+	if (context.iteration >= effectiveMaxIterations) {
 		logger.warn(
-			`Task ${task.id} reached max iterations (${config.maxIterations})`,
+			`Task ${task.id} reached max iterations (${effectiveMaxIterations})`,
 		)
 		io.notify(
-			`Task reached maximum iterations (${config.maxIterations}). Stopping.`,
+			`Task reached maximum iterations (${effectiveMaxIterations}). Stopping.`,
 		)
 	}
 }

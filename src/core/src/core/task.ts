@@ -10,7 +10,7 @@ export type TaskStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancel
 /** A discrete unit of work for the agent loop */
 export interface AgentTask {
 	id: string
-	source: 'user' | 'schedule' | 'heartbeat' | 'paw'
+	source: 'user' | 'schedule' | 'heartbeat' | 'paw' | 'agent'
 	input: string
 	status: TaskStatus
 	createdAt: number
@@ -20,6 +20,8 @@ export interface AgentTask {
 	error?: string
 	sessionId?: string
 	metadata?: Record<string, unknown>
+	/** ID of the parent task that spawned this sub-agent task */
+	parentTaskId?: string
 }
 
 export type TaskRunner = (task: AgentTask) => Promise<void>
@@ -49,8 +51,8 @@ export class TaskQueue {
 	/** Enqueue a new task */
 	enqueue(
 		input: string,
-		source: 'user' | 'schedule' | 'heartbeat' | 'paw' = 'user',
-		options?: { sessionId?: string; metadata?: Record<string, unknown> },
+		source: 'user' | 'schedule' | 'heartbeat' | 'paw' | 'agent' = 'user',
+		options?: { sessionId?: string; metadata?: Record<string, unknown>; parentTaskId?: string },
 	): AgentTask {
 		const task: AgentTask = {
 			id: crypto.randomUUID(),
@@ -60,6 +62,7 @@ export class TaskQueue {
 			createdAt: Date.now(),
 			sessionId: options?.sessionId,
 			metadata: options?.metadata,
+			parentTaskId: options?.parentTaskId,
 		}
 
 		// Check tasksPerHour rate limit (warn but still enqueue)
@@ -139,6 +142,11 @@ export class TaskQueue {
 			this.running.get(taskId) ??
 			this.completed.find((t) => t.id === taskId)
 		)
+	}
+
+	/** Get all currently running tasks */
+	getRunning(): AgentTask[] {
+		return Array.from(this.running.values())
 	}
 
 	/** Check if a task has been cancelled */

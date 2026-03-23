@@ -114,7 +114,7 @@ export interface VoleEngine {
 	/** Start the engine — load Paws and Skills */
 	start(): Promise<void>
 	/** Submit a task for execution */
-	run(input: string, source?: 'user' | 'schedule' | 'heartbeat' | 'paw', sessionId?: string): void
+	run(input: string, source?: 'user' | 'schedule' | 'heartbeat' | 'paw' | 'agent', sessionId?: string): void
 	/** Graceful shutdown */
 	shutdown(): Promise<void>
 }
