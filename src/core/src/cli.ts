@@ -25,7 +25,7 @@ async function main(): Promise<void> {
 	const projectRoot = process.cwd()
 
 	// Allow init and help without a project root
-	if (command !== 'init' && command !== 'help' && command !== '--help' && command !== '-h' && command !== '--version' && command !== '-v' && command !== undefined) {
+	if (command !== 'init' && command !== 'help' && command !== '--help' && command !== '-h' && command !== '--version' && command !== '-v' && command !== 'upgrade' && command !== undefined) {
 		const fsCheck = await import('node:fs/promises')
 		try {
 			await fsCheck.access(path.join(projectRoot, 'vole.config.json'))
@@ -75,6 +75,9 @@ async function main(): Promise<void> {
 			await handleClawHubCommand(args.slice(1), projectRoot)
 			break
 
+		case 'upgrade':
+			await handleUpgrade(projectRoot)
+			break
 
 		case undefined:
 		case 'help':
@@ -128,6 +131,9 @@ ClawHub (OpenClaw skill registry):
 Task management:
   vole task list                         Show task queue
   vole task cancel <id>                  Cancel a task
+
+Upgrade:
+  vole upgrade                           Upgrade core + all installed @openvole/* paws
 
 Options:
   -h, --help                             Show this help
@@ -294,6 +300,85 @@ async function initProject(projectRoot: string): Promise<void> {
 	logger.info('Next: install paws and start')
 	logger.info('  npm install @openvole/paw-ollama @openvole/paw-memory')
 	logger.info('  npx vole start')
+}
+
+async function handleUpgrade(projectRoot: string): Promise<void> {
+	const fs = await import('node:fs/promises')
+	const { execa: execaFn } = await import('execa')
+
+	// Read package.json to find openvole packages
+	const pkgPath = path.join(projectRoot, 'package.json')
+	let pkgJson: Record<string, unknown>
+	try {
+		pkgJson = JSON.parse(await fs.readFile(pkgPath, 'utf-8'))
+	} catch {
+		logger.error('package.json not found — run "npm init" first')
+		process.exit(1)
+	}
+
+	const deps = (pkgJson.dependencies ?? {}) as Record<string, string>
+	const devDeps = (pkgJson.devDependencies ?? {}) as Record<string, string>
+	const allDeps = { ...deps, ...devDeps }
+
+	// Collect openvole and @openvole/* packages
+	const packages = Object.keys(allDeps).filter(
+		(name) => name === 'openvole' || name.startsWith('@openvole/'),
+	)
+
+	if (packages.length === 0) {
+		logger.info('No openvole packages found in package.json')
+		return
+	}
+
+	// Record versions before upgrade
+	const beforeVersions: Record<string, string> = {}
+	for (const pkg of packages) {
+		beforeVersions[pkg] = allDeps[pkg]
+	}
+
+	logger.info(`Upgrading ${packages.length} package(s) to latest...`)
+
+	// Install each package @latest to bypass ^0.x semver limits
+	for (const pkg of packages) {
+		logger.info(`  npm install ${pkg}@latest`)
+		await execaFn('npm', ['install', `${pkg}@latest`], {
+			cwd: projectRoot,
+			stdio: 'inherit',
+		})
+	}
+
+	// Re-read package.json to detect version changes
+	const updatedPkgJson = JSON.parse(await fs.readFile(pkgPath, 'utf-8'))
+	const updatedDeps = {
+		...(updatedPkgJson.dependencies ?? {}),
+		...(updatedPkgJson.devDependencies ?? {}),
+	} as Record<string, string>
+
+	const upgraded: string[] = []
+	const unchanged: string[] = []
+
+	for (const pkg of packages) {
+		const before = beforeVersions[pkg]
+		const after = updatedDeps[pkg]
+		if (before !== after) {
+			upgraded.push(`  ${pkg}: ${before} → ${after}`)
+		} else {
+			unchanged.push(pkg)
+		}
+	}
+
+	if (upgraded.length > 0) {
+		logger.info(`\nUpgraded:`)
+		for (const line of upgraded) {
+			logger.info(line)
+		}
+	}
+	if (unchanged.length > 0) {
+		logger.info(`\nAlready latest: ${unchanged.join(', ')}`)
+	}
+	if (upgraded.length === 0) {
+		logger.info('\nAll packages are already up to date.')
+	}
 }
 
 async function handlePawCommand(
