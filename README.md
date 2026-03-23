@@ -325,7 +325,7 @@ npx vole paw add @openvole/paw-dashboard
   <img src="https://raw.githubusercontent.com/openvole/openvole/main/assets/example/paw-dashboard/paw-dashboard.png" alt="OpenVole Dashboard" width="800">
 </p>
 
-## Official Paws (21)
+## Official Paws (26)
 
 All paws live in [PawHub](https://github.com/openvole/pawhub) and are installed via npm.
 
@@ -339,7 +339,7 @@ All paws live in [PawHub](https://github.com/openvole/pawhub) and are installed 
 | `paw-gemini` | Google Gemini models |
 | `paw-xai` | xAI Grok models |
 
-### Channel (4)
+### Channel (6)
 
 | Paw | Purpose |
 |-----|---------|
@@ -347,8 +347,10 @@ All paws live in [PawHub](https://github.com/openvole/pawhub) and are installed 
 | `paw-slack` | Slack bot channel |
 | `paw-discord` | Discord bot channel |
 | `paw-whatsapp` | WhatsApp bot channel |
+| `paw-msteams` | Microsoft Teams channel |
+| `paw-voice-call` | Voice calls via Twilio (inbound + outbound) |
 
-### Tool (8)
+### Tool (11)
 
 | Paw | Purpose |
 |-----|---------|
@@ -356,10 +358,12 @@ All paws live in [PawHub](https://github.com/openvole/pawhub) and are installed 
 | `paw-shell` | Shell command execution |
 | `paw-filesystem` | File system operations |
 | `paw-mcp` | MCP server bridge |
-| `paw-email` | Email sending |
+| `paw-email` | Email sending (SMTP/IMAP) |
 | `paw-resend` | Email via Resend API |
 | `paw-github` | GitHub integration |
-| `paw-calendar` | Calendar integration |
+| `paw-calendar` | Google Calendar integration |
+| `paw-tts` | Text-to-speech (ElevenLabs, OpenAI) |
+| `paw-stt` | Speech-to-text (OpenAI Whisper) |
 
 ### Infrastructure (4)
 
@@ -490,13 +494,14 @@ npx vole clawhub install summarize
 │   │   └── user/, paw/, heartbeat/
 │   ├── paw-session/         ← session transcripts
 │   │   └── cli:default/, telegram:123/
+│   ├── paw-ollama/           ← brain paw data
+│   │   └── BRAIN.md          ← system prompt (scaffolded on first run)
 │   └── paw-mcp/             ← MCP config
 │       └── servers.json
 ├── workspace/               ← agent scratch space
 ├── skills/                  ← local and clawhub skills
 ├── vault.json               ← encrypted key-value store
 ├── schedules.json           ← persistent cron schedules
-├── BRAIN.md                 ← custom system prompt
 ├── SOUL.md                  ← agent personality
 ├── USER.md                  ← user profile
 ├── AGENT.md                 ← operating rules
@@ -520,7 +525,7 @@ Both are open-source AI agent frameworks. Different philosophies, many shared co
 | **Memory** | Source-isolated (user/paw/heartbeat scoped) | Shared (no source isolation) |
 | **Identity files** | BRAIN.md, SOUL.md, USER.md, AGENT.md | SOUL.md, USER.md, AGENTS.md |
 | **MCP support** | Via Paw with auto-discovery + late registration | Native in core |
-| **Channels** | 4 (Telegram, Slack, Discord, WhatsApp) | 20+ (WhatsApp, iMessage, Signal, etc.) |
+| **Channels** | 6 (Telegram, Slack, Discord, WhatsApp, Teams, Voice Call) | 20+ (WhatsApp, iMessage, Signal, etc.) |
 | **Plugin isolation** | Node.js permission sandbox (default on) + capability permissions | Optional Docker sandbox |
 | **Tool profiles** | Per-source deny/allow lists | Channel sandboxing |
 | **Scheduling** | Cron-based, persistent, Brain-initiated | Cron + heartbeat |
@@ -533,6 +538,12 @@ Both are open-source AI agent frameworks. Different philosophies, many shared co
 OpenVole is a newborn — a tiny vole just getting started. We share the same skill format, the same heartbeat pattern, and the same MCP ecosystem as OpenClaw. Skills written for one work on the other.
 
 We're building something small, modular, and community-driven. If you like the microkernel approach — where every piece is a Paw you can swap, extend, or build yourself — come join us. Try it out, build a Paw, write a Skill, break things, and help this little vole grow.
+
+## Contributing
+
+We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
+For contributing Paws, see the [PawHub CONTRIBUTING.md](https://github.com/openvole/pawhub/blob/main/CONTRIBUTING.md).
 
 ## Philosophy
 
