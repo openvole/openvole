@@ -325,7 +325,7 @@ npx vole paw add @openvole/paw-dashboard
   <img src="https://raw.githubusercontent.com/openvole/openvole/main/assets/example/paw-dashboard/paw-dashboard.png" alt="OpenVole Dashboard" width="800">
 </p>
 
-## Official Paws (26)
+## Official Paws (27)
 
 All paws live in [PawHub](https://github.com/openvole/pawhub) and are installed via npm.
 
@@ -364,6 +364,7 @@ All paws live in [PawHub](https://github.com/openvole/pawhub) and are installed 
 | `paw-calendar` | Google Calendar integration |
 | `paw-tts` | Text-to-speech (ElevenLabs, OpenAI) |
 | `paw-stt` | Speech-to-text (OpenAI Whisper) |
+| `paw-computer` | Desktop automation (mouse, keyboard, screen) |
 
 ### Infrastructure (4)
 

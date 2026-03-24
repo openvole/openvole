@@ -1,6 +1,6 @@
 {
   "name": "@openvole/paw-sdk",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "SDK for building OpenVole Paws — tool providers for the agent loop",
   "type": "module",
   "main": "./dist/index.js",
