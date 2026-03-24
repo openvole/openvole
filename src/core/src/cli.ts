@@ -87,9 +87,12 @@ async function main(): Promise<void> {
 			break
 
 		case '--version':
-		case '-v':
-			logger.info('openvole v0.1.0')
+		case '-v': {
+			const { readFile } = await import('node:fs/promises')
+			const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf-8'))
+			logger.info(`openvole v${pkg.version}`)
 			break
+		}
 
 		default:
 			logger.error(`Unknown command: ${command}`)
@@ -338,13 +341,41 @@ async function handleUpgrade(projectRoot: string): Promise<void> {
 
 	logger.info(`Upgrading ${packages.length} package(s) to latest...`)
 
-	// Install each package @latest to bypass ^0.x semver limits
-	for (const pkg of packages) {
-		logger.info(`  npm install ${pkg}@latest`)
-		await execaFn('npm', ['install', `${pkg}@latest`], {
-			cwd: projectRoot,
-			stdio: 'inherit',
-		})
+	// Install all packages @latest in a single command to resolve peer deps together
+	const installArgs = packages.map((pkg) => `${pkg}@latest`)
+	logger.info(`  npm install ${installArgs.join(' ')}`)
+	await execaFn('npm', ['install', ...installArgs], {
+		cwd: projectRoot,
+		stdio: 'inherit',
+	})
+
+	// Ensure paw data directories exist and scaffold BRAIN.md for brain paws
+	const pawPackages = packages.filter((p) => p.startsWith('@openvole/paw-'))
+	for (const pkg of pawPackages) {
+		const pawName = pkg.replace('@openvole/', '')
+		const pawDataDir = path.join(projectRoot, '.openvole', 'paws', pawName)
+		await fs.mkdir(pawDataDir, { recursive: true })
+
+		// Scaffold BRAIN.md for brain paws
+		const pkgBrainPath = path.join(projectRoot, 'node_modules', pkg, 'BRAIN.md')
+		try {
+			const brainContent = await fs.readFile(pkgBrainPath, 'utf-8')
+			if (brainContent.trim()) {
+				const localBrainPath = path.join(pawDataDir, 'BRAIN.md')
+				try {
+					await fs.access(localBrainPath)
+					// Existing BRAIN.md — back it up and replace with new version
+					await fs.rename(localBrainPath, path.join(pawDataDir, 'BRAIN.md.old'))
+					logger.info(`  Backed up ${pawName}/BRAIN.md → BRAIN.md.old`)
+				} catch {
+					// No existing BRAIN.md
+				}
+				await fs.writeFile(localBrainPath, brainContent, 'utf-8')
+				logger.info(`  Scaffolded ${pawName}/BRAIN.md`)
+			}
+		} catch {
+			// No BRAIN.md in package — not a brain paw
+		}
 	}
 
 	// Re-read package.json to detect version changes

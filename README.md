@@ -73,6 +73,8 @@ Run:
 npx vole start
 ```
 
+> **Tip:** For easier access, install globally with `npm install -g openvole` — then use `vole` directly instead of `npx vole`.
+
 Or use a preset:
 
 ```bash
