@@ -210,8 +210,9 @@ export function buildPermissionFlags(
 	}
 	if (permissions.childProcess) {
 		flags.push('--allow-child-process')
-		// Child processes (npx, npm, puppeteer) need access to package caches
-		// and tool binaries in the home directory
+		flags.push('--allow-addons')
+		// Child processes (npx, npm, puppeteer) and native addons need access
+		// to package caches and tool binaries in the home directory
 		const homeDir = os.homedir()
 		flags.push(`--allow-fs-read=${homeDir}`)
 		flags.push(`--allow-fs-write=${path.join(homeDir, '.npm')}`)

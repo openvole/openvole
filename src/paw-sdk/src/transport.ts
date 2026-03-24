@@ -10,8 +10,16 @@ interface IpcMessage {
 
 type RequestHandler = (params: unknown) => Promise<unknown>
 
-/** Create an IPC transport for Node.js Paw subprocesses */
+let ipcSingleton: ReturnType<typeof _createIpcTransport> | undefined
+
+/** Create an IPC transport for Node.js Paw subprocesses (singleton — reuses the same instance) */
 export function createIpcTransport() {
+	if (ipcSingleton) return ipcSingleton
+	ipcSingleton = _createIpcTransport()
+	return ipcSingleton
+}
+
+function _createIpcTransport() {
 	const handlers = new Map<string, RequestHandler>()
 
 	// Increase max listeners — concurrent query/request calls each add a temporary listener
