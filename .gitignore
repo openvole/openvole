@@ -39,3 +39,7 @@ coverage/
 CLAUDE.md
 .claude/
 .clawhub/
+
+# VitePress
+docs/.vitepress/dist
+docs/.vitepress/cache
