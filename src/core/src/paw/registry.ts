@@ -110,7 +110,9 @@ export class PawRegistry {
 				instance = await loadInProcessPaw(pawPath, manifest, config)
 				this.registerInProcessTools(instance)
 			} else {
-				const result = await loadSubprocessPaw(pawPath, manifest, config, this.projectRoot, this.security)
+				const result = await loadSubprocessPaw(pawPath, manifest, config, this.projectRoot, this.security, (crashedPaw) => {
+					this.bus.emit('paw:crashed', { pawName: crashedPaw })
+				})
 				instance = result.instance
 				this.transports.set(pawName, result.transport)
 				this.setupTransportHandlers(pawName, result.transport)

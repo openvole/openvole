@@ -1,10 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { createLogger } from '../../src/core/logger.js'
+import { createLogger, setLoggerSilent } from '../../src/core/logger.js'
 
 describe('createLogger', () => {
 	const originalEnv = process.env.VOLE_LOG_LEVEL
 
 	beforeEach(() => {
+		setLoggerSilent(false)
 		vi.spyOn(console, 'error').mockImplementation(() => {})
 		vi.spyOn(console, 'warn').mockImplementation(() => {})
 		vi.spyOn(console, 'info').mockImplementation(() => {})
@@ -12,6 +13,7 @@ describe('createLogger', () => {
 	})
 
 	afterEach(() => {
+		setLoggerSilent(true)
 		process.env.VOLE_LOG_LEVEL = originalEnv
 		vi.restoreAllMocks()
 	})

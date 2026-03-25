@@ -44,6 +44,7 @@ export async function loadSubprocessPaw(
 	config: PawConfig,
 	projectRoot?: string,
 	security?: SecurityConfig,
+	onCrash?: (pawName: string) => void,
 ): Promise<{ instance: PawInstance; transport: IpcTransport }> {
 	const entryPath = path.resolve(pawPath, manifest.entry)
 	const transport = manifest.transport ?? 'ipc'
@@ -109,10 +110,13 @@ export async function loadSubprocessPaw(
 			logger.error(
 				`Paw "${manifest.name}" exited unexpectedly (code: ${result.exitCode})`,
 			)
+			onCrash?.(manifest.name)
 		}
 	}).catch?.(() => {
-		// execa with reject: false should not throw, but handle just in case
-		instance.healthy = false
+		if (instance.healthy) {
+			instance.healthy = false
+			onCrash?.(manifest.name)
+		}
 	})
 
 	return { instance, transport: ipcTransport }
