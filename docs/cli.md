@@ -131,10 +131,16 @@ npx vole clawhub search email
 
 ### `vole tool list`
 
-List all registered tools (from paws and core).
+List all registered tools (from manifests, no paw spawning).
 
 ```bash
 npx vole tool list
+```
+
+Use `--live` to boot the full engine and discover MCP tools:
+
+```bash
+npx vole tool list --live
 ```
 
 ### `vole tool call`

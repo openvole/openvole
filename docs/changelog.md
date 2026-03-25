@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.1.0 (2026-03-26)
+- Error recovery — `paw:crashed` event emitted on subprocess exit, running tasks auto-fail instead of hanging
+- `vole tool list --live` — boots engine in headless mode to discover MCP tools
+- Documentation site at [openvole.github.io/openvole](https://openvole.github.io/openvole/)
+- paw-mcp: runtime MCP server management (`mcp_add_server`, `mcp_remove_server`, `mcp_list_servers`)
+- Vulnerability fixes: esbuild, picomatch, yaml, nodemailer, undici, file-type
+
 ## v1.0.3 (2026-03-25)
 - Chat-style CLI with welcome screen and thinking spinner
 - Silent console mode — all logs to file only
