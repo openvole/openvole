@@ -123,7 +123,8 @@ Skill management:
   vole skill remove <name>              Uninstall and deregister a Skill
 
 Tool management:
-  vole tool list                         List all registered tools
+  vole tool list                         List all registered tools (from manifests)
+  vole tool list --live                  List all tools (boots engine, discovers MCP)
   vole tool call <name> [json-params]    Call a tool directly (deterministic, no Brain)
 
 ClawHub (OpenClaw skill registry):
@@ -737,63 +738,95 @@ async function handleToolCommand(
 
 	switch (subcommand) {
 		case 'list': {
-			// Lightweight mode — no paw spawning, no heartbeat
-			// Shows core tools + tools declared in paw manifests
-			const config = await (await import('./config/index.js')).loadConfig(
-				path.resolve(projectRoot, 'vole.config.json'),
-			)
+			const isLive = args.includes('--live')
 
-			const tools: Array<{ name: string; pawName: string; type: string }> = []
+			if (isLive) {
+				// Live mode — boot full engine (headless) to discover all tools including MCP
+				const { setLoggerSilent } = await import('./core/logger.js')
+				setLoggerSilent(true)
 
-			// Core tools
-			const { createMessageBus } = await import('./core/bus.js')
-			const { ToolRegistry } = await import('./tool/registry.js')
-			const { SchedulerStore } = await import('./core/scheduler.js')
-			const { TaskQueue } = await import('./core/task.js')
-			const { SkillRegistry } = await import('./skill/registry.js')
-			const { createCoreTools } = await import('./tool/core-tools.js')
-			const { Vault } = await import('./core/vault.js')
+				const engine = await createEngine(projectRoot, { headless: true })
+				await engine.start()
 
-			const bus = createMessageBus()
-			const toolRegistry = new ToolRegistry(bus)
-			const skillRegistry = new SkillRegistry(bus, toolRegistry, projectRoot)
-			const taskQueue = new TaskQueue(bus, 1)
-			const scheduler = new SchedulerStore()
-			const vault = new Vault(path.resolve(projectRoot, '.openvole', 'vault.json'), process.env.VOLE_VAULT_KEY)
-			await vault.init()
-			const coreTools = createCoreTools(scheduler, taskQueue, projectRoot, skillRegistry, vault)
-			toolRegistry.register('__core__', coreTools, true)
+				// Wait for late tool registration (MCP servers)
+				await new Promise((resolve) => setTimeout(resolve, 3000))
 
-			for (const entry of toolRegistry.list()) {
-				tools.push({ name: entry.name, pawName: entry.pawName, type: 'in-process' })
-			}
+				setLoggerSilent(false)
 
-			// Read paw manifests (without spawning) to get declared tools
-			const { normalizePawConfig } = await import('./config/index.js')
-			const { readPawManifest, resolvePawPath } = await import('./paw/manifest.js')
-			for (const pawEntry of config.paws) {
-				const pawConfig = normalizePawConfig(pawEntry)
-				const pawPath = resolvePawPath(pawConfig.name, projectRoot)
-				const manifest = await readPawManifest(pawPath)
-				if (manifest?.tools) {
-					for (const t of manifest.tools) {
-						tools.push({
-							name: t.name,
-							pawName: pawConfig.name,
-							type: manifest.inProcess ? 'in-process' : 'subprocess',
-						})
+				const tools = engine.toolRegistry.list()
+				if (tools.length === 0) {
+					console.log('No tools registered')
+				} else {
+					console.log(`${tools.length} tools:\n`)
+					console.log('TOOL                              PAW                              TYPE')
+					for (const tool of tools) {
+						console.log(
+							`${tool.name.padEnd(34)}${tool.pawName.padEnd(33)}${tool.inProcess ? 'in-process' : 'subprocess'}`,
+						)
 					}
 				}
-			}
 
-			if (tools.length === 0) {
-				logger.info('No tools registered')
+				await engine.shutdown()
 			} else {
-				logger.info('TOOL                 PAW                    TYPE')
-				for (const tool of tools) {
-					logger.info(
-						`${tool.name.padEnd(21)}${tool.pawName.padEnd(23)}${tool.type}`,
-					)
+				// Lightweight mode — no paw spawning, no heartbeat
+				// Shows core tools + tools declared in paw manifests
+				const config = await (await import('./config/index.js')).loadConfig(
+					path.resolve(projectRoot, 'vole.config.json'),
+				)
+
+				const tools: Array<{ name: string; pawName: string; type: string }> = []
+
+				// Core tools
+				const { createMessageBus } = await import('./core/bus.js')
+				const { ToolRegistry } = await import('./tool/registry.js')
+				const { SchedulerStore } = await import('./core/scheduler.js')
+				const { TaskQueue } = await import('./core/task.js')
+				const { SkillRegistry } = await import('./skill/registry.js')
+				const { createCoreTools } = await import('./tool/core-tools.js')
+				const { Vault } = await import('./core/vault.js')
+
+				const bus = createMessageBus()
+				const toolRegistry = new ToolRegistry(bus)
+				const skillRegistry = new SkillRegistry(bus, toolRegistry, projectRoot)
+				const taskQueue = new TaskQueue(bus, 1)
+				const scheduler = new SchedulerStore()
+				const vault = new Vault(path.resolve(projectRoot, '.openvole', 'vault.json'), process.env.VOLE_VAULT_KEY)
+				await vault.init()
+				const coreTools = createCoreTools(scheduler, taskQueue, projectRoot, skillRegistry, vault)
+				toolRegistry.register('__core__', coreTools, true)
+
+				for (const entry of toolRegistry.list()) {
+					tools.push({ name: entry.name, pawName: entry.pawName, type: 'in-process' })
+				}
+
+				// Read paw manifests (without spawning) to get declared tools
+				const { normalizePawConfig } = await import('./config/index.js')
+				const { readPawManifest, resolvePawPath } = await import('./paw/manifest.js')
+				for (const pawEntry of config.paws) {
+					const pawConfig = normalizePawConfig(pawEntry)
+					const pawPath = resolvePawPath(pawConfig.name, projectRoot)
+					const manifest = await readPawManifest(pawPath)
+					if (manifest?.tools) {
+						for (const t of manifest.tools) {
+							tools.push({
+								name: t.name,
+								pawName: pawConfig.name,
+								type: manifest.inProcess ? 'in-process' : 'subprocess',
+							})
+						}
+					}
+				}
+
+				if (tools.length === 0) {
+					console.log('No tools registered')
+				} else {
+					console.log(`${tools.length} tools:\n`)
+					console.log('TOOL                              PAW                              TYPE')
+					for (const tool of tools) {
+						console.log(
+							`${tool.name.padEnd(34)}${tool.pawName.padEnd(33)}${tool.type}`,
+						)
+					}
 				}
 			}
 			break
