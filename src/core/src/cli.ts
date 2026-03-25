@@ -145,19 +145,108 @@ Options:
 }
 
 async function startInteractive(projectRoot: string): Promise<void> {
+	const { setNotifySuppressed } = await import('./io/tty.js')
+	setNotifySuppressed(true)
+
 	const engine = await createEngine(projectRoot)
 	await engine.start()
 
-	logger.info('\nOpenVole is running. Type a task or "exit" to quit.\n')
+	// Welcome screen
+	const { readFile } = await import('node:fs/promises')
+	let version = '?'
+	try {
+		const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf-8'))
+		version = pkg.version
+	} catch { /* ignore */ }
+
+	const toolCount = engine.toolRegistry.list().length
+	const pawCount = engine.pawRegistry.list().length
+	const skillCount = engine.skillRegistry.active().length
+	const totalSkills = engine.skillRegistry.list().length
+	const brainName = engine.config.brain
+		? engine.pawRegistry.resolveManifestName(engine.config.brain)
+		: 'none'
+
+	// Find dashboard URL — check env var first, then config listen port
+	let dashboardUrl = ''
+	const dashPaw = engine.pawRegistry.list().find((p) => p.name.includes('dashboard'))
+	if (dashPaw) {
+		const envPort = process.env.VOLE_DASHBOARD_PORT
+		if (envPort) {
+			dashboardUrl = `http://localhost:${envPort}`
+		} else {
+			const listenConfig = engine.config.paws.find((p) =>
+				typeof p === 'string' ? false : (p.name?.includes('dashboard') && p.allow?.listen?.length),
+			)
+			const port = typeof listenConfig !== 'string' && listenConfig?.allow?.listen?.[0]
+			if (port) dashboardUrl = `http://localhost:${port}`
+		}
+	}
+
+	const W = 51
+	const pad = (s: string) => {
+		const content = ` ${s} `
+		const fill = W - content.length
+		return `  │${content}${' '.repeat(Math.max(0, fill))}│`
+	}
+
+	const lines: string[] = [
+		`OpenVole v${version}`,
+		`Brain: ${brainName}`,
+		`${pawCount} paws · ${toolCount} tools · ${skillCount}/${totalSkills} skills`,
+	]
+	if (dashboardUrl) lines.push(`Dashboard: ${dashboardUrl}`)
+	lines.push('', 'Type a task or "exit" to quit.')
+
+	console.log('')
+	console.log(`  ╭${'─'.repeat(W)}╮`)
+	for (const line of lines) console.log(pad(line))
+	console.log(`  ╰${'─'.repeat(W)}╯`)
+	console.log('')
+
+	setNotifySuppressed(false)
+
+	const dim = '\x1b[2m'
+	const reset = '\x1b[0m'
 
 	const readline = await import('node:readline')
+	const promptStr = `${dim}  you ›${reset} `
 	const rl = readline.createInterface({
 		input: process.stdin,
 		output: process.stdout,
+		prompt: promptStr,
+	})
+	const frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
+	let spinnerInterval: ReturnType<typeof setInterval> | undefined
+
+	const startSpinner = (): void => {
+		let i = 0
+		spinnerInterval = setInterval(() => {
+			process.stdout.write(`\r${dim}  ${frames[i % frames.length]} thinking...${reset}`)
+			i++
+		}, 80)
+	}
+
+	const stopSpinner = (): void => {
+		if (spinnerInterval) {
+			clearInterval(spinnerInterval)
+			spinnerInterval = undefined
+			process.stdout.write('\r\x1b[K') // clear the spinner line
+		}
+	}
+
+	// Stop spinner and re-display prompt when Brain responds
+	engine.bus.on('task:completed', () => {
+		stopSpinner()
+		rl.prompt()
+	})
+	engine.bus.on('task:failed', () => {
+		stopSpinner()
+		rl.prompt()
 	})
 
 	const promptUser = (): void => {
-		rl.question('vole> ', (input) => {
+		rl.question(`${dim}  you ›${reset} `, (input) => {
 			const trimmed = input.trim()
 			if (trimmed === 'exit' || trimmed === 'quit') {
 				rl.close()
@@ -165,6 +254,7 @@ async function startInteractive(projectRoot: string): Promise<void> {
 				return
 			}
 			if (trimmed) {
+				startSpinner()
 				engine.run(trimmed, 'user', 'cli:default')
 			}
 			promptUser()

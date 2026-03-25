@@ -127,14 +127,17 @@ export async function shutdownPaw(instance: PawInstance): Promise<void> {
 		return
 	}
 
+	// Mark as shutting down so the exit handler doesn't log "exited unexpectedly"
+	instance.healthy = false
+
 	if (instance.sendRequest) {
 		try {
 			await Promise.race([
 				instance.sendRequest('shutdown'),
-				new Promise((resolve) => setTimeout(resolve, 5_000)),
+				new Promise((resolve) => setTimeout(resolve, 1_000)),
 			])
 		} catch {
-			logger.warn(`Shutdown request to "${instance.name}" failed, killing process`)
+			// Process likely already exited
 		}
 	}
 

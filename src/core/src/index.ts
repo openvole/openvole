@@ -119,12 +119,9 @@ export interface VoleEngine {
 	shutdown(): Promise<void>
 }
 
-const engineLogger = {
-	info: (msg: string, ...args: unknown[]) =>
-		console.info(`[openvole] ${msg}`, ...args),
-	error: (msg: string, ...args: unknown[]) =>
-		console.error(`[openvole] ${msg}`, ...args),
-}
+import { createLogger } from './core/logger.js'
+
+const engineLogger = createLogger('openvole')
 
 /** Create and initialize the OpenVole engine */
 export async function createEngine(
@@ -289,9 +286,7 @@ export async function createEngine(
 			engineLogger.info('Shutting down...')
 			scheduler.clearAll()
 			taskQueue.cancelAll()
-			for (const paw of pawRegistry.list()) {
-				await pawRegistry.unload(paw.name)
-			}
+			await Promise.all(pawRegistry.list().map((paw) => pawRegistry.unload(paw.name)))
 			toolRegistry.clear()
 			engineLogger.info('Shutdown complete')
 			closeLogger()

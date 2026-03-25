@@ -5,6 +5,12 @@ const LEVELS = { error: 0, warn: 1, info: 2, debug: 3, trace: 4 } as const
 type Level = keyof typeof LEVELS
 
 let logStream: fs.WriteStream | undefined
+let silentMode = true
+
+/** Suppress console output — logs still go to file */
+export function setLoggerSilent(silent: boolean): void {
+	silentMode = silent
+}
 
 /** Initialize file logging from VOLE_LOG_FILE env var */
 function getLogStream(): fs.WriteStream | undefined {
@@ -40,23 +46,23 @@ export function createLogger(tag: string) {
 	const prefix = `[${tag}]`
 	return {
 		error: (msg: string, ...args: unknown[]) => {
-			if (currentLevel() >= LEVELS.error) console.error(prefix, msg, ...args)
+			if (!silentMode && currentLevel() >= LEVELS.error) console.error(prefix, msg, ...args)
 			writeToFile('error', prefix, msg, args)
 		},
 		warn: (msg: string, ...args: unknown[]) => {
-			if (currentLevel() >= LEVELS.warn) console.warn(prefix, msg, ...args)
+			if (!silentMode && currentLevel() >= LEVELS.warn) console.warn(prefix, msg, ...args)
 			writeToFile('warn', prefix, msg, args)
 		},
 		info: (msg: string, ...args: unknown[]) => {
-			if (currentLevel() >= LEVELS.info) console.info(prefix, msg, ...args)
+			if (!silentMode && currentLevel() >= LEVELS.info) console.info(prefix, msg, ...args)
 			writeToFile('info', prefix, msg, args)
 		},
 		debug: (msg: string, ...args: unknown[]) => {
-			if (currentLevel() >= LEVELS.debug) console.debug(prefix, msg, ...args)
+			if (!silentMode && currentLevel() >= LEVELS.debug) console.debug(prefix, msg, ...args)
 			writeToFile('debug', prefix, msg, args)
 		},
 		trace: (msg: string, ...args: unknown[]) => {
-			if (currentLevel() >= LEVELS.trace) console.debug(prefix, msg, ...args)
+			if (!silentMode && currentLevel() >= LEVELS.trace) console.debug(prefix, msg, ...args)
 			writeToFile('trace', prefix, msg, args)
 		},
 	}

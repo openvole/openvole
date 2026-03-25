@@ -183,7 +183,7 @@ export async function runAgentLoop(
 
 			if (plan.response) {
 				task.result = plan.response
-				io.notify(plan.response)
+				if (task.source === 'user') io.notify(plan.response)
 				enrichedContext.messages.push({
 					role: 'brain',
 					content: plan.response,
@@ -194,9 +194,9 @@ export async function runAgentLoop(
 			return
 		}
 
-		// If Brain has a response but also actions, show the response
+		// If Brain has a response but also actions, show the response (user tasks only)
 		if (plan.response) {
-			io.notify(plan.response)
+			if (task.source === 'user') io.notify(plan.response)
 			enrichedContext.messages.push({
 				role: 'brain',
 				content: plan.response,
