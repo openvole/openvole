@@ -151,8 +151,17 @@ export async function createEngine(
 	await vault.init()
 
 	// Register built-in core tools
-	const coreTools = createCoreTools(scheduler, taskQueue, projectRoot, skillRegistry, vault)
+	const coreTools = createCoreTools(scheduler, taskQueue, projectRoot, skillRegistry, vault, toolRegistry)
 	toolRegistry.register('__core__', coreTools, true)
+
+	// Enable Tool Horizon if configured
+	if (config.loop.toolHorizon) {
+		toolRegistry.setHorizon(true)
+		// Memory, session, and compact paws are always visible (infrastructure)
+		toolRegistry.addAlwaysVisiblePaw('@openvole/paw-memory')
+		toolRegistry.addAlwaysVisiblePaw('@openvole/paw-session')
+		toolRegistry.addAlwaysVisiblePaw('@openvole/paw-compact')
+	}
 
 	// Wire up query sources so Paws can query skills and tasks
 	pawRegistry.setQuerySources(skillRegistry, taskQueue, scheduler)

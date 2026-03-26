@@ -49,6 +49,9 @@ export async function runAgentLoop(
 	let toolExecutionCount = 0
 	logger.info(`Agent loop started for task ${task.id}: "${task.input}"`)
 
+	// Reset tool horizon for each new task
+	toolRegistry.resetHorizon()
+
 	// Sub-agent tasks can override maxIterations via metadata
 	const effectiveMaxIterations =
 		task.source === 'agent' && typeof task.metadata?.maxIterations === 'number'

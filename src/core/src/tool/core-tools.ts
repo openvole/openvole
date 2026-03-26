@@ -2,6 +2,7 @@ import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 import { z } from 'zod'
 import type { ToolDefinition } from './types.js'
+import type { ToolRegistry } from './registry.js'
 import type { SchedulerStore } from '../core/scheduler.js'
 import type { TaskQueue } from '../core/task.js'
 import type { SkillRegistry } from '../skill/registry.js'
@@ -14,6 +15,7 @@ export function createCoreTools(
 	projectRoot: string,
 	skillRegistry: SkillRegistry,
 	vault: Vault,
+	toolRegistry?: ToolRegistry,
 ): ToolDefinition[] {
 	const heartbeatPath = path.resolve(projectRoot, '.openvole', 'HEARTBEAT.md')
 	const workspaceDir = path.resolve(projectRoot, '.openvole', 'workspace')
@@ -460,6 +462,122 @@ export function createCoreTools(
 				}
 			},
 		},
+		// === Tool Horizon ===
+		...(toolRegistry
+			? [
+					{
+						name: 'discover_tools',
+						description:
+							'Discover tools by intent. Searches all registered tools by description and returns matching ones. Discovered tools become available for use in subsequent iterations. Use when you need a tool that is not currently visible.',
+						parameters: z.object({
+							intent: z
+								.string()
+								.optional()
+								.describe('What you want to do (e.g. "send an email", "browse a website", "take a screenshot")'),
+							paw: z
+								.string()
+								.optional()
+								.describe('Load all tools from a specific paw (e.g. "paw-browser", "@openvole/paw-email")'),
+							all: z
+								.boolean()
+								.optional()
+								.describe('Load ALL tools into the horizon (use as fallback)'),
+						}),
+						async execute(params) {
+							const { intent, paw, all } = params as {
+								intent?: string
+								paw?: string
+								all?: boolean
+							}
+
+							if (all) {
+								const allTools = toolRegistry.list().map((t) => t.name)
+								toolRegistry.addToHorizon(allTools)
+								return {
+									ok: true,
+									discovered: allTools.length,
+									message: 'All tools are now visible.',
+								}
+							}
+
+							if (paw) {
+								const pawName = paw.startsWith('@openvole/') ? paw : `@openvole/${paw}`
+								const pawTools = toolRegistry.toolsForPaw(pawName)
+								if (pawTools.length === 0) {
+									return {
+										ok: false,
+										error: `No tools found for paw "${pawName}"`,
+									}
+								}
+								toolRegistry.addToHorizon(pawTools)
+								return {
+									ok: true,
+									discovered: pawTools.length,
+									tools: pawTools,
+								}
+							}
+
+							if (intent) {
+								// BM25 search + skill matching
+								const results = toolRegistry.searchTools(intent, 15)
+
+								// Also check skills for matching required tools
+								const activeSkills = skillRegistry.active()
+								for (const skill of activeSkills) {
+									const desc = `${skill.name} ${skill.description}`.toLowerCase()
+									const intentLower = intent.toLowerCase()
+									if (
+										intentLower.split(/\s+/).some((word) => desc.includes(word))
+									) {
+										for (const toolName of skill.requiredTools) {
+											if (
+												toolRegistry.has(toolName) &&
+												!results.find((r) => r.name === toolName)
+											) {
+												results.push({
+													name: toolName,
+													description:
+														toolRegistry.get(toolName)?.description ?? '',
+													pawName:
+														toolRegistry.get(toolName)?.pawName ?? '',
+													score: 0.5,
+												})
+											}
+										}
+									}
+								}
+
+								if (results.length === 0) {
+									return {
+										ok: true,
+										discovered: 0,
+										message:
+											'No matching tools found. Try a different intent or use discover_tools({ all: true }).',
+									}
+								}
+
+								const toolNames = results.map((r) => r.name)
+								toolRegistry.addToHorizon(toolNames)
+								return {
+									ok: true,
+									discovered: toolNames.length,
+									tools: results.map((r) => ({
+										name: r.name,
+										description: r.description,
+										paw: r.pawName,
+										score: Math.round(r.score * 100) / 100,
+									})),
+								}
+							}
+
+							return {
+								ok: false,
+								error: 'Provide intent, paw, or all parameter.',
+							}
+						},
+					} as ToolDefinition,
+				]
+			: []),
 	]
 }
 

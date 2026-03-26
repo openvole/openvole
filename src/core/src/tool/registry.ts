@@ -51,8 +51,102 @@ function zodToJsonSchema(schema: unknown): Record<string, unknown> | undefined {
 
 export class ToolRegistry {
 	private tools = new Map<string, ToolRegistryEntry>()
+	private horizonEnabled = false
+	private horizonTools = new Set<string>()
+	/** Paw names whose tools are always visible in horizon mode */
+	private alwaysVisiblePaws = new Set<string>(['__core__'])
 
 	constructor(private bus: MessageBus) {}
+
+	/** Enable/disable Tool Horizon mode */
+	setHorizon(enabled: boolean): void {
+		this.horizonEnabled = enabled
+		if (enabled) {
+			// Core tools are always visible
+			for (const [name, entry] of this.tools) {
+				if (this.alwaysVisiblePaws.has(entry.pawName)) {
+					this.horizonTools.add(name)
+				}
+			}
+		}
+	}
+
+	/** Mark a paw's tools as always visible in horizon mode */
+	addAlwaysVisiblePaw(pawName: string): void {
+		this.alwaysVisiblePaws.add(pawName)
+		if (this.horizonEnabled) {
+			for (const [name, entry] of this.tools) {
+				if (entry.pawName === pawName) {
+					this.horizonTools.add(name)
+				}
+			}
+		}
+	}
+
+	/** Add tools to the horizon (make them visible to the Brain) */
+	addToHorizon(toolNames: string[]): void {
+		for (const name of toolNames) {
+			this.horizonTools.add(name)
+		}
+	}
+
+	/** Reset horizon for a new task */
+	resetHorizon(): void {
+		this.horizonTools.clear()
+		if (this.horizonEnabled) {
+			for (const [name, entry] of this.tools) {
+				if (this.alwaysVisiblePaws.has(entry.pawName)) {
+					this.horizonTools.add(name)
+				}
+			}
+		}
+	}
+
+	/** Search all tools by intent using BM25 over descriptions */
+	searchTools(query: string, limit = 10): Array<{ name: string; description: string; pawName: string; score: number }> {
+		const queryTokens = query.toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length > 1)
+		if (queryTokens.length === 0) return []
+
+		const results: Array<{ name: string; description: string; pawName: string; score: number }> = []
+		const N = this.tools.size
+
+		// Build document frequency
+		const df = new Map<string, number>()
+		for (const entry of this.tools.values()) {
+			const tokens = new Set(`${entry.name} ${entry.description}`.toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length > 1))
+			for (const token of tokens) {
+				df.set(token, (df.get(token) ?? 0) + 1)
+			}
+		}
+
+		for (const entry of this.tools.values()) {
+			const text = `${entry.name} ${entry.description}`.toLowerCase()
+			const docTokens = text.split(/[^a-z0-9]+/).filter((t) => t.length > 1)
+			const dl = docTokens.length
+			const avgDl = 15 // approximate average
+			let score = 0
+
+			const tf = new Map<string, number>()
+			for (const token of docTokens) {
+				tf.set(token, (tf.get(token) ?? 0) + 1)
+			}
+
+			for (const term of queryTokens) {
+				const termFreq = tf.get(term) ?? 0
+				if (termFreq === 0) continue
+				const docFreq = df.get(term) ?? 0
+				const idf = Math.log(1 + (N - docFreq + 0.5) / (docFreq + 0.5))
+				const tfNorm = (termFreq * 2.5) / (termFreq + 1.5 * (1 - 0.75 + 0.75 * dl / avgDl))
+				score += idf * tfNorm
+			}
+
+			if (score > 0) {
+				results.push({ name: entry.name, description: entry.description, pawName: entry.pawName, score })
+			}
+		}
+
+		return results.sort((a, b) => b.score - a.score).slice(0, limit)
+	}
 
 	/** Register tools from a Paw. Auto-prefixes with paw name on conflict. */
 	register(pawName: string, tools: ToolDefinition[], inProcess: boolean): void {
@@ -114,9 +208,12 @@ export class ToolRegistry {
 		return this.tools.has(toolName)
 	}
 
-	/** Get tool summaries for AgentContext */
+	/** Get tool summaries for AgentContext (respects horizon if enabled) */
 	summaries(): ToolSummary[] {
-		return this.list().map((t) => ({
+		const tools = this.horizonEnabled
+			? this.list().filter((t) => this.horizonTools.has(t.name))
+			: this.list()
+		return tools.map((t) => ({
 			name: t.name,
 			description: t.description,
 			pawName: t.pawName,

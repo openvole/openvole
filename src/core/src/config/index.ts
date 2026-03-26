@@ -23,6 +23,8 @@ export interface LoopConfig {
 	compactThreshold: number
 	/** Rate limits (undefined = no limits) */
 	rateLimits?: RateLimits
+	/** Enable Tool Horizon — Brain starts with core tools only, discovers others on demand */
+	toolHorizon?: boolean
 }
 
 /** Tool profile — restricts which tools a task source can use */
@@ -82,6 +84,7 @@ const DEFAULT_LOOP_CONFIG: LoopConfig = {
 	taskConcurrency: 1,
 	compactThreshold: 50,
 	rateLimits: undefined,
+	toolHorizon: false,
 }
 
 const DEFAULT_HEARTBEAT_CONFIG: HeartbeatConfig = {
