@@ -81,6 +81,7 @@ export async function runAgentLoop(
 	context = await pawRegistry.runBootstrapHooks(context)
 
 	let consecutiveBrainFailures = 0
+	let consecutiveNoResponse = 0
 	let idleIterations = 0
 
 	for (
@@ -171,6 +172,7 @@ export async function runAgentLoop(
 		}
 
 		consecutiveBrainFailures = 0
+		consecutiveNoResponse = 0
 
 		// Check if the Brain says we're done
 		if (plan.done) {
@@ -186,14 +188,32 @@ export async function runAgentLoop(
 				continue
 			}
 
-			// Enforce response — if done with no response, force retry
+			// Enforce response — if done with no response, force retry (max 3 times)
 			if (!plan.response && plan.actions.length === 0) {
+				consecutiveNoResponse++
+				if (consecutiveNoResponse >= 3) {
+					// Brain can't produce a response — build one from what it did
+					const toolCalls = enrichedContext.messages
+						.filter((m) => m.role === 'brain' && m.toolCall)
+						.map((m) => m.toolCall!.name)
+						.filter((name) => name !== 'multiple')
+					const fallback = toolCalls.length > 0
+						? `Done. I used ${[...new Set(toolCalls)].join(', ')} to complete your request.`
+						: 'Done.'
+					task.result = fallback
+					if (task.source === 'user') io.notify(fallback)
+					logger.warn(`Brain returned no response ${consecutiveNoResponse} times — generated fallback from context`)
+					return
+				}
 				logger.warn('Brain completed with no response — forcing retry')
-				enrichedContext.messages.push({
-					role: 'error',
-					content: 'You completed the task but did not include a response. Always provide a summary of what you did or what happened.',
-					timestamp: Date.now(),
-				})
+				if (consecutiveNoResponse === 1) {
+					// Only push the hint once — don't spam the context
+					enrichedContext.messages.push({
+						role: 'error',
+						content: 'You completed the task but did not include a response. Always provide a summary of what you did or what happened.',
+						timestamp: Date.now(),
+					})
+				}
 				plan.done = false
 				continue
 			}

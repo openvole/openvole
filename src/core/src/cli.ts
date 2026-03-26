@@ -236,20 +236,23 @@ async function startInteractive(projectRoot: string): Promise<void> {
 		}
 	}
 
+	let closing = false
+
 	// Stop spinner and re-display prompt when Brain responds
 	engine.bus.on('task:completed', () => {
 		stopSpinner()
-		rl.prompt()
+		if (!closing) rl.prompt()
 	})
 	engine.bus.on('task:failed', () => {
 		stopSpinner()
-		rl.prompt()
+		if (!closing) rl.prompt()
 	})
 
 	const promptUser = (): void => {
 		rl.question(`${dim}  you ›${reset} `, (input) => {
 			const trimmed = input.trim()
 			if (trimmed === 'exit' || trimmed === 'quit') {
+				closing = true
 				rl.close()
 				engine.shutdown().then(() => process.exit(0))
 				return
