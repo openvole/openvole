@@ -37,6 +37,9 @@ function currentLevel(): number {
 function writeToFile(level: string, prefix: string, msg: string, args: unknown[]): void {
 	const stream = getLogStream()
 	if (!stream) return
+	// Respect VOLE_LOG_LEVEL for file logging too
+	const levelNum = LEVELS[level.toLowerCase() as Level] ?? LEVELS.info
+	if (levelNum > currentLevel()) return
 	const timestamp = new Date().toISOString()
 	const argsStr = args.length > 0 ? ' ' + args.map(a => typeof a === 'string' ? a : JSON.stringify(a)).join(' ') : ''
 	stream.write(`${timestamp} [${level.toUpperCase()}] ${prefix} ${msg}${argsStr}\n`)
