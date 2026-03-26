@@ -195,8 +195,9 @@ export class TaskQueue {
 			task.status = 'failed'
 			task.completedAt = Date.now()
 			task.error = err instanceof Error ? err.message : String(err)
+			task.result = task.result || 'Sorry, something went wrong while processing your request. Please try again.'
 			logger.error(`Task ${task.id} failed: ${task.error}`)
-			this.bus.emit('task:failed', { taskId: task.id, error: err })
+			this.bus.emit('task:failed', { taskId: task.id, error: err, result: task.result })
 		} finally {
 			this.running.delete(task.id)
 			this.completed.push(task)

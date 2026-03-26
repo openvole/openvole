@@ -10,7 +10,7 @@ export type BusEvents = {
 	'task:queued': { taskId: string }
 	'task:started': { taskId: string }
 	'task:completed': { taskId: string; result?: string }
-	'task:failed': { taskId: string; error?: unknown }
+	'task:failed': { taskId: string; error?: unknown; result?: string }
 	'task:cancelled': { taskId: string }
 	'rate:limited': { bucket: string; source?: string }
 }
