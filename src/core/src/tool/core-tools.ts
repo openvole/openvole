@@ -556,7 +556,17 @@ export function createCoreTools(
 									}
 								}
 
-								const toolNames = results.map((r) => r.name)
+								// Pull in ALL tools from matching paws — if you need one tool from a paw,
+								// you likely need the others (e.g. computer_click → all computer_* tools)
+								const matchedPaws = new Set(results.map((r) => r.pawName))
+								const toolNames: string[] = []
+								for (const pawName of matchedPaws) {
+									toolNames.push(...toolRegistry.toolsForPaw(pawName))
+								}
+								// Also add any direct BM25 matches not covered by paw expansion
+								for (const r of results) {
+									if (!toolNames.includes(r.name)) toolNames.push(r.name)
+								}
 								toolRegistry.addToHorizon(toolNames)
 								return {
 									ok: true,
