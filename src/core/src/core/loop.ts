@@ -337,13 +337,34 @@ export async function runAgentLoop(
 			// === OBSERVE ===
 			logger.debug(`Phase: ${PHASE_ORDER[3]}`)
 			for (const result of results) {
-				// Append to context
+				// Append to context — truncate large results to prevent context blowup
 				if (result.success) {
+					let content = typeof result.output === 'string'
+						? result.output
+						: JSON.stringify(result.output)
+
+					// Truncate base64 images and other large outputs
+					if (content.length > 10000) {
+						// Try to extract useful metadata before truncating
+						if (content.includes('image_base64') || content.includes('base64')) {
+							// Screenshot result — keep metadata, drop the image data
+							try {
+								const parsed = JSON.parse(content)
+								if (parsed.image_base64) {
+									parsed.image_base64 = `[base64 image removed — ${parsed.image_base64.length} chars]`
+								}
+								content = JSON.stringify(parsed)
+							} catch {
+								content = content.substring(0, 2000) + '... [truncated, ' + content.length + ' chars total]'
+							}
+						} else {
+							content = content.substring(0, 5000) + '... [truncated, ' + content.length + ' chars total]'
+						}
+					}
+
 					enrichedContext.messages.push({
 						role: 'tool_result',
-						content: typeof result.output === 'string'
-							? result.output
-							: JSON.stringify(result.output),
+						content,
 						toolCall: {
 							name: result.toolName,
 							params: null,
