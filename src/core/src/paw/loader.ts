@@ -82,7 +82,10 @@ export async function loadSubprocessPaw(
 		cleanup: true,
 	})
 
-	// Forward stderr for logging
+	// Forward subprocess output for logging
+	child.stdout?.on('data', (data: Buffer) => {
+		logger.info(`[${manifest.name}] ${data.toString().trimEnd()}`)
+	})
 	child.stderr?.on('data', (data: Buffer) => {
 		logger.warn(`[${manifest.name}] ${data.toString().trimEnd()}`)
 	})
