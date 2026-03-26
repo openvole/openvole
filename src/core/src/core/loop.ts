@@ -65,6 +65,9 @@ export async function runAgentLoop(
 	if (task.metadata) {
 		Object.assign(context.metadata, task.metadata)
 	}
+	if (config.maxContextTokens) {
+		context.metadata.maxContextTokens = config.maxContextTokens
+	}
 	if (task.source === 'heartbeat') {
 		context.metadata.heartbeat = true
 	}

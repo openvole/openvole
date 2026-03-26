@@ -25,6 +25,8 @@ export interface LoopConfig {
 	rateLimits?: RateLimits
 	/** Enable Tool Horizon — Brain starts with core tools only, discovers others on demand */
 	toolHorizon?: boolean
+	/** Max context size in tokens (approximate). Brain paws use this to trim messages before API calls. 0 = use brain paw's default for the model. */
+	maxContextTokens?: number
 }
 
 /** Tool profile — restricts which tools a task source can use */
