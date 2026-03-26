@@ -81,10 +81,11 @@ export async function runAgentLoop(
 	context = await pawRegistry.runBootstrapHooks(context)
 
 	let consecutiveBrainFailures = 0
+	let idleIterations = 0
 
 	for (
 		context.iteration = 0;
-		context.iteration < effectiveMaxIterations;
+		idleIterations < effectiveMaxIterations;
 		context.iteration++
 	) {
 		// Check cancellation
@@ -93,8 +94,9 @@ export async function runAgentLoop(
 			return
 		}
 
+		idleIterations++
 		logger.info(
-			`Loop running — iteration ${context.iteration + 1}/${config.maxIterations}`,
+			`Loop running — iteration ${context.iteration + 1} (idle: ${idleIterations}/${effectiveMaxIterations})`,
 		)
 
 		// === PERCEIVE (global only — lazy perceive runs in Act) ===
@@ -294,6 +296,12 @@ export async function runAgentLoop(
 			// Track tool executions for rate limiting
 			toolExecutionCount += results.length
 
+			// Reset idle counter — progress was made
+			const hasSuccess = results.some((r) => r.success)
+			if (hasSuccess) {
+				idleIterations = 0
+			}
+
 			// === OBSERVE ===
 			logger.debug(`Phase: ${PHASE_ORDER[3]}`)
 			for (const result of results) {
@@ -331,12 +339,12 @@ export async function runAgentLoop(
 		Object.assign(context, enrichedContext)
 	}
 
-	if (context.iteration >= effectiveMaxIterations) {
+	if (idleIterations >= effectiveMaxIterations) {
 		logger.warn(
-			`Task ${task.id} reached max iterations (${effectiveMaxIterations})`,
+			`Task ${task.id} reached max idle iterations (${effectiveMaxIterations}) after ${context.iteration + 1} total iterations`,
 		)
 		io.notify(
-			`Task reached maximum iterations (${effectiveMaxIterations}). Stopping.`,
+			`Task stopped — no progress after ${effectiveMaxIterations} consecutive iterations.`,
 		)
 	}
 }

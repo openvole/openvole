@@ -1,101 +1,41 @@
 {
   "_comment": "OpenVole Configuration — copy to vole.config.json and customize",
 
+  "_comment_brain": "Which paw handles the Think phase (LLM calls)",
   "brain": "@openvole/paw-ollama",
 
+  "_comment_paws": "Paws to load — use 'vole paw add <name>' to install and auto-configure",
   "paws": [
     {
-      "_comment": "Brain Paw — local LLM via Ollama",
       "name": "@openvole/paw-ollama",
       "allow": {
         "network": ["127.0.0.1"],
-        "env": ["OLLAMA_HOST", "OLLAMA_MODEL", "OLLAMA_API_KEY"]
+        "env": ["OLLAMA_HOST", "OLLAMA_MODEL"]
       }
     },
     {
-      "_comment": "Memory — persistent agent memory with source isolation",
       "name": "@openvole/paw-memory",
       "allow": {
         "env": ["VOLE_MEMORY_DIR"]
       }
     },
     {
-      "_comment": "Session — conversation continuity across messages",
-      "name": "@openvole/paw-session",
-      "allow": {
-        "env": ["VOLE_SESSION_TTL"]
-      }
-    },
-    {
-      "_comment": "Compact — context compaction (in-process, no subprocess)",
-      "name": "@openvole/paw-compact",
-      "allow": {
-        "env": ["VOLE_COMPACT_KEEP_RECENT"]
-      }
-    },
-    {
-      "_comment": "Dashboard — real-time web UI",
       "name": "@openvole/paw-dashboard",
       "allow": {
         "listen": [3001],
         "env": ["VOLE_DASHBOARD_PORT"]
       }
-    },
-    {
-      "_comment": "Telegram — bot channel with user allowlist",
-      "name": "@openvole/paw-telegram",
-      "allow": {
-        "network": ["api.telegram.org"],
-        "env": ["TELEGRAM_BOT_TOKEN", "TELEGRAM_ALLOW_FROM"]
-      }
-    },
-    {
-      "_comment": "Browser — web browsing and automation via Puppeteer (needs childProcess to spawn Chrome)",
-      "name": "@openvole/paw-browser",
-      "allow": {
-        "network": ["*"],
-        "env": ["VOLE_BROWSER_HEADLESS"],
-        "childProcess": true
-      }
-    },
-    {
-      "_comment": "Shell — execute shell commands (needs childProcess to run commands)",
-      "name": "@openvole/paw-shell",
-      "allow": {
-        "filesystem": ["./workspace"],
-        "env": ["VOLE_SHELL_ALLOWED_DIRS"],
-        "childProcess": true
-      }
-    },
-    {
-      "_comment": "Filesystem — read/write/search files",
-      "name": "@openvole/paw-filesystem",
-      "allow": {
-        "filesystem": ["./workspace"],
-        "env": ["VOLE_FS_ALLOWED_DIRS"]
-      }
-    },
-    {
-      "_comment": "MCP — bridge to Model Context Protocol servers (needs childProcess to spawn MCP servers)",
-      "name": "@openvole/paw-mcp",
-      "allow": {
-        "network": ["127.0.0.1"],
-        "env": [],
-        "childProcess": true
-      }
     }
   ],
 
-  "skills": [
-    "skill-web-summary",
-    "clawhub/summarize"
-  ],
+  "_comment_skills": "Skills to load — SKILL.md behavioral recipes",
+  "skills": [],
 
   "loop": {
     "_comment_maxIterations": "Safety limit — max agent loop cycles per task",
     "maxIterations": 25,
 
-    "_comment_confirmBeforeAct": "If true, asks user confirmation before tool execution (good for CLI, disable for Telegram)",
+    "_comment_confirmBeforeAct": "If true, asks user confirmation before tool execution",
     "confirmBeforeAct": false,
 
     "_comment_taskConcurrency": "How many tasks can run simultaneously",
@@ -103,6 +43,9 @@
 
     "_comment_compactThreshold": "Trigger context compaction when messages exceed this count (0 = disabled)",
     "compactThreshold": 50,
+
+    "_comment_toolHorizon": "If true, Brain starts with core tools only and discovers others via discover_tools. Reduces token usage for large tool sets.",
+    "toolHorizon": false,
 
     "_comment_rateLimits": "Prevent runaway API costs",
     "rateLimits": {
@@ -118,32 +61,25 @@
     }
   },
 
+  "_comment_toolProfiles": "Restrict tools by task source — 'paw' covers channel paws (Telegram, Slack, etc.)",
   "toolProfiles": {
-    "_comment": "Restrict tools by task source — 'paw' covers Telegram/Slack/Discord/WhatsApp",
-
     "paw": {
-      "_comment": "Block dangerous tools from channel users",
       "deny": ["shell_exec", "shell_exec_background", "fs_write", "fs_edit", "fs_mkdir"]
-    },
-
-    "heartbeat": {
-      "_comment": "Heartbeat can only use safe browsing and messaging tools",
-      "allow": ["web_fetch", "browser_navigate", "browser_content", "telegram_send", "skill_read", "memory_read", "memory_write", "memory_search", "vault_get", "schedule_task", "heartbeat_read"]
     }
   },
 
   "heartbeat": {
     "_comment": "Periodic wake-up — Brain checks HEARTBEAT.md and acts on jobs",
-    "enabled": true,
+    "enabled": false,
     "intervalMinutes": 30,
-    "runOnStart": true
+    "runOnStart": false
   },
 
   "security": {
-    "_comment_sandboxFilesystem": "If true, paws can only access .openvole/ plus allowedPaths below (default: true). .openvole/ is always accessible.",
+    "_comment_sandboxFilesystem": "Node.js --permission sandbox for subprocess paws (default: true)",
     "sandboxFilesystem": true,
 
-    "_comment_allowedPaths": "Extra paths outside .openvole/ that paws can access when sandboxed",
-    "allowedPaths": ["/tmp/exports", "~/documents/shared"]
+    "_comment_allowedPaths": "Extra paths paws can access outside .openvole/",
+    "allowedPaths": []
   }
 }
