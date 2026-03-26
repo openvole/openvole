@@ -57,7 +57,7 @@ export class IpcTransport {
 
 		const id = crypto.randomUUID()
 		const message: IpcMessage = { jsonrpc: '2.0', id, method, params }
-		logger.trace('Sending request: %s %s', method, JSON.stringify(params ?? '', null, 2))
+		logger.trace(`Sending request: ${method} ${JSON.stringify(params ?? '', null, 2)}`)
 
 		return new Promise((resolve, reject) => {
 			const timer = setTimeout(() => {
@@ -109,7 +109,7 @@ export class IpcTransport {
 	}
 
 	private handleMessage(msg: IpcMessage): void {
-		logger.trace('Received message: %s %s', msg.method ?? msg.id ?? 'unknown', JSON.stringify(msg.params ?? msg.result ?? '', null, 2))
+		logger.trace(`Received message: ${msg.method ?? msg.id ?? 'unknown'} ${JSON.stringify(msg.params ?? msg.result ?? '', null, 2)}`)
 
 		// Response to a pending request
 		if (msg.id && this.pending.has(msg.id)) {
@@ -136,7 +136,7 @@ export class IpcTransport {
 				})
 				.catch((err: unknown) => {
 					const errorMessage = err instanceof Error ? err.message : String(err)
-					logger.error('Handler error for "%s": %s', msg.method, errorMessage)
+					logger.error(`Handler error for "${msg.method}": ${errorMessage}`)
 					if (msg.id) {
 						this.send({
 							jsonrpc: '2.0',
@@ -175,7 +175,7 @@ export class IpcTransport {
 				const header = buffer.substring(0, headerEnd)
 				const match = header.match(/Content-Length:\s*(\d+)/i)
 				if (!match) {
-					logger.error('Invalid header in stdio transport: %s', header)
+					logger.error(`Invalid header in stdio transport: ${header}`)
 					buffer = buffer.substring(headerEnd + 4)
 					continue
 				}
@@ -191,7 +191,7 @@ export class IpcTransport {
 					const msg = JSON.parse(body) as IpcMessage
 					this.handleMessage(msg)
 				} catch (err) {
-					logger.error('Failed to parse stdio JSON-RPC message: %s', err)
+					logger.error(`Failed to parse stdio JSON-RPC message: ${err}`)
 				}
 			}
 		})

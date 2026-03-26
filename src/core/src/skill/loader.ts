@@ -17,9 +17,9 @@ export async function loadSkillFromDirectory(
 		return parseSkillMd(raw, skillMdPath)
 	} catch (err) {
 		if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-			logger.error('SKILL.md not found: %s', skillMdPath)
+			logger.error(`SKILL.md not found: ${skillMdPath}`)
 		} else {
-			logger.error('Failed to read SKILL.md at %s: %s', skillMdPath, err)
+			logger.error(`Failed to read SKILL.md at ${skillMdPath}: ${err}`)
 		}
 		return null
 	}
@@ -33,7 +33,7 @@ function parseSkillMd(
 	const { frontmatter, body } = extractFrontmatter(content)
 
 	if (!frontmatter) {
-		logger.error('No YAML frontmatter found in %s', filePath)
+		logger.error(`No YAML frontmatter found in ${filePath}`)
 		return null
 	}
 
@@ -41,23 +41,23 @@ function parseSkillMd(
 	try {
 		meta = parseYaml(frontmatter) as Record<string, unknown>
 	} catch (err) {
-		logger.error('Invalid YAML frontmatter in %s: %s', filePath, err)
+		logger.error(`Invalid YAML frontmatter in ${filePath}: ${err}`)
 		return null
 	}
 
 	if (!meta.name || typeof meta.name !== 'string') {
-		logger.error('SKILL.md missing "name" in frontmatter: %s', filePath)
+		logger.error(`SKILL.md missing "name" in frontmatter: ${filePath}`)
 		return null
 	}
 
 	if (!meta.description || typeof meta.description !== 'string') {
-		logger.error('SKILL.md missing "description" in frontmatter: %s', filePath)
+		logger.error(`SKILL.md missing "description" in frontmatter: ${filePath}`)
 		return null
 	}
 
 	const instructions = body.trim()
 	if (!instructions) {
-		logger.error('SKILL.md has no instructions (empty body): %s', filePath)
+		logger.error(`SKILL.md has no instructions (empty body): ${filePath}`)
 		return null
 	}
 

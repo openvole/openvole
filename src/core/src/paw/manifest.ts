@@ -64,9 +64,7 @@ export async function readPawManifest(
 
 		if (!result.success) {
 			logger.error(
-				'Invalid manifest at %s: %s',
-				manifestPath,
-				result.error.message,
+				`Invalid manifest at ${manifestPath}: ${result.error.message}`,
 			)
 			return null
 		}
@@ -74,9 +72,9 @@ export async function readPawManifest(
 		return result.data as PawManifest
 	} catch (err) {
 		if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-			logger.error('Manifest not found: %s', manifestPath)
+			logger.error(`Manifest not found: ${manifestPath}`)
 		} else {
-			logger.error('Failed to read manifest %s: %s', manifestPath, err)
+			logger.error(`Failed to read manifest ${manifestPath}: ${err}`)
 		}
 		return null
 	}
