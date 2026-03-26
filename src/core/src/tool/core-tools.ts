@@ -524,12 +524,12 @@ export function createCoreTools(
 								// Also check skills for matching required tools
 								const activeSkills = skillRegistry.active()
 								for (const skill of activeSkills) {
-									const desc = `${skill.name} ${skill.description}`.toLowerCase()
+									const desc = `${skill.name} ${skill.definition.description}`.toLowerCase()
 									const intentLower = intent.toLowerCase()
 									if (
 										intentLower.split(/\s+/).some((word) => desc.includes(word))
 									) {
-										for (const toolName of skill.requiredTools) {
+										for (const toolName of skill.definition.requiredTools) {
 											if (
 												toolRegistry.has(toolName) &&
 												!results.find((r) => r.name === toolName)
