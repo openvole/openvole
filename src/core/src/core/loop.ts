@@ -161,10 +161,10 @@ export async function runAgentLoop(
 		if (plan === 'BRAIN_ERROR') {
 			consecutiveBrainFailures++
 			if (consecutiveBrainFailures >= MAX_BRAIN_FAILURES) {
-				io.notify(
-					`Brain Paw failed ${MAX_BRAIN_FAILURES} consecutive times. Halting task ${task.id}.`,
-				)
+				const userMessage = 'Sorry, I was unable to process your request. The Brain encountered repeated errors. Please try again or check the logs for details.'
+				task.result = userMessage
 				task.error = `Brain failed ${MAX_BRAIN_FAILURES} consecutive times`
+				if (task.source === 'user') io.notify(userMessage)
 				return
 			}
 			continue
