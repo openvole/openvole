@@ -186,6 +186,18 @@ export async function runAgentLoop(
 				continue
 			}
 
+			// Enforce response — if done with no response, force retry
+			if (!plan.response && plan.actions.length === 0) {
+				logger.warn('Brain completed with no response — forcing retry')
+				enrichedContext.messages.push({
+					role: 'error',
+					content: 'You completed the task but did not include a response. Always provide a summary of what you did or what happened.',
+					timestamp: Date.now(),
+				})
+				plan.done = false
+				continue
+			}
+
 			if (plan.response) {
 				task.result = plan.response
 				if (task.source === 'user') io.notify(plan.response)
