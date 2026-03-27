@@ -1,5 +1,36 @@
 # Changelog
 
+## v1.2.0 (2026-03-28)
+
+### Context Engine
+- **ContextBudgetManager** — centralized token estimation (4 chars/token text, 2 chars/token JSON), budget calculation, and priority-based 5-pass trimming
+- **System prompt builder** — moved from brain paws to core, eliminating 992 lines of duplicated code across 5 brain paws. Static-first ordering for provider prompt cache optimization
+- **Token-based compaction** — triggers at 75% of maxContextTokens (replaces message-count threshold)
+- **Budget guardrails** — blocks LLM calls when fixed costs exceed maxContextTokens, detailed PRE-COMPACT and FINAL budget logging with per-role token breakdown
+- **Unseen tool result protection** — tool results not yet seen by the Brain are never trimmed, preventing stuck loops from lost results
+- **Image handling** — extracts base64 from tool results, passes to Brain as provider-native image blocks (Anthropic, OpenAI, Gemini, xAI, Ollama)
+- **Stuck loop detection** — 3-tier escalation: warn at 5, dampen at 10, circuit breaker at 15 identical tool calls
+- **Bootstrap file caps** — 20K chars/file, 50K total for identity files, 20K for memory
+- **Timing logs** — context build time and LLM round-trip duration logged per iteration
+- New config: `maxContextTokens` (default: 128000), `responseReserve` (default: 4000)
+
+### Unified Brain Paw
+- **@openvole/paw-brain** — single brain paw supporting all LLM providers (Anthropic, OpenAI, Gemini, xAI, Ollama)
+- Auto-detects provider from available API keys, or set `BRAIN_PROVIDER` explicitly
+- Generic `BRAIN_API_KEY`, `BRAIN_MODEL`, `BRAIN_BASE_URL` with provider-specific overrides
+- Legacy brain paws (paw-claude, paw-openai, paw-gemini, paw-xai, paw-ollama) deprecated
+
+### Desktop Automation
+- **paw-computer: hierarchical UI tree** — recursive traversal with parent-child indentation on macOS (AppleScript) and Windows (UI Automation), replacing flat element dump
+- Global 200-element cap, respects max_depth parameter
+
+### Other
+- Random thinking spinner phrases (including vole-themed: "burrowing deeper...", "pawing at it...")
+- Updated .env.example, vole.config.json.example, README with paw-brain as default
+- Fix 4 audit vulnerabilities via pnpm overrides (brace-expansion, nodemailer)
+- 28 official paws (1 unified brain + 5 legacy)
+- 182 tests
+
 ## v1.1.0 (2026-03-26)
 - Error recovery — `paw:crashed` event emitted on subprocess exit, running tasks auto-fail instead of hanging
 - `vole tool list --live` — boots engine in headless mode to discover MCP tools
