@@ -88,7 +88,7 @@ const DEFAULT_LOOP_CONFIG: LoopConfig = {
 	taskConcurrency: 1,
 	compactThreshold: 50,
 	rateLimits: undefined,
-	toolHorizon: false,
+	toolHorizon: true,
 	maxContextTokens: 128000,
 	responseReserve: 4000,
 }
