@@ -22,6 +22,10 @@ export interface AgentMessage {
 	timestamp: number
 	/** Set by the loop after the Brain has seen this tool result. Used by ContextBudgetManager for lifecycle trimming. */
 	seenAtIteration?: number
+	/** Base64 image data extracted from tool result. Brain paws should send this as a proper image content block instead of text. */
+	imageBase64?: string
+	/** MIME type of the image (e.g. "image/png") */
+	imageMimeType?: string
 }
 
 /** The shared data structure that flows through the agent loop */

@@ -218,12 +218,40 @@ async function startInteractive(projectRoot: string): Promise<void> {
 		prompt: promptStr,
 	})
 	const frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
+	const thinkingPhrases = [
+		'thinking...',
+		'pondering...',
+		'reasoning...',
+		'mulling it over...',
+		'working on it...',
+		'figuring it out...',
+		'processing...',
+		'brainstorming...',
+		'contemplating...',
+		'crunching...',
+		'connecting the dots...',
+		'cooking up a plan...',
+		'digging in...',
+		'on it...',
+		'piecing it together...',
+		'burrowing deeper...',
+		'sniffing around...',
+		'foraging for answers...',
+		'nibbling on the problem...',
+		'tunneling through...',
+		'scurrying along...',
+		'pawing at it...',
+		'digging a new tunnel...',
+		'nosing around...',
+		'nesting on an idea...',
+	]
 	let spinnerInterval: ReturnType<typeof setInterval> | undefined
 
 	const startSpinner = (): void => {
 		let i = 0
+		const phrase = thinkingPhrases[Math.floor(Math.random() * thinkingPhrases.length)]
 		spinnerInterval = setInterval(() => {
-			process.stdout.write(`\r${dim}  ${frames[i % frames.length]} thinking...${reset}`)
+			process.stdout.write(`\r${dim}  ${frames[i % frames.length]} ${phrase}${reset}`)
 			i++
 		}, 80)
 	}

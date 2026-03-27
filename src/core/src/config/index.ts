@@ -89,6 +89,8 @@ const DEFAULT_LOOP_CONFIG: LoopConfig = {
 	compactThreshold: 50,
 	rateLimits: undefined,
 	toolHorizon: false,
+	maxContextTokens: 128000,
+	responseReserve: 4000,
 }
 
 const DEFAULT_HEARTBEAT_CONFIG: HeartbeatConfig = {

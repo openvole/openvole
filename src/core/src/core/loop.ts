@@ -54,6 +54,7 @@ export async function runAgentLoop(
 	const responseReserve = config.responseReserve || 4000
 	const budgetManager = new ContextBudgetManager(maxContextTokens, responseReserve)
 	let toolExecutionCount = 0
+	const toolCallSignatures = new Map<string, number>()
 	logger.info(`Agent loop started for task ${task.id}: "${task.input}"`)
 
 	// Reset tool horizon for each new task
@@ -111,6 +112,7 @@ export async function runAgentLoop(
 		)
 
 		// === PERCEIVE (global only — lazy perceive runs in Act) ===
+		const contextBuildStart = Date.now()
 		logger.debug(`Phase: ${PHASE_ORDER[0]}`)
 		const enrichedContext = await runPerceive(context, pawRegistry, toolRegistry, skillRegistry)
 
@@ -187,8 +189,15 @@ export async function runAgentLoop(
 		}
 
 		// === THINK ===
+		const contextBuildMs = Date.now() - contextBuildStart
+		const taskToContextMs = Date.now() - task.createdAt
+		logger.info(`Context built in ${contextBuildMs}ms (${taskToContextMs}ms since task created)`)
+
 		logger.debug(`Phase: ${PHASE_ORDER[1]}`)
+		const llmStart = Date.now()
 		const plan = await runThink(enrichedContext, pawRegistry)
+		const llmMs = Date.now() - llmStart
+		logger.info(`LLM round-trip: ${llmMs}ms`)
 
 		// Mark tool results as "seen" by the Brain for lifecycle management
 		for (const msg of enrichedContext.messages) {
@@ -345,9 +354,42 @@ export async function runAgentLoop(
 				if (plan.actions.length === 0) continue
 			}
 
-			// Log tool calls
+			// Log tool calls + stuck loop detection
 			for (const action of plan.actions) {
 				logger.info(`Tool call: ${action.tool}(${JSON.stringify(action.params)})`)
+
+				// Track repeated identical calls
+				const sig = `${action.tool}:${JSON.stringify(action.params)}`
+				const count = (toolCallSignatures.get(sig) ?? 0) + 1
+				toolCallSignatures.set(sig, count)
+
+				if (count >= 15) {
+					// Circuit breaker — force stop
+					const msg = `Stuck loop detected: ${action.tool} called ${count} times with identical parameters. Stopping.`
+					logger.error(msg)
+					task.result = msg
+					task.error = msg
+					if (task.source === 'user') io.notify(msg)
+					return
+				} else if (count >= 10) {
+					// Dampen — strong error message
+					logger.warn(`Stuck loop: ${action.tool} called ${count} times with same params — dampening`)
+					enrichedContext.messages.push({
+						role: 'error',
+						content: `ERROR: You have called ${action.tool} with identical parameters ${count} times. You MUST try a completely different approach or respond to the user explaining what you tried.`,
+						timestamp: Date.now(),
+					})
+				} else if (count >= 5) {
+					// Warning
+					logger.warn(`Stuck loop warning: ${action.tool} called ${count} times with same params`)
+					if (count === 5) {
+						enrichedContext.messages.push({
+							role: 'error',
+							content: `Warning: You have called ${action.tool} with the same parameters ${count} times. Try a different approach.`,
+							timestamp: Date.now(),
+						})
+					}
+				}
 			}
 
 			// Confirm before acting if configured
@@ -392,23 +434,28 @@ export async function runAgentLoop(
 						? result.output
 						: JSON.stringify(result.output)
 
-					// Truncate base64 images and other large outputs
-					if (content.length > 10000) {
-						// Try to extract useful metadata before truncating
-						if (content.includes('image_base64') || content.includes('base64')) {
-							// Screenshot result — keep metadata, drop the image data
-							try {
-								const parsed = JSON.parse(content)
-								if (parsed.image_base64) {
-									parsed.image_base64 = `[base64 image removed — ${parsed.image_base64.length} chars]`
-								}
+					// Extract base64 images for proper image handling by brain paws
+					let imageBase64: string | undefined
+					let imageMimeType: string | undefined
+
+					if (content.includes('image_base64') || content.includes('base64')) {
+						try {
+							const parsed = JSON.parse(content)
+							if (parsed.image_base64) {
+								imageBase64 = parsed.image_base64
+								imageMimeType = 'image/png'
+								// Remove image from text content — brain paw sends it as image block
+								parsed.image_base64 = '[image attached separately]'
 								content = JSON.stringify(parsed)
-							} catch {
-								content = content.substring(0, 2000) + '... [truncated, ' + content.length + ' chars total]'
 							}
-						} else {
-							content = content.substring(0, 5000) + '... [truncated, ' + content.length + ' chars total]'
+						} catch {
+							// Not JSON — check for raw base64
 						}
+					}
+
+					// Truncate large non-image outputs
+					if (content.length > 10000) {
+						content = content.substring(0, 5000) + '... [truncated, ' + content.length + ' chars total]'
 					}
 
 					enrichedContext.messages.push({
@@ -418,6 +465,8 @@ export async function runAgentLoop(
 							name: result.toolName,
 							params: null,
 						},
+						imageBase64,
+						imageMimeType,
 						timestamp: Date.now(),
 					})
 				} else {
