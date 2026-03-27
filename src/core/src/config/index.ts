@@ -29,6 +29,8 @@ export interface LoopConfig {
 	maxContextTokens?: number
 	/** Tokens reserved for the Brain's response. Default: 4000. */
 	responseReserve?: number
+	/** Cost alert threshold in USD — warn when a single task exceeds this amount */
+	costAlertThreshold?: number
 }
 
 /** Tool profile — restricts which tools a task source can use */

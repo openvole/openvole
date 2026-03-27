@@ -10,6 +10,13 @@ export interface AgentPlan {
 	execution?: 'parallel' | 'sequential'
 	response?: string
 	done?: boolean
+	/** Token usage reported by the Brain Paw (for cost tracking) */
+	usage?: {
+		inputTokens?: number
+		outputTokens?: number
+		model?: string
+		provider?: string
+	}
 }
 
 /** A single tool call the Brain wants to execute */
