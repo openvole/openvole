@@ -27,6 +27,8 @@ export interface LoopConfig {
 	toolHorizon?: boolean
 	/** Max context size in tokens (approximate). Brain paws use this to trim messages before API calls. 0 = use brain paw's default for the model. */
 	maxContextTokens?: number
+	/** Tokens reserved for the Brain's response. Default: 4000. */
+	responseReserve?: number
 }
 
 /** Tool profile — restricts which tools a task source can use */

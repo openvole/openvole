@@ -20,6 +20,8 @@ export interface AgentMessage {
 	content: string
 	toolCall?: { name: string; params: unknown }
 	timestamp: number
+	/** Set by the loop after the Brain has seen this tool result. Used by ContextBudgetManager for lifecycle trimming. */
+	seenAtIteration?: number
 }
 
 /** The shared data structure that flows through the agent loop */
