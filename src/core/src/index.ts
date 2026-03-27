@@ -23,6 +23,8 @@ export type { AgentTask, TaskStatus } from './core/task.js'
 export { SchedulerStore } from './core/scheduler.js'
 export { ContextBudgetManager } from './core/context-budget.js'
 export type { TokenBudget } from './core/context-budget.js'
+export { buildSystemPrompt, loadSystemPromptContent } from './core/system-prompt.js'
+export type { SystemPromptContent } from './core/system-prompt.js'
 export { Vault } from './core/vault.js'
 export type { VaultEntry } from './core/vault.js'
 export { PHASE_ORDER } from './core/hooks.js'
@@ -102,6 +104,7 @@ import { SchedulerStore } from './core/scheduler.js'
 import { createCoreTools } from './tool/core-tools.js'
 import { RateLimiter } from './core/rate-limiter.js'
 import { Vault } from './core/vault.js'
+import { loadSystemPromptContent, type SystemPromptContent } from './core/system-prompt.js'
 import { closeLogger } from './core/logger.js'
 
 export interface VoleEngine {
@@ -169,6 +172,9 @@ export async function createEngine(
 	pawRegistry.setQuerySources(skillRegistry, taskQueue, scheduler)
 	pawRegistry.setSecurity(config.security)
 
+	// System prompt content — loaded on start(), used by the loop
+	let promptContent: SystemPromptContent | undefined
+
 	// Wire up the task runner
 	taskQueue.setRunner(async (task) => {
 		await runAgentLoop(task, {
@@ -180,6 +186,7 @@ export async function createEngine(
 			config: config.loop,
 			toolProfiles: config.toolProfiles,
 			rateLimiter,
+			systemPromptContent: promptContent,
 		})
 	})
 
@@ -228,6 +235,10 @@ export async function createEngine(
 					pawRegistry.setBrain('')
 				}
 			}
+
+			// Load system prompt content (BRAIN.md + identity files)
+			const brainManifestName = config.brain ? pawRegistry.resolveManifestName(config.brain) : undefined
+			promptContent = await loadSystemPromptContent(projectRoot, brainManifestName)
 
 			// Load other Paws in parallel
 			const pawsToLoad = headless

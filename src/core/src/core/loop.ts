@@ -17,6 +17,8 @@ import {
 } from './errors.js'
 import { buildActiveSkills } from '../skill/resolver.js'
 import { PHASE_ORDER } from './hooks.js'
+import { buildSystemPrompt, type SystemPromptContent } from './system-prompt.js'
+import { ContextBudgetManager } from './context-budget.js'
 
 import { createLogger } from './logger.js'
 
@@ -34,6 +36,8 @@ export interface LoopDependencies {
 	config: LoopConfig
 	toolProfiles?: Record<string, import('../config/index.js').ToolProfile>
 	rateLimiter?: RateLimiter
+	/** Cached system prompt content (loaded on engine start) */
+	systemPromptContent?: SystemPromptContent
 }
 
 /**
@@ -44,8 +48,11 @@ export async function runAgentLoop(
 	task: AgentTask,
 	deps: LoopDependencies,
 ): Promise<void> {
-	const { bus, toolRegistry, pawRegistry, skillRegistry, io, config, toolProfiles, rateLimiter } = deps
+	const { bus, toolRegistry, pawRegistry, skillRegistry, io, config, toolProfiles, rateLimiter, systemPromptContent } = deps
 	const rateLimits = config.rateLimits
+	const maxContextTokens = config.maxContextTokens || 128000
+	const responseReserve = config.responseReserve || 4000
+	const budgetManager = new ContextBudgetManager(maxContextTokens, responseReserve)
 	let toolExecutionCount = 0
 	logger.info(`Agent loop started for task ${task.id}: "${task.input}"`)
 
@@ -107,17 +114,48 @@ export async function runAgentLoop(
 		logger.debug(`Phase: ${PHASE_ORDER[0]}`)
 		const enrichedContext = await runPerceive(context, pawRegistry, toolRegistry, skillRegistry)
 
-		// === COMPACT — compress context if it exceeds threshold ===
-		// Runs after perceive so compaction sees everything before the Brain does
-		if (
-			config.compactThreshold > 0 &&
-			enrichedContext.messages.length > config.compactThreshold
-		) {
-			logger.info(
-				`Context has ${enrichedContext.messages.length} messages (threshold: ${config.compactThreshold}), running compact`,
+		// === BUILD SYSTEM PROMPT (core-managed) ===
+		if (systemPromptContent) {
+			enrichedContext.systemPrompt = buildSystemPrompt(
+				systemPromptContent,
+				enrichedContext.activeSkills,
+				enrichedContext.availableTools,
+				enrichedContext.metadata,
 			)
+		}
+
+		// === CONTEXT BUDGET — calculate, compact, trim ===
+		const systemPromptTokens = budgetManager.estimateTokens(enrichedContext.systemPrompt ?? '')
+		const toolTokens = budgetManager.estimateTokens(JSON.stringify(enrichedContext.availableTools))
+		const sessionTokens = budgetManager.estimateTokens(
+			typeof enrichedContext.metadata.sessionHistory === 'string' ? enrichedContext.metadata.sessionHistory : '',
+		)
+		const messageTokens = budgetManager.estimateMessagesTokens(enrichedContext.messages)
+		const budget = budgetManager.calculateBudget(systemPromptTokens, toolTokens, sessionTokens, messageTokens)
+		logger.info(`Context budget — ${budgetManager.formatBudget(budget)}`)
+
+		// Token-based compaction trigger (75% of max)
+		if (budgetManager.shouldCompact(budget)) {
+			logger.info(`Context at ${Math.round((budget.total / budget.maxTokens) * 100)}% — running compact`)
 			const compacted = await pawRegistry.runCompactHooks(enrichedContext)
 			enrichedContext.messages = compacted.messages
+		}
+		// Also support legacy message-count compaction trigger
+		else if (config.compactThreshold > 0 && enrichedContext.messages.length > config.compactThreshold) {
+			logger.info(`Context has ${enrichedContext.messages.length} messages (threshold: ${config.compactThreshold}), running compact`)
+			const compacted = await pawRegistry.runCompactHooks(enrichedContext)
+			enrichedContext.messages = compacted.messages
+		}
+
+		// Priority-based trimming if over budget after compaction
+		if (budget.free < 0) {
+			const availableForMessages = maxContextTokens - systemPromptTokens - toolTokens - sessionTokens - responseReserve
+			logger.warn(`Context over budget by ${Math.abs(budget.free)} tokens — trimming messages`)
+			enrichedContext.messages = budgetManager.trimMessages(
+				enrichedContext.messages,
+				availableForMessages,
+				context.iteration,
+			)
 		}
 
 		// === RATE LIMIT CHECK (before Think) ===
@@ -151,6 +189,14 @@ export async function runAgentLoop(
 		// === THINK ===
 		logger.debug(`Phase: ${PHASE_ORDER[1]}`)
 		const plan = await runThink(enrichedContext, pawRegistry)
+
+		// Mark tool results as "seen" by the Brain for lifecycle management
+		for (const msg of enrichedContext.messages) {
+			if (msg.role === 'tool_result' && msg.seenAtIteration === undefined) {
+				msg.seenAtIteration = context.iteration
+			}
+		}
+
 		if (plan && plan !== 'BRAIN_ERROR') {
 			logger.info(`Brain plan: done=${plan.done}, actions=${plan.actions.length}, response=${plan.response ? plan.response.substring(0, 100) + '...' : 'none'}`)
 		}

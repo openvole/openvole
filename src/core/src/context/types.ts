@@ -31,6 +31,8 @@ export interface AgentContext {
 	availableTools: ToolSummary[]
 	activeSkills: ActiveSkill[]
 	metadata: Record<string, unknown>
+	/** System prompt built by core — brain paws use this directly */
+	systemPrompt?: string
 	iteration: number
 	maxIterations: number
 }
