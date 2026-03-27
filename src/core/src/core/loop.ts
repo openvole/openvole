@@ -132,9 +132,25 @@ export async function runAgentLoop(
 		const sessionTokens = budgetManager.estimateTokens(
 			typeof enrichedContext.metadata.sessionHistory === 'string' ? enrichedContext.metadata.sessionHistory : '',
 		)
-		const messageTokens = budgetManager.estimateMessagesTokens(enrichedContext.messages)
+
+		// Block if fixed costs alone exceed budget (no room for messages — LLM call would be wasted)
+		const fixedCosts = systemPromptTokens + toolTokens + responseReserve
+		if (fixedCosts > maxContextTokens) {
+			const msg = `maxContextTokens (${maxContextTokens}) is too low — system prompt (${systemPromptTokens}) + tools (${toolTokens}) + reserve (${responseReserve}) = ${fixedCosts}. Increase maxContextTokens to at least ${fixedCosts + 2000}.`
+			logger.error(msg)
+			task.result = `Configuration error: ${msg}`
+			task.error = msg
+			if (task.source === 'user') io.notify(task.result)
+			return
+		}
+
+		// --- LOG 1: Before compaction (full breakdown) ---
+		const msgBreakdown = budgetManager.messageBreakdown(enrichedContext.messages)
+		const messageTokens = msgBreakdown.total
 		const budget = budgetManager.calculateBudget(systemPromptTokens, toolTokens, sessionTokens, messageTokens)
-		logger.info(`Context budget — ${budgetManager.formatBudget(budget)}`)
+		logger.info(
+			`BUDGET PRE-COMPACT — systemPrompt: ${systemPromptTokens} | tools: ${toolTokens} | session: ${sessionTokens} | reserve: ${responseReserve} | userMsgs: ${msgBreakdown.user} | brainMsgs: ${msgBreakdown.brain} | toolResults: ${msgBreakdown.toolResult} | errors: ${msgBreakdown.error} | total: ${budget.total}/${maxContextTokens}`,
+		)
 
 		// Token-based compaction trigger (75% of max)
 		if (budgetManager.shouldCompact(budget)) {
@@ -150,14 +166,28 @@ export async function runAgentLoop(
 		}
 
 		// Priority-based trimming if over budget after compaction
-		if (budget.free < 0) {
+		const postCompactMsgTokens = budgetManager.estimateMessagesTokens(enrichedContext.messages)
+		const postCompactBudget = budgetManager.calculateBudget(systemPromptTokens, toolTokens, sessionTokens, postCompactMsgTokens)
+		if (postCompactBudget.free < 0) {
 			const availableForMessages = maxContextTokens - systemPromptTokens - toolTokens - sessionTokens - responseReserve
-			logger.warn(`Context over budget by ${Math.abs(budget.free)} tokens — trimming messages`)
+			logger.warn(`Context over budget by ${Math.abs(postCompactBudget.free)} tokens — trimming messages`)
 			enrichedContext.messages = budgetManager.trimMessages(
 				enrichedContext.messages,
 				availableForMessages,
 				context.iteration,
 			)
+		}
+
+		// --- LOG 2: After compaction + trimming (final state before LLM) ---
+		const finalBreakdown = budgetManager.messageBreakdown(enrichedContext.messages)
+		const finalTotal = systemPromptTokens + toolTokens + sessionTokens + finalBreakdown.total + responseReserve
+		logger.info(
+			`BUDGET FINAL — systemPrompt: ${systemPromptTokens} | tools: ${toolTokens} | session: ${sessionTokens} | reserve: ${responseReserve} | userMsgs: ${finalBreakdown.user} | brainMsgs: ${finalBreakdown.brain} | toolResults: ${finalBreakdown.toolResult} | errors: ${finalBreakdown.error} | total: ${finalTotal}/${maxContextTokens} (${finalTotal > maxContextTokens ? 'OVER' : 'OK'})`,
+		)
+
+		// If still over budget after all trimming, warn but proceed — LLM may truncate or error
+		if (finalTotal > maxContextTokens) {
+			logger.warn(`Context still over budget by ${finalTotal - maxContextTokens} tokens after compaction + trimming. LLM call may fail or truncate.`)
 		}
 
 		// === RATE LIMIT CHECK (before Think) ===

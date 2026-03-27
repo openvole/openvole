@@ -109,10 +109,16 @@ export class ContextBudgetManager {
 		const firstUserIdx = trimmed.findIndex((m) => m.role === 'user')
 		const lastUserIdx = this.findLastIndex(trimmed, (m) => m.role === 'user')
 		const lastBrainIndices = this.findLastNIndices(trimmed, (m) => m.role === 'brain', 2)
+		// Also protect unseen tool results (Brain hasn't processed them yet)
+		const unseenToolResultIndices = trimmed
+			.map((m, i) => m.role === 'tool_result' && m.seenAtIteration === undefined ? i : -1)
+			.filter((i) => i >= 0)
+
 		const protectedIndices = new Set<number>([
 			firstUserIdx,
 			lastUserIdx,
 			...lastBrainIndices,
+			...unseenToolResultIndices,
 		].filter((i) => i >= 0))
 
 		// Pass 1: Summarize old tool results
@@ -197,6 +203,40 @@ export class ContextBudgetManager {
 			return String(n)
 		}
 		return `System: ${fmt(budget.systemPrompt)} | Tools: ${fmt(budget.tools)} | Session: ${fmt(budget.sessionHistory)} | Messages: ${fmt(budget.taskMessages)} | Reserve: ${fmt(budget.responseReserve)} | Free: ${fmt(budget.free)} / ${fmt(budget.maxTokens)}`
+	}
+
+	/**
+	 * Break down message tokens by role.
+	 */
+	messageBreakdown(messages: AgentMessage[]): {
+		user: number
+		brain: number
+		toolResult: number
+		error: number
+		total: number
+	} {
+		let user = 0
+		let brain = 0
+		let toolResult = 0
+		let error = 0
+		for (const m of messages) {
+			const tokens = this.estimateTokens(m.content) + 4
+			switch (m.role) {
+				case 'user':
+					user += tokens
+					break
+				case 'brain':
+					brain += tokens
+					break
+				case 'tool_result':
+					toolResult += tokens
+					break
+				case 'error':
+					error += tokens
+					break
+			}
+		}
+		return { user, brain, toolResult, error, total: user + brain + toolResult + error }
 	}
 
 	// --- Helpers ---

@@ -28,7 +28,7 @@ mkdir my-agent && cd my-agent
 npm init -y
 npm install openvole
 npx vole init
-npx vole paw add @openvole/paw-ollama
+npx vole paw add @openvole/paw-brain
 npx vole paw add @openvole/paw-memory
 npx vole paw add @openvole/paw-dashboard
 ```
@@ -37,13 +37,17 @@ Edit `vole.config.json`:
 
 ```json
 {
-  "brain": "@openvole/paw-ollama",
+  "brain": "@openvole/paw-brain",
   "paws": [
     {
-      "name": "@openvole/paw-ollama",
+      "name": "@openvole/paw-brain",
       "allow": {
-        "network": ["127.0.0.1"],
-        "env": ["OLLAMA_HOST", "OLLAMA_MODEL"]
+        "network": ["*"],
+        "env": ["BRAIN_PROVIDER", "BRAIN_API_KEY", "BRAIN_MODEL",
+                "GEMINI_API_KEY", "GEMINI_MODEL",
+                "ANTHROPIC_API_KEY", "ANTHROPIC_MODEL",
+                "OPENAI_API_KEY", "OPENAI_MODEL",
+                "OLLAMA_HOST", "OLLAMA_MODEL"]
       }
     },
     {
@@ -56,15 +60,15 @@ Edit `vole.config.json`:
     }
   ],
   "skills": [],
-  "loop": { "maxIterations": 25, "compactThreshold": 50 }
+  "loop": { "maxIterations": 25, "maxContextTokens": 128000 }
 }
 ```
 
 Create `.env`:
 
 ```
-OLLAMA_HOST=http://localhost:11434
-OLLAMA_MODEL=qwen3:latest
+BRAIN_PROVIDER=gemini
+GEMINI_API_KEY=your-api-key
 ```
 
 Run:
@@ -119,10 +123,10 @@ curl -fsSL https://raw.githubusercontent.com/openvole/openvole/main/presets/full
    Claude     Slack      Shell      Memory
    OpenAI     Discord    MCP        Session
    Gemini     WhatsApp   Email/Resend/GitHub/Calendar
-   xAI
+   xAI        Voice Call Computer
 ```
 
-21 official Paws: 5 Brain, 4 Channel, 8 Tool, 4 Infrastructure.
+28 official Paws: 1 unified Brain (+5 legacy), 6 Channel, 12 Tool, 4 Infrastructure.
 
 ## Core Concepts
 
@@ -170,13 +174,17 @@ When asked to summarize content:
 
 ### Brain Paw
 
-The Brain is a Paw — the core is LLM-ignorant. Swap models by swapping Brain Paws:
+The Brain is a Paw — the core is LLM-ignorant. Use `@openvole/paw-brain` — a single unified brain paw that supports all providers:
 
-- `@openvole/paw-ollama` — local models via Ollama
-- `@openvole/paw-claude` — Anthropic Claude models
-- `@openvole/paw-openai` — OpenAI models
-- `@openvole/paw-gemini` — Google Gemini models
-- `@openvole/paw-xai` — xAI Grok models
+- **Anthropic Claude** — `BRAIN_PROVIDER=anthropic`
+- **OpenAI** — `BRAIN_PROVIDER=openai`
+- **Google Gemini** — `BRAIN_PROVIDER=gemini`
+- **xAI Grok** — `BRAIN_PROVIDER=xai`
+- **Ollama (local)** — `BRAIN_PROVIDER=ollama`
+
+Auto-detects provider from available API keys if `BRAIN_PROVIDER` is not set. Provider-specific env vars (e.g. `GEMINI_API_KEY`) take precedence over generic `BRAIN_API_KEY`.
+
+> Legacy single-provider paws (`paw-ollama`, `paw-claude`, `paw-openai`, `paw-gemini`, `paw-xai`) are deprecated but still available.
 
 ## Features
 
@@ -292,7 +300,7 @@ Customize agent behavior with optional markdown files in `.openvole/`:
 | `USER.md` | User profile and preferences |
 | `AGENT.md` | Operating rules and constraints |
 
-All Brain Paws (Ollama, Claude, OpenAI, Gemini, xAI) load these on startup.
+The Brain Paw loads these on startup and core builds the system prompt from them.
 
 ### Workspace
 
@@ -311,9 +319,18 @@ Encrypted key-value store at `.openvole/vault.json`:
 
 Lightweight URL fetching via the `web_fetch` core tool — GET/POST with custom headers and body. No browser Paw needed for simple HTTP requests.
 
-### Context Compaction
+### Context Management
 
-When context grows too large, `paw-compact` summarizes old messages while preserving recent context. No LLM needed — pure extraction.
+Core manages the full context pipeline via `ContextBudgetManager`:
+
+- **Token-aware budget** — estimates tokens (4 chars/token text, 2 chars/token JSON), calculates budget breakdown per iteration
+- **Priority-based trimming** — old tool results, old errors, old messages trimmed in order; never trims first user message or last 2 brain responses
+- **Compaction trigger** — at 75% token usage, runs `paw-compact` to summarize old messages
+- **System prompt** — built by core from BRAIN.md + identity files + skills + tools + memory (static-first ordering for provider prompt caching)
+- **Image handling** — extracts base64 images from tool results and passes to Brain as provider-native image blocks
+- **Stuck loop detection** — 3-tier escalation (warn at 5, dampen at 10, circuit breaker at 15 identical tool calls)
+
+Configure via `loop.maxContextTokens` (default: 128000) and `loop.responseReserve` (default: 4000).
 
 ### Dashboard
 
@@ -327,19 +344,20 @@ npx vole paw add @openvole/paw-dashboard
   <img src="https://raw.githubusercontent.com/openvole/openvole/main/assets/example/paw-dashboard/paw-dashboard.png" alt="OpenVole Dashboard" width="800">
 </p>
 
-## Official Paws (27)
+## Official Paws (28)
 
 All paws live in [PawHub](https://github.com/openvole/pawhub) and are installed via npm.
 
-### Brain (5)
+### Brain (1 + 5 legacy)
 
 | Paw | Purpose |
 |-----|---------|
-| `paw-ollama` | Local LLM via Ollama |
-| `paw-claude` | Anthropic Claude models |
-| `paw-openai` | OpenAI models |
-| `paw-gemini` | Google Gemini models |
-| `paw-xai` | xAI Grok models |
+| `paw-brain` | **Unified multi-provider brain** (Anthropic, OpenAI, Gemini, xAI, Ollama) |
+| `paw-ollama` | *(deprecated)* Local LLM via Ollama |
+| `paw-claude` | *(deprecated)* Anthropic Claude models |
+| `paw-openai` | *(deprecated)* OpenAI models |
+| `paw-gemini` | *(deprecated)* Google Gemini models |
+| `paw-xai` | *(deprecated)* xAI Grok models |
 
 ### Channel (6)
 
@@ -470,10 +488,10 @@ Single `vole.config.json` — plain JSON, no imports:
 
 ```json
 {
-  "brain": "@openvole/paw-ollama",
-  "paws": ["@openvole/paw-ollama", "@openvole/paw-memory"],
+  "brain": "@openvole/paw-brain",
+  "paws": ["@openvole/paw-brain", "@openvole/paw-memory"],
   "skills": ["clawhub/summarize"],
-  "loop": { "maxIterations": 25, "compactThreshold": 50 },
+  "loop": { "maxIterations": 25, "maxContextTokens": 128000 },
   "heartbeat": { "enabled": false, "cron": "*/30 * * * *" },
   "toolProfiles": { "paw": { "deny": ["shell_exec"] } }
 }
@@ -497,7 +515,7 @@ npx vole clawhub install summarize
 │   │   └── user/, paw/, heartbeat/
 │   ├── paw-session/         ← session transcripts
 │   │   └── cli:default/, telegram:123/
-│   ├── paw-ollama/           ← brain paw data
+│   ├── paw-brain/            ← brain paw data
 │   │   └── BRAIN.md          ← system prompt (scaffolded on first run)
 │   └── paw-mcp/             ← MCP config
 │       └── servers.json
@@ -523,7 +541,7 @@ Both are open-source AI agent frameworks. Different philosophies, many shared co
 | **Skill marketplace** | ClawHub-compatible (`vole clawhub install`) | ClawHub (13K+ skills) |
 | **Skill loading** | Progressive on-demand | Progressive on-demand |
 | **Brain/LLM** | External Paw — core is LLM-ignorant | Configurable provider in core |
-| **Brain options** | 5 (Ollama, Claude, OpenAI, Gemini, xAI) | Multi-provider with fallback chains |
+| **Brain options** | Unified paw-brain (Ollama, Claude, OpenAI, Gemini, xAI) | Multi-provider with fallback chains |
 | **Heartbeat** | HEARTBEAT.md + cron | HEARTBEAT.md + cron |
 | **Memory** | Source-isolated (user/paw/heartbeat scoped) | Shared (no source isolation) |
 | **Identity files** | BRAIN.md, SOUL.md, USER.md, AGENT.md | SOUL.md, USER.md, AGENTS.md |

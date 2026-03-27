@@ -1,22 +1,56 @@
 {
   "_comment": "OpenVole Configuration — copy to vole.config.json and customize",
 
-  "_comment_brain": "Which paw handles the Think phase (LLM calls)",
-  "brain": "@openvole/paw-ollama",
+  "_comment_brain": "Which paw handles the Think phase (LLM calls). paw-brain supports all providers.",
+  "brain": "@openvole/paw-brain",
 
   "_comment_paws": "Paws to load — use 'vole paw add <name>' to install and auto-configure",
   "paws": [
     {
-      "name": "@openvole/paw-ollama",
+      "name": "@openvole/paw-brain",
       "allow": {
-        "network": ["127.0.0.1"],
-        "env": ["OLLAMA_HOST", "OLLAMA_MODEL"]
+        "network": ["*"],
+        "env": [
+          "BRAIN_PROVIDER", "BRAIN_API_KEY", "BRAIN_MODEL", "BRAIN_BASE_URL",
+          "ANTHROPIC_API_KEY", "ANTHROPIC_MODEL",
+          "OPENAI_API_KEY", "OPENAI_MODEL",
+          "GEMINI_API_KEY", "GEMINI_MODEL",
+          "XAI_API_KEY", "XAI_MODEL",
+          "OLLAMA_HOST", "OLLAMA_MODEL", "OLLAMA_API_KEY"
+        ]
       }
     },
     {
       "name": "@openvole/paw-memory",
       "allow": {
         "env": ["VOLE_MEMORY_DIR"]
+      }
+    },
+    {
+      "name": "@openvole/paw-session",
+      "allow": {
+        "env": ["VOLE_SESSION_TTL"]
+      }
+    },
+    {
+      "name": "@openvole/paw-compact",
+      "allow": {
+        "env": ["VOLE_COMPACT_KEEP_RECENT"]
+      }
+    },
+    {
+      "name": "@openvole/paw-shell",
+      "allow": {
+        "filesystem": ["./"],
+        "env": ["VOLE_SHELL_ALLOWED_DIRS"],
+        "childProcess": true
+      }
+    },
+    {
+      "name": "@openvole/paw-filesystem",
+      "allow": {
+        "filesystem": ["./"],
+        "env": ["VOLE_FS_ALLOWED_DIRS"]
       }
     },
     {
@@ -32,7 +66,7 @@
   "skills": [],
 
   "loop": {
-    "_comment_maxIterations": "Safety limit — max agent loop cycles per task",
+    "_comment_maxIterations": "Safety limit — max idle agent loop cycles per task (resets on successful tool execution)",
     "maxIterations": 25,
 
     "_comment_confirmBeforeAct": "If true, asks user confirmation before tool execution",
@@ -41,8 +75,14 @@
     "_comment_taskConcurrency": "How many tasks can run simultaneously",
     "taskConcurrency": 1,
 
-    "_comment_compactThreshold": "Trigger context compaction when messages exceed this count (0 = disabled)",
+    "_comment_compactThreshold": "Legacy: trigger context compaction by message count (0 = disabled). Token-based compaction (75%) is always active.",
     "compactThreshold": 50,
+
+    "_comment_maxContextTokens": "Total token budget for context — adjust based on your LLM's context window",
+    "maxContextTokens": 128000,
+
+    "_comment_responseReserve": "Tokens reserved for the LLM response",
+    "responseReserve": 4000,
 
     "_comment_toolHorizon": "If true, Brain starts with core tools only and discovers others via discover_tools. Reduces token usage for large tool sets.",
     "toolHorizon": false,
