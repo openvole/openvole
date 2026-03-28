@@ -1,6 +1,6 @@
 {
   "name": "openvole",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "Micro-agent core — the minimal loop that makes agentic behavior possible",
   "type": "module",
   "main": "./dist/index.js",
