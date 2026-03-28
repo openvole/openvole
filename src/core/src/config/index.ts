@@ -31,6 +31,13 @@ export interface LoopConfig {
 	responseReserve?: number
 	/** Cost alert threshold in USD — warn when a single task exceeds this amount */
 	costAlertThreshold?: number
+	/**
+	 * Cost tracking mode:
+	 * - "auto" (default): track for cloud providers, show "free" for local Ollama
+	 * - "enabled": track costs for all providers including Ollama cloud
+	 * - "disabled": no cost tracking
+	 */
+	costTracking?: 'auto' | 'enabled' | 'disabled'
 }
 
 /** Tool profile — restricts which tools a task source can use */

@@ -24,8 +24,6 @@ const PRICING: Record<string, { input: number; output: number }> = {
 	// xAI
 	'grok-3': { input: 3.0, output: 15.0 },
 	'grok-3-mini': { input: 0.3, output: 0.5 },
-	// Ollama (local — free)
-	'__ollama__': { input: 0, output: 0 },
 }
 
 /** Fallback pricing for unknown models */
@@ -48,12 +46,32 @@ export interface TaskCostSummary {
 	entries: CostEntry[]
 }
 
+export type CostTrackingMode = 'auto' | 'enabled' | 'disabled'
+
 export class CostTracker {
 	private entries: CostEntry[] = []
 	private alertThreshold: number | undefined
+	private mode: CostTrackingMode
 
-	constructor(alertThreshold?: number) {
+	constructor(alertThreshold?: number, mode: CostTrackingMode = 'auto') {
 		this.alertThreshold = alertThreshold
+		this.mode = mode
+	}
+
+	/**
+	 * Check if a provider is local (free) based on mode and provider/model info.
+	 * In "auto" mode, Ollama is free unless the model name contains ":cloud" (Ollama cloud).
+	 * In "enabled" mode, everything is tracked.
+	 */
+	private isLocalFree(provider?: string, model?: string): boolean {
+		if (this.mode === 'enabled') return false
+		if (this.mode === 'disabled') return true
+		// auto mode: Ollama is free unless model has :cloud suffix
+		if (provider === 'ollama') {
+			if (model && model.includes(':cloud')) return false
+			return true
+		}
+		return false
 	}
 
 	/**
@@ -66,10 +84,15 @@ export class CostTracker {
 		model: string,
 		provider?: string,
 	): CostEntry {
+		if (this.mode === 'disabled') {
+			return { inputTokens: 0, outputTokens: 0, inputCost: 0, outputCost: 0, totalCost: 0, model }
+		}
+
 		const input = typeof inputTokens === 'number' ? inputTokens : 0
 		const output = typeof outputTokens === 'number' ? outputTokens : 0
 
-		const pricing = this.getPricing(model, provider)
+		const isFree = this.isLocalFree(provider, model)
+		const pricing = isFree ? { input: 0, output: 0 } : this.getPricing(model, provider)
 		const inputCost = (input / 1_000_000) * pricing.input
 		const outputCost = (output / 1_000_000) * pricing.output
 		const totalCost = inputCost + outputCost
@@ -116,7 +139,7 @@ export class CostTracker {
 		}
 	}
 
-	private getPricing(model: string, provider?: string): { input: number; output: number } {
+	private getPricing(model: string, _provider?: string): { input: number; output: number } {
 		// Check exact model match
 		if (PRICING[model]) return PRICING[model]
 
@@ -124,9 +147,6 @@ export class CostTracker {
 		for (const [key, pricing] of Object.entries(PRICING)) {
 			if (model.startsWith(key) || key.startsWith(model)) return pricing
 		}
-
-		// Ollama is local = free
-		if (provider === 'ollama') return PRICING['__ollama__']
 
 		// Unknown model — use default
 		logger.debug(`No pricing for model "${model}", using default ($${DEFAULT_PRICING.input}/$${DEFAULT_PRICING.output} per 1M tokens)`)

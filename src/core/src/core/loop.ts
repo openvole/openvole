@@ -56,7 +56,7 @@ export async function runAgentLoop(
 	const budgetManager = new ContextBudgetManager(maxContextTokens, responseReserve)
 	let toolExecutionCount = 0
 	const toolCallSignatures = new Map<string, number>()
-	const costTracker = new CostTracker(config.costAlertThreshold)
+	const costTracker = new CostTracker(config.costAlertThreshold, config.costTracking ?? 'auto')
 	logger.info(`Agent loop started for task ${task.id}: "${task.input}"`)
 
 	const logCostSummary = () => {
