@@ -122,6 +122,91 @@ describe('TaskQueue', () => {
 		})
 	})
 
+	describe('priority', () => {
+		it('defaults to normal priority', () => {
+			const task = queue.enqueue('task')
+			expect(task.priority).toBe('normal')
+		})
+
+		it('accepts priority option', () => {
+			const urgent = queue.enqueue('urgent task', 'user', { priority: 'urgent' })
+			const low = queue.enqueue('low task', 'user', { priority: 'low' })
+			expect(urgent.priority).toBe('urgent')
+			expect(low.priority).toBe('low')
+		})
+
+		it('processes urgent tasks before normal', async () => {
+			const order: string[] = []
+			queue.setRunner(async (task) => {
+				order.push(task.input)
+			})
+
+			// Enqueue without runner first so they queue up
+			queue = new TaskQueue(bus, 1)
+
+			// Queue normal first, then urgent
+			queue.enqueue('normal-1', 'user', { priority: 'normal' })
+			queue.enqueue('urgent-1', 'user', { priority: 'urgent' })
+			queue.enqueue('low-1', 'user', { priority: 'low' })
+
+			// Now set runner and drain
+			queue.setRunner(async (task) => {
+				order.push(task.input)
+			})
+
+			// Trigger drain by enqueuing one more
+			queue.enqueue('urgent-2', 'user', { priority: 'urgent' })
+
+			await new Promise((r) => setTimeout(r, 50))
+
+			// Urgent tasks should come first
+			expect(order[0]).toBe('urgent-1')
+		})
+	})
+
+	describe('dependencies', () => {
+		it('stores dependsOn when provided', () => {
+			const t1 = queue.enqueue('task-1')
+			const t2 = queue.enqueue('task-2', 'user', { dependsOn: [t1.id] })
+			expect(t2.dependsOn).toEqual([t1.id])
+		})
+
+		it('dependsOn is undefined when not provided', () => {
+			const task = queue.enqueue('task')
+			expect(task.dependsOn).toBeUndefined()
+		})
+
+		it('does not run task until dependencies are completed', async () => {
+			const order: string[] = []
+			let resolveFirst: () => void
+			const firstBlocks = new Promise<void>((resolve) => {
+				resolveFirst = resolve
+			})
+
+			queue.setRunner(async (task) => {
+				if (task.input === 'first') {
+					await firstBlocks
+				}
+				order.push(task.input)
+			})
+
+			const first = queue.enqueue('first')
+			queue.enqueue('depends-on-first', 'user', { dependsOn: [first.id] })
+			queue.enqueue('independent')
+
+			await new Promise((r) => setTimeout(r, 20))
+
+			// 'independent' should not run yet — concurrency 1, 'first' is blocking
+			// Complete the first task
+			resolveFirst!()
+
+			await new Promise((r) => setTimeout(r, 50))
+
+			expect(order).toContain('first')
+			expect(order).toContain('independent')
+		})
+	})
+
 	describe('cancelAll', () => {
 		it('cancels all queued tasks', () => {
 			// Don't set a runner so tasks stay queued

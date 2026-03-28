@@ -7,6 +7,15 @@ import { createLogger } from './logger.js'
 /** Task states */
 export type TaskStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
 
+/** Task priority — urgent tasks are processed before normal and low */
+export type TaskPriority = 'urgent' | 'normal' | 'low'
+
+const PRIORITY_ORDER: Record<TaskPriority, number> = {
+	urgent: 0,
+	normal: 1,
+	low: 2,
+}
+
 /** A discrete unit of work for the agent loop */
 export interface AgentTask {
 	id: string
@@ -22,6 +31,10 @@ export interface AgentTask {
 	metadata?: Record<string, unknown>
 	/** ID of the parent task that spawned this sub-agent task */
 	parentTaskId?: string
+	/** Task priority — default: normal */
+	priority?: TaskPriority
+	/** Task IDs this task depends on — waits until all are completed */
+	dependsOn?: string[]
 }
 
 export type TaskRunner = (task: AgentTask) => Promise<void>
@@ -52,7 +65,13 @@ export class TaskQueue {
 	enqueue(
 		input: string,
 		source: 'user' | 'schedule' | 'heartbeat' | 'paw' | 'agent' = 'user',
-		options?: { sessionId?: string; metadata?: Record<string, unknown>; parentTaskId?: string },
+		options?: {
+			sessionId?: string
+			metadata?: Record<string, unknown>
+			parentTaskId?: string
+			priority?: TaskPriority
+			dependsOn?: string[]
+		},
 	): AgentTask {
 		const task: AgentTask = {
 			id: crypto.randomUUID(),
@@ -63,6 +82,8 @@ export class TaskQueue {
 			sessionId: options?.sessionId,
 			metadata: options?.metadata,
 			parentTaskId: options?.parentTaskId,
+			priority: options?.priority ?? 'normal',
+			dependsOn: options?.dependsOn,
 		}
 
 		// Check tasksPerHour rate limit (warn but still enqueue)
@@ -155,6 +176,35 @@ export class TaskQueue {
 		return task?.status === 'cancelled'
 	}
 
+	/** Check if a task's dependencies are all satisfied (completed) */
+	private areDependenciesMet(task: AgentTask): boolean {
+		if (!task.dependsOn || task.dependsOn.length === 0) return true
+		return task.dependsOn.every((depId) => {
+			const dep = this.completed.find((t) => t.id === depId)
+			return dep && dep.status === 'completed'
+		})
+	}
+
+	/** Pick the next ready task from the queue (priority-aware, dependency-aware) */
+	private pickNextTask(): AgentTask | undefined {
+		// Sort by priority, then by creation time (FIFO within same priority)
+		const ready = this.queue
+			.map((task, index) => ({ task, index }))
+			.filter(({ task }) => this.areDependenciesMet(task))
+			.sort((a, b) => {
+				const pa = PRIORITY_ORDER[a.task.priority ?? 'normal']
+				const pb = PRIORITY_ORDER[b.task.priority ?? 'normal']
+				if (pa !== pb) return pa - pb
+				return a.task.createdAt - b.task.createdAt
+			})
+
+		if (ready.length === 0) return undefined
+
+		const picked = ready[0]
+		this.queue.splice(picked.index, 1)
+		return picked.task
+	}
+
 	private async drain(): Promise<void> {
 		if (this.draining) return
 		this.draining = true
@@ -166,12 +216,14 @@ export class TaskQueue {
 					break
 				}
 
-				const task = this.queue.shift()!
+				const task = this.pickNextTask()
+				if (!task) break // No ready tasks (all waiting on dependencies)
+
 				task.status = 'running'
 				task.startedAt = Date.now()
 				this.running.set(task.id, task)
 
-				logger.info(`Task ${task.id} started`)
+				logger.info(`Task ${task.id} started (priority: ${task.priority ?? 'normal'})`)
 				this.bus.emit('task:started', { taskId: task.id })
 
 				// Run task without blocking the drain loop for concurrency > 1

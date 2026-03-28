@@ -573,15 +573,20 @@ export class PawRegistry {
 					description: s.definition.description,
 				})) ?? []
 			case 'tasks':
-				return this.taskQueue?.list().map((t) => ({
-					id: t.id,
-					source: t.source,
-					input: t.input,
-					status: t.status,
-					createdAt: t.createdAt,
-					startedAt: (t as Record<string, unknown>).startedAt,
-					completedAt: (t as Record<string, unknown>).completedAt,
-				})) ?? []
+				return this.taskQueue?.list().map((t) => {
+					const task = t as Record<string, unknown>
+					return {
+						id: t.id,
+						source: t.source,
+						input: t.input,
+						status: t.status,
+						createdAt: t.createdAt,
+						startedAt: task.startedAt,
+						completedAt: task.completedAt,
+						priority: task.priority,
+						metadata: task.metadata ? { cost: (task.metadata as Record<string, unknown>).cost } : undefined,
+					}
+				}) ?? []
 			case 'schedules':
 				return this.scheduler?.list() ?? []
 			default:

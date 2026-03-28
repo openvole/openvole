@@ -19,6 +19,7 @@ import { buildActiveSkills } from '../skill/resolver.js'
 import { PHASE_ORDER } from './hooks.js'
 import { buildSystemPrompt, type SystemPromptContent } from './system-prompt.js'
 import { ContextBudgetManager } from './context-budget.js'
+import { CostTracker } from './cost-tracker.js'
 
 import { createLogger } from './logger.js'
 
@@ -55,7 +56,19 @@ export async function runAgentLoop(
 	const budgetManager = new ContextBudgetManager(maxContextTokens, responseReserve)
 	let toolExecutionCount = 0
 	const toolCallSignatures = new Map<string, number>()
+	const costTracker = new CostTracker(config.costAlertThreshold, config.costTracking ?? 'auto')
 	logger.info(`Agent loop started for task ${task.id}: "${task.input}"`)
+
+	const logCostSummary = () => {
+		const summary = costTracker.getSummary()
+		if (summary.llmCalls > 0) {
+			logger.info(
+				`Task cost summary — ${summary.llmCalls} LLM calls, ${summary.totalInputTokens} input + ${summary.totalOutputTokens} output tokens, $${summary.totalCost.toFixed(6)} total`,
+			)
+			task.metadata = task.metadata ?? {}
+			task.metadata.cost = summary
+		}
+	}
 
 	// Reset tool horizon for each new task
 	toolRegistry.resetHorizon()
@@ -229,6 +242,16 @@ export async function runAgentLoop(
 		const llmMs = Date.now() - llmStart
 		logger.info(`LLM round-trip: ${llmMs}ms`)
 
+		// Record cost from Brain's usage report
+		if (plan && plan !== 'BRAIN_ERROR' && plan.usage) {
+			costTracker.record(
+				plan.usage.inputTokens,
+				plan.usage.outputTokens,
+				plan.usage.model ?? 'unknown',
+				plan.usage.provider,
+			)
+		}
+
 		// Mark tool results as "seen" by the Brain for lifecycle management
 		for (const msg of enrichedContext.messages) {
 			if (msg.role === 'tool_result' && msg.seenAtIteration === undefined) {
@@ -315,6 +338,7 @@ export async function runAgentLoop(
 					timestamp: Date.now(),
 				})
 			}
+			logCostSummary()
 			logger.info(`Task ${task.id} completed by Brain at iteration ${context.iteration + 1}`)
 			return
 		}
@@ -519,6 +543,8 @@ export async function runAgentLoop(
 		// Update context for next iteration
 		Object.assign(context, enrichedContext)
 	}
+
+	logCostSummary()
 
 	if (idleIterations >= effectiveMaxIterations) {
 		const msg = 'Sorry, I was unable to complete this task. Please try again with a simpler request.'
