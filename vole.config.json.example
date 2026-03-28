@@ -85,7 +85,12 @@
     "responseReserve": 4000,
 
     "_comment_toolHorizon": "If true, Brain starts with core tools only and discovers others via discover_tools. Reduces token usage for large tool sets.",
-    "toolHorizon": false,
+    "toolHorizon": true,
+
+    "_comment_costTracking": "Cost tracking mode: auto (local ollama=free, cloud=priced), enabled (track all), disabled (no tracking)",
+    "costTracking": "auto",
+
+    "_comment_costAlertThreshold": "Warn when a single task exceeds this USD amount (optional)",
 
     "_comment_rateLimits": "Prevent runaway API costs",
     "rateLimits": {

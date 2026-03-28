@@ -1,5 +1,37 @@
 # Changelog
 
+## v1.3.0 (2026-03-28)
+
+### Cost Tracking
+- Per-LLM-call cost estimation with provider pricing table (Anthropic, OpenAI, Gemini, xAI, Ollama)
+- Brain paws report token usage via `AgentPlan.usage` — core tracks per-task cost
+- `costAlertThreshold` config — warn when a task exceeds a dollar threshold
+- `costTracking` mode: `auto` (local Ollama = free, cloud = priced), `enabled`, `disabled`
+- Auto-detects Ollama local vs cloud via `:cloud` suffix in model name
+
+### Task Priority & Dependencies
+- Priority levels: `urgent` > `normal` > `low` — priority-aware queue scheduling
+- Task dependencies: `dependsOn: [taskId]` — tasks wait until prerequisites complete
+
+### Smarter Compaction
+- Two-phase compaction: Phase 1 shrinks seen tool results in-place (works even with few messages), Phase 2 does full structured summary
+- Fixes the "compact did nothing" issue when large tool results hit 75% budget but message count was low
+
+### Memory Intelligence
+- paw-memory `onCompact` hook — auto-extracts user preferences and key facts before messages are compacted away
+- paw-memory `onObserve` hook — extracts tool usage patterns every 10 successful calls
+
+### Provider Fallback Chains
+- paw-brain: `BRAIN_FALLBACK` env var — if primary provider errors, automatically retry with fallback
+- Supports `BRAIN_FALLBACK_MODEL` and `BRAIN_FALLBACK_BASE_URL`
+
+### Dashboard
+- Cost column in tasks table — shows $ amount and token count per task
+- Task priority visible in query response
+
+### Testing
+- 210 tests (was 182): 22 cost tracker tests, 6 priority/dependency tests
+
 ## v1.2.0 (2026-03-28)
 
 ### Context Engine

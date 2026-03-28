@@ -277,6 +277,18 @@ Each Paw has its own local config directory at `.openvole/paws/<name>/`. The ins
 
 Example: `paw-mcp` reads its `servers.json` from `.openvole/paws/paw-mcp/`, not from `node_modules/`.
 
+### Cost Tracking
+
+Per-task LLM cost estimation with provider pricing tables. Tracks input/output tokens and estimates USD cost per call. Supports auto-detection of local Ollama (free) vs cloud models.
+
+Configure in `loop`:
+- `costTracking`: `"auto"` (default) | `"enabled"` | `"disabled"`
+- `costAlertThreshold`: warn when a task exceeds $X (e.g. `0.50`)
+
+### Task Priority & Dependencies
+
+Tasks support priority levels (`urgent`, `normal`, `low`) and dependencies (`dependsOn: [taskId]`). Urgent tasks jump the queue. Dependent tasks wait until all prerequisites complete.
+
 ### Rate Limiting
 
 Prevent runaway costs with configurable limits on LLM calls, tool executions, and task enqueue rates.
