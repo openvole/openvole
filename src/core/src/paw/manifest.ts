@@ -14,6 +14,7 @@ const pawManifestSchema = z.object({
 	description: z.string(),
 	entry: z.string().min(1),
 	brain: z.boolean().default(false),
+	category: z.enum(['brain', 'channel', 'tool', 'infrastructure']).default('tool'),
 	inProcess: z.boolean().optional().default(false),
 	transport: z.enum(['ipc', 'stdio']).optional().default('ipc'),
 	tools: z
