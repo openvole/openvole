@@ -16,6 +16,12 @@ export interface AgentMessage {
 	content: string
 	toolCall?: { name: string; params: unknown }
 	timestamp: number
+	/** Iteration at which the Brain has seen this tool result (for lifecycle management) */
+	seenAtIteration?: number
+	/** Base64-encoded image extracted from tool result */
+	imageBase64?: string
+	/** MIME type of the extracted image */
+	imageMimeType?: string
 }
 
 export interface ToolSummary {
@@ -47,6 +53,13 @@ export interface AgentPlan {
 	execution?: 'parallel' | 'sequential'
 	response?: string
 	done?: boolean
+	/** Token usage reported by the Brain Paw (for cost tracking) */
+	usage?: {
+		inputTokens?: number
+		outputTokens?: number
+		model?: string
+		provider?: string
+	}
 }
 
 export interface PlannedAction {
