@@ -121,6 +121,11 @@ Skill management:
   vole skill list                        List Skills and activation status
   vole skill add <name>                  Install and register a Skill
   vole skill remove <name>              Uninstall and deregister a Skill
+  vole skill search <query>              Search VoleHub for skills
+  vole skill install <name>              Install a skill from VoleHub
+  vole skill uninstall <name>            Remove a VoleHub skill
+  vole skill publish [path]              Prepare a skill for VoleHub publishing
+  vole skill hub                         List installed VoleHub skills
 
 Tool management:
   vole tool list                         List all registered tools (from manifests)
@@ -754,9 +759,117 @@ async function handleSkillCommand(
 			break
 		}
 
+		case 'search': {
+			const query = args.slice(1).join(' ')
+			if (!query) {
+				logger.error('Usage: vole skill search <query>')
+				process.exit(1)
+			}
+			const { VoleHubClient } = await import('./skill/volehub.js')
+			const hub = new VoleHubClient()
+			try {
+				const results = await hub.search(query)
+				if (results.length === 0) {
+					logger.info('No skills found.')
+				} else {
+					logger.info(`Found ${results.length} skill(s):`)
+					for (const skill of results) {
+						logger.info(`  ${skill.name}@${skill.version} — ${skill.description}`)
+						if (skill.tags.length > 0) {
+							logger.info(`    tags: ${skill.tags.join(', ')}`)
+						}
+						if (skill.requiredTools.length > 0) {
+							logger.info(`    requires: ${skill.requiredTools.join(', ')}`)
+						}
+					}
+				}
+			} catch (err) {
+				logger.error(`VoleHub search failed: ${err instanceof Error ? err.message : String(err)}`)
+			}
+			break
+		}
+
+		case 'install': {
+			const skillName = args[1]
+			if (!skillName) {
+				logger.error('Usage: vole skill install <name>')
+				process.exit(1)
+			}
+			const { VoleHubClient: HubClient } = await import('./skill/volehub.js')
+			const hubClient = new HubClient()
+			try {
+				const result = await hubClient.install(skillName, projectRoot)
+				logger.info(`Installed ${result.skill.name}@${result.skill.version} to ${result.path}`)
+				// Add to config
+				await addSkillToConfig(projectRoot, `volehub/${result.skill.name}`)
+				await addSkillToLock(projectRoot, `volehub/${result.skill.name}`, result.skill.version)
+				logger.info(`Added "volehub/${result.skill.name}" to vole.config.json`)
+			} catch (err) {
+				logger.error(`VoleHub install failed: ${err instanceof Error ? err.message : String(err)}`)
+			}
+			break
+		}
+
+		case 'uninstall': {
+			const uninstallName = args[1]
+			if (!uninstallName) {
+				logger.error('Usage: vole skill uninstall <name>')
+				process.exit(1)
+			}
+			const { VoleHubClient: UninstallClient } = await import('./skill/volehub.js')
+			const uninstallClient = new UninstallClient()
+			const removed = await uninstallClient.uninstall(uninstallName, projectRoot)
+			if (removed) {
+				await removeSkillFromConfig(projectRoot, `volehub/${uninstallName}`)
+				await removeSkillFromLock(projectRoot, `volehub/${uninstallName}`)
+				logger.info(`Uninstalled "${uninstallName}" and removed from config`)
+			} else {
+				logger.error(`Skill "${uninstallName}" not found in VoleHub installations`)
+			}
+			break
+		}
+
+		case 'publish': {
+			const publishPath = args[1] ?? '.'
+			const { VoleHubClient: PubClient } = await import('./skill/volehub.js')
+			const pubClient = new PubClient()
+			try {
+				const skillPath = path.resolve(projectRoot, publishPath)
+				const prepared = await pubClient.preparePublish(skillPath)
+				logger.info(`Skill ready for publishing:`)
+				logger.info(`  name: ${prepared.name}`)
+				logger.info(`  version: ${prepared.version}`)
+				logger.info(`  description: ${prepared.description}`)
+				logger.info(`  hash: ${prepared.contentHash}`)
+				logger.info(`  tools: ${prepared.requiredTools.join(', ') || 'none'}`)
+				logger.info(`  tags: ${prepared.tags.join(', ') || 'none'}`)
+				logger.info('')
+				logger.info('To publish, create a PR against https://github.com/openvole/volehub')
+				logger.info(`with your SKILL.md in skills/${prepared.name}/`)
+			} catch (err) {
+				logger.error(`Publish preparation failed: ${err instanceof Error ? err.message : String(err)}`)
+			}
+			break
+		}
+
+		case 'hub': {
+			const { VoleHubClient: ListClient } = await import('./skill/volehub.js')
+			const listClient = new ListClient()
+			const installed = await listClient.listInstalled(projectRoot)
+			if (installed.length === 0) {
+				logger.info('No VoleHub skills installed.')
+			} else {
+				logger.info(`VoleHub skills (${installed.length}):`)
+				for (const skill of installed) {
+					logger.info(`  ${skill.name}@${skill.version} (installed: ${skill.installedAt})`)
+				}
+			}
+			break
+		}
+
 		default:
 			logger.error(`Unknown skill command: ${subcommand}`)
-			logger.info('Available: list, add, remove')
+			logger.info('Available: list, create, add, remove, search, install, uninstall, publish, hub')
 			process.exit(1)
 	}
 }
