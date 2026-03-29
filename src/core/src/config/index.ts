@@ -64,6 +64,20 @@ export interface SecurityConfig {
 	allowedPaths?: string[]
 }
 
+/** Agent profile — named agent with role, tool restrictions, and resource limits */
+export interface AgentProfile {
+	/** Human-readable role description */
+	role?: string
+	/** Instructions injected into the sub-agent's context */
+	instructions?: string
+	/** Tools this agent is allowed to use (allowlist) */
+	allowTools?: string[]
+	/** Tools this agent is denied (denylist — takes precedence over allow) */
+	denyTools?: string[]
+	/** Max iterations for this agent (default: 10) */
+	maxIterations?: number
+}
+
 /** The full OpenVole configuration */
 export interface VoleConfig {
 	brain?: string
@@ -75,6 +89,8 @@ export interface VoleConfig {
 	toolProfiles?: Record<string, ToolProfile>
 	/** Security settings */
 	security?: SecurityConfig
+	/** Named agent profiles for sub-agent spawning */
+	agents?: Record<string, AgentProfile>
 }
 
 /** CLI-managed lock file — tracks installed paws and skills */

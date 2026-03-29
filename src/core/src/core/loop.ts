@@ -93,6 +93,31 @@ export async function runAgentLoop(
 		context.metadata.heartbeat = true
 	}
 
+	// For sub-agents: inject parent context and agent instructions before the task input
+	if (task.source === 'agent') {
+		const agentRole = task.metadata?.agentRole as string | undefined
+		const agentInstructions = task.metadata?.agentInstructions as string | undefined
+		const parentContext = task.metadata?.parentContext as string | undefined
+
+		if (agentRole || agentInstructions) {
+			const parts: string[] = []
+			if (agentRole) parts.push(`You are a ${agentRole}.`)
+			if (agentInstructions) parts.push(agentInstructions)
+			context.messages.push({
+				role: 'user',
+				content: `[Agent Instructions]\n${parts.join('\n')}`,
+				timestamp: Date.now(),
+			})
+		}
+		if (parentContext) {
+			context.messages.push({
+				role: 'user',
+				content: `[Context from parent agent]\n${parentContext}`,
+				timestamp: Date.now(),
+			})
+		}
+	}
+
 	// Seed with user input
 	context.messages.push({
 		role: 'user',
@@ -565,7 +590,21 @@ async function runPerceive(
 ): Promise<AgentContext> {
 	// Set available tools and active skills
 	const enriched = { ...context }
-	enriched.availableTools = toolRegistry.summaries()
+	let tools = toolRegistry.summaries()
+
+	// Apply sub-agent tool restrictions from agent profile
+	const allowTools = context.metadata.allowTools as string[] | undefined
+	const denyTools = context.metadata.denyTools as string[] | undefined
+	if (denyTools && denyTools.length > 0) {
+		const denySet = new Set(denyTools)
+		tools = tools.filter((t) => !denySet.has(t.name))
+	}
+	if (allowTools && allowTools.length > 0) {
+		const allowSet = new Set(allowTools)
+		// Always allow core tools (spawn_agent, get_agent_result, etc.)
+		tools = tools.filter((t) => allowSet.has(t.name) || t.pawName === 'core')
+	}
+	enriched.availableTools = tools
 	enriched.activeSkills = buildActiveSkills(
 		skillRegistry.list(),
 		toolRegistry,

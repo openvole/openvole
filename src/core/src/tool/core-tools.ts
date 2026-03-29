@@ -329,47 +329,98 @@ export function createCoreTools(
 		{
 			name: 'spawn_agent',
 			description:
-				'Spawn a sub-agent to handle a sub-task independently. Returns a task ID to check results later. The sub-agent runs in its own context with its own iteration limit.',
+				'Spawn a sub-agent to handle a sub-task independently. Returns a task ID. Supports named agent profiles (defined in vole.config.json "agents" section) with role-based tool restrictions. Sub-agents can spawn one level of sub-sub-agents (max depth 2).',
 			parameters: z.object({
 				task: z.string().describe('The task description for the sub-agent'),
+				agent: z
+					.string()
+					.optional()
+					.describe('Named agent profile from config (e.g. "researcher", "writer"). If not set, uses default with all tools.'),
 				max_iterations: z
 					.number()
 					.optional()
-					.default(10)
-					.describe('Iteration limit for the sub-agent (default 10)'),
+					.describe('Iteration limit for the sub-agent. Defaults to profile setting or 10.'),
+				context: z
+					.string()
+					.optional()
+					.describe('Additional context to pass to the sub-agent (e.g. key facts, constraints). Injected as a system message before the task.'),
+				priority: z
+					.enum(['urgent', 'normal', 'low'])
+					.optional()
+					.describe('Task priority. Default: normal.'),
 			}),
 			async execute(params) {
-				const { task: taskInput, max_iterations } = params as {
+				const { task: taskInput, agent: agentName, max_iterations, context: parentContext, priority } = params as {
 					task: string
-					max_iterations: number
+					agent?: string
+					max_iterations?: number
+					context?: string
+					priority?: 'urgent' | 'normal' | 'low'
 				}
 
-				// Prevent infinite recursion: reject if the calling task is already a sub-agent
+				// Depth check: allow 2 levels (parent → child → grandchild)
 				const runningTasks = taskQueue.getRunning()
-				const callerIsAgent = runningTasks.some((t) => t.source === 'agent')
-				if (callerIsAgent) {
+				const callerTask = runningTasks[0]
+				const callerDepth = (callerTask?.metadata?.agentDepth as number) ?? 0
+				const MAX_SPAWN_DEPTH = 2
+
+				if (callerDepth >= MAX_SPAWN_DEPTH) {
 					return {
 						ok: false,
-						error:
-							'Sub-agents cannot spawn further sub-agents. Handle this sub-task directly.',
+						error: `Max agent spawn depth (${MAX_SPAWN_DEPTH}) reached. Handle this sub-task directly.`,
 					}
 				}
 
-				// Find the parent task (the currently running task that invoked this tool)
-				const parentTask = runningTasks[0]
-				const parentTaskId = parentTask?.id
+				// Resolve agent profile from config
+				const config = callerTask?.metadata?.voleConfig as Record<string, unknown> | undefined
+				const agents = config?.agents as Record<string, import('../config/index.js').AgentProfile> | undefined
+				const profile = agentName && agents ? agents[agentName] : undefined
+
+				if (agentName && !profile) {
+					return {
+						ok: false,
+						error: `Agent profile "${agentName}" not found. Available: ${agents ? Object.keys(agents).join(', ') : 'none configured'}`,
+					}
+				}
+
+				const iterations = max_iterations ?? profile?.maxIterations ?? 10
+
+				// Build metadata for the child task
+				const metadata: Record<string, unknown> = {
+					maxIterations: iterations,
+					agentDepth: callerDepth + 1,
+					voleConfig: config,
+				}
+
+				// Pass tool restrictions from profile
+				if (profile?.allowTools) metadata.allowTools = profile.allowTools
+				if (profile?.denyTools) metadata.denyTools = profile.denyTools
+
+				// Pass context and instructions
+				if (parentContext) metadata.parentContext = parentContext
+				if (profile?.instructions) metadata.agentInstructions = profile.instructions
+				if (profile?.role) metadata.agentRole = profile.role
+
+				const parentTaskId = callerTask?.id
 
 				const agentTask = taskQueue.enqueue(taskInput, 'agent', {
 					parentTaskId,
-					metadata: { maxIterations: max_iterations },
+					metadata,
+					priority: priority as import('../core/task.js').TaskPriority | undefined,
 				})
 
-				return { ok: true, task_id: agentTask.id, status: 'queued' }
+				return {
+					ok: true,
+					task_id: agentTask.id,
+					status: 'queued',
+					agent: agentName ?? 'default',
+					depth: callerDepth + 1,
+				}
 			},
 		},
 		{
 			name: 'get_agent_result',
-			description: 'Check the status and result of a spawned sub-agent task.',
+			description: 'Check the status and result of a spawned sub-agent task. Returns status, result, and cost metrics when available.',
 			parameters: z.object({
 				task_id: z
 					.string()
@@ -383,35 +434,95 @@ export function createCoreTools(
 					return { ok: false, error: 'Task not found' }
 				}
 
-				if (agentTask.status === 'queued') {
-					return { ok: true, status: 'queued' }
+				const base = {
+					ok: true,
+					status: agentTask.status,
+					task_id: agentTask.id,
 				}
 
-				if (agentTask.status === 'running') {
-					return { ok: true, status: 'running' }
+				if (agentTask.status === 'queued' || agentTask.status === 'running') {
+					return base
 				}
 
 				if (agentTask.status === 'completed') {
+					const cost = agentTask.metadata?.cost as Record<string, unknown> | undefined
 					return {
-						ok: true,
-						status: 'completed',
+						...base,
 						result: agentTask.result ?? null,
+						duration_ms: agentTask.completedAt && agentTask.startedAt
+							? agentTask.completedAt - agentTask.startedAt
+							: undefined,
+						cost: cost ? {
+							llm_calls: cost.llmCalls,
+							total_tokens: (cost.totalInputTokens as number ?? 0) + (cost.totalOutputTokens as number ?? 0),
+							total_cost: cost.totalCost,
+						} : undefined,
 					}
 				}
 
 				if (agentTask.status === 'failed') {
-					return {
-						ok: true,
-						status: 'failed',
-						error: agentTask.error ?? 'Unknown error',
+					return { ...base, error: agentTask.error ?? 'Unknown error' }
+				}
+
+				return base
+			},
+		},
+		{
+			name: 'wait_for_agents',
+			description: 'Wait for one or more spawned sub-agent tasks to complete. Returns all results once all are done (or any fails/times out).',
+			parameters: z.object({
+				task_ids: z.array(z.string()).describe('Array of task IDs from spawn_agent'),
+				timeout_ms: z
+					.number()
+					.optional()
+					.default(120000)
+					.describe('Maximum wait time in milliseconds. Default: 120000 (2 minutes).'),
+			}),
+			async execute(params) {
+				const { task_ids, timeout_ms } = params as { task_ids: string[]; timeout_ms: number }
+				const startTime = Date.now()
+
+				// Poll until all complete or timeout
+				while (Date.now() - startTime < timeout_ms) {
+					const results = task_ids.map((id) => {
+						const task = taskQueue.get(id)
+						if (!task) return { task_id: id, status: 'not_found' as const }
+						return {
+							task_id: id,
+							status: task.status,
+							result: task.status === 'completed' ? (task.result ?? null) : undefined,
+							error: task.status === 'failed' ? (task.error ?? 'Unknown error') : undefined,
+						}
+					})
+
+					const allDone = results.every((r) =>
+						r.status === 'completed' || r.status === 'failed' || r.status === 'cancelled' || r.status === 'not_found',
+					)
+
+					if (allDone) {
+						return { ok: true, results }
 					}
+
+					// Wait 500ms before checking again
+					await new Promise((resolve) => setTimeout(resolve, 500))
 				}
 
-				if (agentTask.status === 'cancelled') {
-					return { ok: true, status: 'cancelled' }
-				}
+				// Timeout — return current state
+				const finalResults = task_ids.map((id) => {
+					const task = taskQueue.get(id)
+					return {
+						task_id: id,
+						status: task?.status ?? 'not_found',
+						result: task?.status === 'completed' ? (task.result ?? null) : undefined,
+						error: task?.status === 'failed' ? (task.error ?? null) : undefined,
+					}
+				})
 
-				return { ok: true, status: agentTask.status }
+				return {
+					ok: false,
+					error: `Timeout after ${timeout_ms}ms`,
+					results: finalResults,
+				}
 			},
 		},
 

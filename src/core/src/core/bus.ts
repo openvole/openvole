@@ -12,6 +12,7 @@ export type BusEvents = {
 	'task:completed': { taskId: string; result?: string }
 	'task:failed': { taskId: string; error?: unknown; result?: string }
 	'task:cancelled': { taskId: string }
+	'agent:completed': { taskId: string; parentTaskId: string; status: string; result?: string; error?: string }
 	'rate:limited': { bucket: string; source?: string }
 }
 
