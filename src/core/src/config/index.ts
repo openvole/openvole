@@ -113,19 +113,6 @@ export interface VoleConfig {
 	agents?: Record<string, AgentProfile>
 }
 
-/** CLI-managed lock file — tracks installed paws and skills */
-export interface VoleLock {
-	paws: Array<{
-		name: string
-		version: string
-		allow?: PawConfig['allow']
-	}>
-	skills: Array<{
-		name: string
-		version: string
-	}>
-}
-
 /** Default configuration values */
 const DEFAULT_LOOP_CONFIG: LoopConfig = {
 	maxIterations: 10,
@@ -170,13 +157,9 @@ export function defineConfig(config: Partial<VoleConfig>): VoleConfig {
 	}
 }
 
-/** Load configuration — merges vole.config.{ts,mjs,js} with vole.lock.json */
+/** Load configuration from vole.config.json */
 export async function loadConfig(configPath: string): Promise<VoleConfig> {
-	const userConfig = await loadUserConfig(configPath)
-	const lockPath = path.join(path.dirname(configPath), '.openvole', 'vole.lock.json')
-	const lock = await loadLockFile(lockPath)
-
-	return mergeConfigWithLock(userConfig, lock)
+	return loadUserConfig(configPath)
 }
 
 /** Load the user-authored config file */
@@ -241,137 +224,6 @@ async function loadUserConfig(configPath: string): Promise<VoleConfig> {
 
 	console.warn(`[config] No config found (tried: ${jsonPath}, ${candidates.join(', ')}), using defaults`)
 	return defineConfig({})
-}
-
-/** Load the CLI-managed lock file */
-async function loadLockFile(lockPath: string): Promise<VoleLock> {
-	try {
-		const raw = await fs.readFile(lockPath, 'utf-8')
-		return JSON.parse(raw) as VoleLock
-	} catch {
-		return { paws: [], skills: [] }
-	}
-}
-
-/**
- * Merge user config with lock file.
- * Lock file entries are added if not already present in user config.
- * User config takes precedence (can override permissions, add hooks, etc.)
- */
-function mergeConfigWithLock(userConfig: VoleConfig, lock: VoleLock): VoleConfig {
-	const userPawNames = new Set(
-		userConfig.paws.map((p) => (typeof p === 'string' ? p : p.name)),
-	)
-	const userSkillNames = new Set(userConfig.skills)
-
-	// Add lock file paws not already in user config
-	const mergedPaws: Array<PawConfig | string> = [...userConfig.paws]
-	for (const lockPaw of lock.paws) {
-		if (!userPawNames.has(lockPaw.name)) {
-			mergedPaws.push(
-				lockPaw.allow
-					? { name: lockPaw.name, allow: lockPaw.allow }
-					: lockPaw.name,
-			)
-		}
-	}
-
-	// Add lock file skills not already in user config
-	const mergedSkills = [...userConfig.skills]
-	for (const lockSkill of lock.skills) {
-		if (!userSkillNames.has(lockSkill.name)) {
-			mergedSkills.push(lockSkill.name)
-		}
-	}
-
-	return {
-		...userConfig,
-		paws: mergedPaws,
-		skills: mergedSkills,
-	}
-}
-
-// === Lock file management (used by CLI) ===
-
-/** Read the lock file */
-export async function readLockFile(projectRoot: string): Promise<VoleLock> {
-	const lockPath = path.join(projectRoot, '.openvole', 'vole.lock.json')
-	try {
-		const raw = await fs.readFile(lockPath, 'utf-8')
-		return JSON.parse(raw) as VoleLock
-	} catch {
-		return { paws: [], skills: [] }
-	}
-}
-
-/** Write the lock file */
-export async function writeLockFile(
-	projectRoot: string,
-	lock: VoleLock,
-): Promise<void> {
-	const openvoleDir = path.join(projectRoot, '.openvole')
-	await fs.mkdir(openvoleDir, { recursive: true })
-	const lockPath = path.join(openvoleDir, 'vole.lock.json')
-	await fs.writeFile(lockPath, JSON.stringify(lock, null, 2) + '\n', 'utf-8')
-}
-
-/** Add a Paw to the lock file */
-export async function addPawToLock(
-	projectRoot: string,
-	name: string,
-	version: string,
-	allow?: PawConfig['allow'],
-): Promise<void> {
-	const lock = await readLockFile(projectRoot)
-	const existing = lock.paws.findIndex((p) => p.name === name)
-	const entry = { name, version, allow }
-
-	if (existing >= 0) {
-		lock.paws[existing] = entry
-	} else {
-		lock.paws.push(entry)
-	}
-
-	await writeLockFile(projectRoot, lock)
-}
-
-/** Remove a Paw from the lock file */
-export async function removePawFromLock(
-	projectRoot: string,
-	name: string,
-): Promise<void> {
-	const lock = await readLockFile(projectRoot)
-	lock.paws = lock.paws.filter((p) => p.name !== name)
-	await writeLockFile(projectRoot, lock)
-}
-
-/** Add a Skill to the lock file */
-export async function addSkillToLock(
-	projectRoot: string,
-	name: string,
-	version: string,
-): Promise<void> {
-	const lock = await readLockFile(projectRoot)
-	const existing = lock.skills.findIndex((s) => s.name === name)
-	const entry = { name, version }
-
-	if (existing >= 0) {
-		lock.skills[existing] = entry
-	} else {
-		lock.skills.push(entry)
-	}
-
-	await writeLockFile(projectRoot, lock)
-}
-
-/** Remove a Skill from the lock file */
-export async function removeSkillFromLock(
-	projectRoot: string,
-	name: string,
-): Promise<void> {
-	const lock = await readLockFile(projectRoot)
-	lock.skills = lock.skills.filter((s) => s.name !== name)
-	await writeLockFile(projectRoot, lock)
 }
 
 // === vole.config.json management ===

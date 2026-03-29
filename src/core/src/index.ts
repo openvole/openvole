@@ -4,14 +4,8 @@
 export {
 	defineConfig,
 	loadConfig,
-	readLockFile,
-	writeLockFile,
-	addPawToLock,
-	removePawFromLock,
-	addSkillToLock,
-	removeSkillFromLock,
 } from './config/index.js'
-export type { VoleConfig, LoopConfig, HeartbeatConfig, VoleLock, RateLimits } from './config/index.js'
+export type { VoleConfig, LoopConfig, HeartbeatConfig, RateLimits } from './config/index.js'
 
 // Core
 export { createMessageBus } from './core/bus.js'
