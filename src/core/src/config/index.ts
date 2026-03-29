@@ -56,12 +56,32 @@ export interface HeartbeatConfig {
 	runOnStart?: boolean
 }
 
+/** Docker sandbox configuration */
+export interface DockerSandboxConfig {
+	/** Enable Docker sandboxing (default: false) */
+	enabled?: boolean
+	/** Docker image to use (default: node:20-slim) */
+	image?: string
+	/** Memory limit per container (default: 512m) */
+	memory?: string
+	/** CPU limit per container (default: 1.0) */
+	cpus?: string
+	/** Container scope: per-session or shared (default: session) */
+	scope?: 'session' | 'shared'
+	/** Network mode: none, bridge, or host (default: none) */
+	network?: 'none' | 'bridge' | 'host'
+	/** Allowed outbound domains when network=bridge */
+	allowedDomains?: string[]
+}
+
 /** Security configuration */
 export interface SecurityConfig {
 	/** If false, disables filesystem sandboxing for paw subprocesses. Default: true (sandboxed) */
 	sandboxFilesystem?: boolean
 	/** Additional paths paws are allowed to access outside .openvole/ */
 	allowedPaths?: string[]
+	/** Docker container sandbox (optional, stronger isolation) */
+	docker?: DockerSandboxConfig
 }
 
 /** Agent profile — named agent with role, tool restrictions, and resource limits */
