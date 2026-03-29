@@ -101,12 +101,17 @@ export interface VoleIO {
 	notify(message: string): void
 }
 
+/** Paw category */
+export type PawCategory = 'brain' | 'channel' | 'tool' | 'infrastructure'
+
 /** The full Paw definition */
 export interface PawDefinition {
 	name: string
 	version: string
 	description: string
 	brain?: boolean
+	/** Paw category (required in vole-paw.json, optional here — defaults to 'tool') */
+	category?: PawCategory
 	inProcess?: boolean
 	config?: ZodSchema
 	hooks?: {

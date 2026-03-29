@@ -17,4 +17,5 @@ export type {
 	CompactHook,
 	ScheduleHook,
 	VoleIO,
+	PawCategory,
 } from './types.js'
