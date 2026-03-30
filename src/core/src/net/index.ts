@@ -40,6 +40,37 @@ export interface VoleNetConfig {
 	}
 	discovery?: 'manual' | 'mdns'
 	routing?: Record<string, string>
+
+	/**
+	 * Leader selection mode:
+	 * - "auto" (default): lowest instance ID wins, automatic failover
+	 * - "<instanceName>": force a specific instance as leader
+	 */
+	leader?: 'auto' | string
+
+	/**
+	 * Heartbeat mode:
+	 * - "leader" (default): only the leader runs heartbeat/schedules
+	 * - "independent": each instance runs its own heartbeat independently
+	 */
+	heartbeatMode?: 'leader' | 'independent'
+
+	/**
+	 * Brain load balancing:
+	 * - "local" (default): each instance handles its own tasks
+	 * - "loadbalance": route incoming tasks to the least-loaded brain across peers
+	 */
+	brainMode?: 'local' | 'loadbalance'
+
+	/**
+	 * Task overflow behavior when local queue is full:
+	 * - "reject" (default): reject the task
+	 * - "forward": forward to the least-loaded peer automatically
+	 */
+	taskOverflow?: 'reject' | 'forward'
+
+	/** Max queued tasks before overflow triggers (default: 10) */
+	maxQueuedTasks?: number
 }
 
 export class VoleNetManager {
@@ -157,6 +188,7 @@ export class VoleNetManager {
 			this.keyPair.instanceId,
 			this.config.instanceName ?? 'vole',
 			this.keyPair.privateKey,
+			this.config.leader,
 		)
 		this.leader.start(
 			() => logger.info('This instance is now the VoleNet leader (owns heartbeat/schedules)'),
@@ -248,6 +280,47 @@ export class VoleNetManager {
 	 */
 	isLeader(): boolean {
 		return this.leader?.isLeader() ?? true // standalone = always leader
+	}
+
+	/**
+	 * Check if this instance should run heartbeat.
+	 * In "independent" mode, every instance runs heartbeat.
+	 * In "leader" mode (default), only the leader runs it.
+	 */
+	shouldRunHeartbeat(): boolean {
+		if (!this.started) return true // standalone = always run
+		if (this.config.heartbeatMode === 'independent') return true
+		return this.isLeader()
+	}
+
+	/**
+	 * Find the best peer for load-balanced task routing.
+	 * Returns null if local should handle it (or no peers available).
+	 */
+	findLeastLoadedPeer(): VoleNetInstance | null {
+		if (this.config.brainMode !== 'loadbalance') return null
+		const instances = this.discovery?.getInstances() ?? []
+		if (instances.length === 0) return null
+		// Sort by load ascending, pick lowest
+		const sorted = [...instances].sort((a, b) => a.load - b.load)
+		// Only forward if the peer has lower load than us
+		// (our load is estimated from task queue size)
+		return sorted[0].load < 0.8 ? sorted[0] : null
+	}
+
+	/**
+	 * Check if a task should be forwarded to a peer (overflow mode).
+	 * Returns the target peer or null if local should handle it.
+	 */
+	shouldForwardTask(currentQueueSize: number): VoleNetInstance | null {
+		if (this.config.taskOverflow !== 'forward') return null
+		const maxQueued = this.config.maxQueuedTasks ?? 10
+		if (currentQueueSize < maxQueued) return null
+		// Forward to least-loaded peer
+		const instances = this.discovery?.getInstances() ?? []
+		if (instances.length === 0) return null
+		const sorted = [...instances].sort((a, b) => a.load - b.load)
+		return sorted[0]
 	}
 
 	/**

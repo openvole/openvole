@@ -44,6 +44,7 @@ export class VoleNetLeader {
 	// Callback when this instance becomes/loses leader
 	private onBecomeLeader?: () => void
 	private onLoseLeader?: () => void
+	private forcedLeader?: string // if set, this instance name is always leader
 
 	constructor(
 		transport: VoleNetTransport,
@@ -51,12 +52,14 @@ export class VoleNetLeader {
 		instanceId: string,
 		instanceName: string,
 		privateKey: KeyObject,
+		forcedLeader?: string,
 	) {
 		this.transport = transport
 		this.discovery = discovery
 		this.instanceId = instanceId
 		this.instanceName = instanceName
 		this.privateKey = privateKey
+		this.forcedLeader = forcedLeader === 'auto' ? undefined : forcedLeader
 
 		this.transport.onMessage((message) => {
 			this.handleMessage(message)
@@ -119,16 +122,31 @@ export class VoleNetLeader {
 	}
 
 	/**
-	 * Elect leader — lowest instance ID among all known instances + self.
+	 * Elect leader.
+	 * If forcedLeader is set, that instance name is always leader.
+	 * Otherwise, lowest instance ID wins.
 	 */
 	private electLeader(): void {
-		const allIds = [this.instanceId]
-		for (const instance of this.discovery.getInstances()) {
-			allIds.push(instance.id)
-		}
-		allIds.sort()
+		let newLeaderId: string
 
-		const newLeaderId = allIds[0]
+		if (this.forcedLeader) {
+			// Forced leader by name
+			if (this.forcedLeader === this.instanceName) {
+				newLeaderId = this.instanceId
+			} else {
+				const forced = this.discovery.getInstances().find((i) => i.name === this.forcedLeader)
+				newLeaderId = forced?.id ?? this.instanceId // fall back to self if forced leader not found
+			}
+		} else {
+			// Auto: lowest instance ID
+			const allIds = [this.instanceId]
+			for (const instance of this.discovery.getInstances()) {
+				allIds.push(instance.id)
+			}
+			allIds.sort()
+			newLeaderId = allIds[0]
+		}
+
 		const wasLeader = this.isLeader()
 
 		if (newLeaderId !== this.leaderId) {

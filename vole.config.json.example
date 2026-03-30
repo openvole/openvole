@@ -223,6 +223,19 @@
     },
 
     "_comment_discovery": "Peer discovery: manual (config only) or mdns (auto-discover on LAN)",
-    "discovery": "manual"
+    "discovery": "manual",
+
+    "_comment_leader": "Leader selection: 'auto' (lowest ID wins) or an instance name to force as leader",
+    "leader": "auto",
+
+    "_comment_heartbeatMode": "Heartbeat mode: 'leader' (only leader runs heartbeat/schedules) or 'independent' (each instance runs its own)",
+    "heartbeatMode": "leader",
+
+    "_comment_brainMode": "Brain mode: 'local' (each handles own tasks) or 'loadbalance' (route to least-loaded brain)",
+    "brainMode": "local",
+
+    "_comment_taskOverflow": "Task overflow: 'reject' (reject when full) or 'forward' (auto-forward to least-loaded peer)",
+    "taskOverflow": "reject",
+    "maxQueuedTasks": 10
   }
 }
