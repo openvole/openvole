@@ -10,6 +10,8 @@ import { generateKeyPair, loadKeyPair, type VoleKeyPair } from './keys.js'
 import { VoleNetTransport, type TransportConfig } from './transport.js'
 import { VoleNetDiscovery, type DiscoveryConfig } from './discovery.js'
 import { RemoteTaskManager } from './remote-task.js'
+import { VoleNetSync, type SyncConfig } from './sync.js'
+import { VoleNetLeader } from './leader.js'
 import type { ToolRegistry } from '../tool/registry.js'
 import { createMessage, type RemoteToolInfo, type VoleNetInstance } from './protocol.js'
 
@@ -45,6 +47,8 @@ export class VoleNetManager {
 	private transport: VoleNetTransport | null = null
 	private discovery: VoleNetDiscovery | null = null
 	private remoteTaskMgr: RemoteTaskManager | null = null
+	private sync: VoleNetSync | null = null
+	private leader: VoleNetLeader | null = null
 	private config: VoleNetConfig
 	private projectRoot: string
 	private toolRegistry: ToolRegistry | null = null
@@ -132,6 +136,33 @@ export class VoleNetManager {
 			this.config.routing,
 		)
 
+		// Initialize sync manager
+		const syncConfig: SyncConfig = {
+			memory: this.config.share?.memory ?? false,
+			session: this.config.share?.session ?? false,
+		}
+		this.sync = new VoleNetSync(
+			this.transport,
+			this.discovery,
+			this.keyPair.instanceId,
+			this.config.instanceName ?? 'vole',
+			this.keyPair.privateKey,
+			syncConfig,
+		)
+
+		// Initialize leader election
+		this.leader = new VoleNetLeader(
+			this.transport,
+			this.discovery,
+			this.keyPair.instanceId,
+			this.config.instanceName ?? 'vole',
+			this.keyPair.privateKey,
+		)
+		this.leader.start(
+			() => logger.info('This instance is now the VoleNet leader (owns heartbeat/schedules)'),
+			() => logger.info('This instance lost VoleNet leadership'),
+		)
+
 		// Make VoleNet accessible to core tools via globalThis
 		;(globalThis as any).__volenet__ = this
 
@@ -153,10 +184,14 @@ export class VoleNetManager {
 	async stop(): Promise<void> {
 		if (!this.started) return
 
+		this.leader?.stop()
+		this.sync?.dispose()
 		this.remoteTaskMgr?.dispose()
 		this.discovery?.stop()
 		await this.transport?.stop()
 
+		this.leader = null
+		this.sync = null
 		this.remoteTaskMgr = null
 		this.discovery = null
 		this.transport = null
@@ -192,6 +227,27 @@ export class VoleNetManager {
 	 */
 	getRemoteTaskManager(): RemoteTaskManager | null {
 		return this.remoteTaskMgr
+	}
+
+	/**
+	 * Get the sync manager (for memory/session propagation).
+	 */
+	getSync(): VoleNetSync | null {
+		return this.sync
+	}
+
+	/**
+	 * Get the leader election manager.
+	 */
+	getLeader(): VoleNetLeader | null {
+		return this.leader
+	}
+
+	/**
+	 * Check if this instance is the VoleNet leader.
+	 */
+	isLeader(): boolean {
+		return this.leader?.isLeader() ?? true // standalone = always leader
 	}
 
 	/**
@@ -260,3 +316,7 @@ export type { VoleKeyPair } from './keys.js'
 export type { VoleNetInstance, RemoteToolInfo } from './protocol.js'
 export { RemoteTaskManager } from './remote-task.js'
 export type { RemoteTaskRequest, RemoteTaskResult, RemoteToolCallRequest, RemoteToolCallResult } from './remote-task.js'
+export { VoleNetSync } from './sync.js'
+export type { MemorySyncEntry, MemorySearchRequest, MemorySearchResult, SessionSyncEntry } from './sync.js'
+export { VoleNetLeader } from './leader.js'
+export type { LeaderState } from './leader.js'
