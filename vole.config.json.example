@@ -23,7 +23,10 @@
     {
       "name": "@openvole/paw-memory",
       "allow": {
-        "env": ["VOLE_MEMORY_DIR"]
+        "network": ["*"],
+        "env": ["VOLE_MEMORY_DIR", "VOLE_EMBEDDING_PROVIDER", "VOLE_EMBEDDING_MODEL",
+                "VOLE_EMBEDDING_DIMS", "VOLE_EMBEDDING_BASE_URL",
+                "OLLAMA_HOST", "OPENAI_API_KEY", "GEMINI_API_KEY"]
       }
     },
     {
@@ -35,7 +38,9 @@
     {
       "name": "@openvole/paw-compact",
       "allow": {
-        "env": ["VOLE_COMPACT_KEEP_RECENT"]
+        "network": ["*"],
+        "env": ["VOLE_COMPACT_KEEP_RECENT", "VOLE_COMPACT_MODEL",
+                "OLLAMA_HOST", "OPENAI_API_KEY", "GEMINI_API_KEY", "ANTHROPIC_API_KEY"]
       }
     },
     {
