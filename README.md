@@ -126,7 +126,7 @@ curl -fsSL https://raw.githubusercontent.com/openvole/openvole/main/presets/full
    xAI        Voice Call Computer
 ```
 
-28 official Paws: 1 unified Brain (+5 legacy), 6 Channel, 12 Tool, 4 Infrastructure.
+Official Paws across four categories: Brain, Channel, Tool, and Infrastructure.
 
 ## Core Concepts
 
@@ -420,7 +420,7 @@ All paws live in [PawHub](https://github.com/openvole/pawhub) and are installed 
 | `paw-gemini` | *(deprecated)* Google Gemini models |
 | `paw-xai` | *(deprecated)* xAI Grok models |
 
-### Channel (6)
+### Channel
 
 | Paw | Purpose |
 |-----|---------|
@@ -431,7 +431,7 @@ All paws live in [PawHub](https://github.com/openvole/pawhub) and are installed 
 | `paw-msteams` | Microsoft Teams channel |
 | `paw-voice-call` | Voice calls via Twilio (inbound + outbound) |
 
-### Tool (11)
+### Tool
 
 | Paw | Purpose |
 |-----|---------|
@@ -446,8 +446,13 @@ All paws live in [PawHub](https://github.com/openvole/pawhub) and are installed 
 | `paw-tts` | Text-to-speech (ElevenLabs, OpenAI) |
 | `paw-stt` | Speech-to-text (OpenAI Whisper) |
 | `paw-computer` | Desktop automation (mouse, keyboard, screen) |
+| `paw-database` | PostgreSQL, MySQL, SQLite queries |
+| `paw-scraper` | Structured web data extraction |
+| `paw-pdf` | Read, merge, split PDFs |
+| `paw-image` | Resize, crop, watermark, compress images |
+| `paw-social` | Twitter/X and LinkedIn posting |
 
-### Infrastructure (4)
+### Infrastructure
 
 | Paw | Purpose |
 |-----|---------|
