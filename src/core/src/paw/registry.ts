@@ -590,6 +590,31 @@ export class PawRegistry {
 				}) ?? []
 			case 'schedules':
 				return this.scheduler?.list() ?? []
+			case 'volenet': {
+				const voleNet = (globalThis as any).__volenet__
+				if (!voleNet?.isActive()) {
+					return { enabled: false }
+				}
+				const instances = voleNet.getInstances()
+				const remoteTools = voleNet.getRemoteTools()
+				const leader = voleNet.getLeader()
+				const keyPair = voleNet.getKeyPair()
+				return {
+					enabled: true,
+					instanceId: keyPair?.instanceId?.substring(0, 8) ?? 'unknown',
+					instanceName: voleNet.config?.instanceName ?? 'vole',
+					isLeader: voleNet.isLeader(),
+					leaderState: leader?.getState() ?? null,
+					peers: instances.map((i: any) => ({
+						id: i.id.substring(0, 8),
+						name: i.name,
+						role: i.role,
+						capabilities: i.capabilities?.length ?? 0,
+						lastSeen: i.lastSeen,
+					})),
+					remoteTools: remoteTools.length,
+				}
+			}
 			default:
 				return { error: `Unknown query type: ${type}` }
 		}
