@@ -145,6 +145,16 @@
     "sandboxFilesystem": true,
 
     "_comment_allowedPaths": "Extra paths paws can access outside .openvole/",
-    "allowedPaths": []
+    "allowedPaths": [],
+
+    "_comment_docker": "Optional Docker container sandbox — stronger isolation than Node.js --permission. Requires Docker installed.",
+    "docker": {
+      "enabled": false,
+      "image": "node:20-slim",
+      "memory": "512m",
+      "cpus": "1.0",
+      "scope": "session",
+      "network": "none"
+    }
   }
 }
