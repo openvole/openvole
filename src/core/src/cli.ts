@@ -71,6 +71,10 @@ async function main(): Promise<void> {
 			await handleClawHubCommand(args.slice(1), projectRoot)
 			break
 
+		case 'net':
+			await handleNetCommand(args.slice(1), projectRoot)
+			break
+
 		case 'upgrade':
 			await handleUpgrade(projectRoot)
 			break
@@ -132,6 +136,14 @@ ClawHub (OpenClaw skill registry):
   vole clawhub install <skill>           Install a skill from ClawHub
   vole clawhub remove <skill>            Remove a ClawHub-installed skill
   vole clawhub search <query>            Search for skills on ClawHub
+
+VoleNet (distributed networking):
+  vole net init [name]                   Generate Ed25519 keypair
+  vole net show-key                      Display public key (share with peers)
+  vole net trust <key>                   Trust a peer's public key
+  vole net revoke <id>                   Remove trust for a peer
+  vole net peers                         List trusted peers
+  vole net status                        Network status overview
 
 Task management:
   vole task list                         Show task queue
@@ -1509,6 +1521,111 @@ async function handleClawHubCommand(
 		default:
 			logger.error(`Unknown clawhub command: ${subcommand}`)
 			logger.info('Available: install, remove, search')
+			process.exit(1)
+	}
+}
+
+async function handleNetCommand(
+	args: string[],
+	projectRoot: string,
+): Promise<void> {
+	const subcommand = args[0]
+	const netDir = path.resolve(projectRoot, '.openvole', 'net')
+
+	switch (subcommand) {
+		case 'init': {
+			const { generateKeyPair } = await import('./net/index.js')
+			const name = args[1] ?? 'vole'
+			const keyPair = await generateKeyPair(netDir, name)
+			logger.info(`Keypair generated!`)
+			logger.info(`Instance ID: ${keyPair.instanceId}`)
+			logger.info(`Public key:  ${keyPair.publicKeyString}`)
+			logger.info('')
+			logger.info(`Share your public key with peers:`)
+			logger.info(`  ${keyPair.publicKeyString}`)
+			logger.info('')
+			logger.info(`Files:`)
+			logger.info(`  Private key: .openvole/net/vole_key`)
+			logger.info(`  Public key:  .openvole/net/vole_key.pub`)
+			logger.info(`  Trusted peers: .openvole/net/authorized_voles`)
+			break
+		}
+
+		case 'show-key': {
+			const { loadKeyPair } = await import('./net/index.js')
+			const keyPair = await loadKeyPair(netDir)
+			if (!keyPair) {
+				logger.error('No keypair found. Run "vole net init" first.')
+				process.exit(1)
+			}
+			logger.info(keyPair.publicKeyString)
+			break
+		}
+
+		case 'trust': {
+			const key = args.slice(1).join(' ')
+			if (!key) {
+				logger.error('Usage: vole net trust <public-key-string>')
+				process.exit(1)
+			}
+			const { trustPeer } = await import('./net/index.js')
+			const instanceId = await trustPeer(netDir, key)
+			logger.info(`Trusted peer: ${instanceId.substring(0, 8)}`)
+			break
+		}
+
+		case 'revoke': {
+			const id = args[1]
+			if (!id) {
+				logger.error('Usage: vole net revoke <instance-id-or-key>')
+				process.exit(1)
+			}
+			const { revokePeer } = await import('./net/index.js')
+			const removed = await revokePeer(netDir, id)
+			if (removed) {
+				logger.info(`Revoked peer: ${id.substring(0, 8)}`)
+			} else {
+				logger.error('Peer not found in authorized_voles')
+			}
+			break
+		}
+
+		case 'peers': {
+			const { loadAuthorizedVoles } = await import('./net/index.js')
+			const peers = await loadAuthorizedVoles(netDir)
+			if (peers.size === 0) {
+				logger.info('No trusted peers. Use "vole net trust <key>" to add one.')
+			} else {
+				logger.info(`Trusted peers (${peers.size}):`)
+				for (const [id, peer] of peers) {
+					logger.info(`  ${peer.name} — ${id.substring(0, 8)}`)
+				}
+			}
+			break
+		}
+
+		case 'status': {
+			const { loadKeyPair, loadAuthorizedVoles } = await import('./net/index.js')
+			const keyPair = await loadKeyPair(netDir)
+			const peers = await loadAuthorizedVoles(netDir)
+
+			if (!keyPair) {
+				logger.info('VoleNet: not initialized (run "vole net init")')
+			} else {
+				logger.info(`VoleNet Status`)
+				logger.info(`  Instance ID: ${keyPair.instanceId}`)
+				logger.info(`  Public key:  ${keyPair.publicKeyString}`)
+				logger.info(`  Trusted peers: ${peers.size}`)
+				for (const [id, peer] of peers) {
+					logger.info(`    ${peer.name} — ${id.substring(0, 8)}`)
+				}
+			}
+			break
+		}
+
+		default:
+			logger.error(`Unknown net command: ${subcommand}`)
+			logger.info('Available: init, show-key, trust, revoke, peers, status')
 			process.exit(1)
 	}
 }
