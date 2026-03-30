@@ -126,7 +126,7 @@ curl -fsSL https://raw.githubusercontent.com/openvole/openvole/main/presets/full
    xAI        Voice Call Computer
 ```
 
-28 official Paws: 1 unified Brain (+5 legacy), 6 Channel, 12 Tool, 4 Infrastructure.
+Official Paws across four categories: Brain, Channel, Tool, and Infrastructure.
 
 ## Core Concepts
 
@@ -289,6 +289,55 @@ Configure in `loop`:
 
 Tasks support priority levels (`urgent`, `normal`, `low`) and dependencies (`dependsOn: [taskId]`). Urgent tasks jump the queue. Dependent tasks wait until all prerequisites complete.
 
+### Multi-Agent
+
+Spawn specialized sub-agents with named profiles, tool restrictions, and context passing:
+
+```json
+{
+  "agents": {
+    "researcher": {
+      "role": "Research Agent",
+      "allowTools": ["web_fetch", "memory_search", "workspace_write"],
+      "maxIterations": 15
+    }
+  }
+}
+```
+
+Sub-agents support 2-level depth, `wait_for_agents` for parallel coordination, and `agent:completed` events for async notification.
+
+### Semantic Memory Search
+
+When an embedding provider is available (Ollama, OpenAI, or Gemini), `memory_search` uses hybrid retrieval — combining BM25 keyword matching with vector semantic similarity via Reciprocal Rank Fusion. Falls back to keyword-only when no embeddings are configured. Vector index is disposable — markdown files remain the source of truth.
+
+### Docker Sandbox
+
+Optional container-level isolation for paw subprocesses (stronger than default Node.js --permission):
+
+```json
+{
+  "security": {
+    "docker": {
+      "enabled": true,
+      "image": "node:20-slim",
+      "memory": "512m",
+      "network": "none"
+    }
+  }
+}
+```
+
+### VoleHub
+
+OpenVole's own skill registry. Search, install, and publish skills via CLI:
+
+```bash
+vole skill search summarize          # Search VoleHub
+vole skill install summarize         # Install with SHA-256 verification
+vole skill publish ./my-skill        # Prepare for publishing
+```
+
 ### Rate Limiting
 
 Prevent runaway costs with configurable limits on LLM calls, tool executions, and task enqueue rates.
@@ -371,7 +420,7 @@ All paws live in [PawHub](https://github.com/openvole/pawhub) and are installed 
 | `paw-gemini` | *(deprecated)* Google Gemini models |
 | `paw-xai` | *(deprecated)* xAI Grok models |
 
-### Channel (6)
+### Channel
 
 | Paw | Purpose |
 |-----|---------|
@@ -382,7 +431,7 @@ All paws live in [PawHub](https://github.com/openvole/pawhub) and are installed 
 | `paw-msteams` | Microsoft Teams channel |
 | `paw-voice-call` | Voice calls via Twilio (inbound + outbound) |
 
-### Tool (11)
+### Tool
 
 | Paw | Purpose |
 |-----|---------|
@@ -397,14 +446,19 @@ All paws live in [PawHub](https://github.com/openvole/pawhub) and are installed 
 | `paw-tts` | Text-to-speech (ElevenLabs, OpenAI) |
 | `paw-stt` | Speech-to-text (OpenAI Whisper) |
 | `paw-computer` | Desktop automation (mouse, keyboard, screen) |
+| `paw-database` | PostgreSQL, MySQL, SQLite queries |
+| `paw-scraper` | Structured web data extraction |
+| `paw-pdf` | Read, merge, split PDFs |
+| `paw-image` | Resize, crop, watermark, compress images |
+| `paw-social` | Twitter/X and LinkedIn posting |
 
-### Infrastructure (4)
+### Infrastructure
 
 | Paw | Purpose |
 |-----|---------|
-| `paw-memory` | Persistent memory with source isolation |
+| `paw-memory` | Persistent memory with source isolation + hybrid semantic/keyword search |
 | `paw-session` | Session/conversation management |
-| `paw-compact` | Context compaction (in-process) |
+| `paw-compact` | Context compaction — heuristic (default) + optional LLM summarization |
 | `paw-dashboard` | Real-time web dashboard |
 
 Install from npm:
@@ -425,6 +479,8 @@ npx vole paw add @openvole/paw-telegram    # Install a Paw
 npx vole paw list                          # List loaded Paws
 
 npx vole skill create email-triage         # Create a local skill
+npx vole skill search summarize            # Search VoleHub
+npx vole skill install summarize           # Install from VoleHub
 npx vole clawhub install summarize         # Install from ClawHub
 npx vole clawhub search email              # Search ClawHub
 

@@ -24,7 +24,7 @@ interface PendingRequest {
 	timer: ReturnType<typeof setTimeout>
 }
 
-const DEFAULT_TIMEOUT_MS = 120_000
+const DEFAULT_TIMEOUT_MS = parseInt(process.env.VOLE_IPC_TIMEOUT_MS ?? '300000', 10) // 5 minutes default
 
 /** Transport abstraction that handles both Node IPC and stdio JSON-RPC */
 export class IpcTransport {
@@ -59,13 +59,18 @@ export class IpcTransport {
 		const message: IpcMessage = { jsonrpc: '2.0', id, method, params }
 		logger.trace(`Sending request: ${method} ${JSON.stringify(params ?? '', null, 2)}`)
 
-		return new Promise((resolve, reject) => {
-			const timer = setTimeout(() => {
-				this.pending.delete(id)
-				reject(new Error(`IPC request "${method}" timed out after ${this.timeoutMs}ms`))
-			}, this.timeoutMs)
+		// No timeout for "think" — LLM inference time is unbounded
+		const noTimeout = method === 'think'
 
-			this.pending.set(id, { resolve, reject, timer })
+		return new Promise((resolve, reject) => {
+			const timer = noTimeout
+				? undefined
+				: setTimeout(() => {
+						this.pending.delete(id)
+						reject(new Error(`IPC request "${method}" timed out after ${this.timeoutMs}ms`))
+					}, this.timeoutMs)
+
+			this.pending.set(id, { resolve, reject, timer: timer as ReturnType<typeof setTimeout> })
 			this.send(message)
 		})
 	}

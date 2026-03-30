@@ -8,4 +8,5 @@ export default defineConfig({
 	sourcemap: true,
 	target: 'node20',
 	splitting: false,
+	external: ['dockerode'],
 })

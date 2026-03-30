@@ -82,8 +82,8 @@ export interface PawManifest {
 	description: string
 	entry: string
 	brain: boolean
-	/** Paw category for display purposes */
-	type?: 'brain' | 'channel' | 'tool' | 'infrastructure'
+	/** Paw category (required) */
+	category: 'brain' | 'channel' | 'tool' | 'infrastructure'
 	inProcess?: boolean
 	transport?: TransportType
 	tools: Array<{ name: string; description: string }>

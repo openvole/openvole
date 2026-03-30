@@ -1,5 +1,62 @@
 # Changelog
 
+## v2.0.0 (2026-03-30)
+
+### Vector/Semantic Memory
+- Hybrid search: BM25 keyword + vector similarity with Reciprocal Rank Fusion (RRF)
+- Embedding providers: Ollama (local, free), OpenAI, Gemini — auto-detected from env
+- SQLite + better-sqlite3 vector store with FTS5 for keyword search
+- Temporal decay scoring (configurable half-life, default 30 days)
+- Auto-index on write, full re-index on startup
+- Custom endpoint support via `VOLE_EMBEDDING_BASE_URL`
+- Graceful degradation: BM25-only when no embedding provider available
+
+### LLM-Based Context Compaction
+- Optional LLM summarization for higher-quality compaction (`VOLE_COMPACT_MODEL`)
+- Lightweight LLM client: Ollama, OpenAI, Gemini, Anthropic, xAI via direct fetch
+- Structured summarization preserving task, decisions, blockers, next steps
+- Lazy initialization — LLM client created on first compaction, not startup
+- Falls back to free heuristic compaction when no LLM configured
+
+### Multi-Agent
+- Agent profiles in `vole.config.json`: named agents with role, instructions, tool restrictions
+- Context passing from parent to child agents
+- Tool restrictions per agent: `allowTools` (whitelist) and `denyTools` (blacklist)
+- 2-level spawn depth (parent → child → grandchild)
+- `wait_for_agents` tool for parallel coordination with timeout
+- `get_agent_result` returns duration and cost metrics
+- `agent:completed` bus event with parentTaskId
+
+### Docker Sandbox
+- Optional container isolation via dockerode (stronger than Node.js --permission)
+- Security: read-only root, cap-drop ALL, no-new-privileges, network none
+- Resource limits: configurable memory and CPU per container
+- Config: `security.docker` section in vole.config.json
+
+### VoleHub — Skill Registry
+- GitHub-based skill registry at openvole/volehub
+- CLI: `vole skill search`, `install`, `uninstall`, `publish`, `hub`
+- SHA-256 hash verification on install
+- ClawHub-compatible SKILL.md format
+
+### New Paws
+- `paw-database` — PostgreSQL, MySQL, SQLite queries
+- `paw-scraper` — structured web data extraction via cheerio
+- `paw-pdf` — read, merge, split PDFs via pdf-lib
+- `paw-image` — resize, crop, watermark, compress images via sharp
+- `paw-social` — Twitter/X and LinkedIn posting
+
+### Paw System
+- Mandatory `category` field in paw manifests: brain, channel, tool, infrastructure
+- Dashboard groups paws by category with color-coded headers
+- PawCategory type exported from paw-sdk
+
+### Other
+- IPC: no timeout on `think` requests (LLM inference is unbounded)
+- BRAIN.md: stronger tool-first instructions
+- Removed `vole.lock.json` — `vole.config.json` is single source of truth
+- paw-sdk types synced with core (AgentMessage, AgentPlan)
+
 ## v1.3.0 (2026-03-28)
 
 ### Cost Tracking

@@ -23,7 +23,10 @@
     {
       "name": "@openvole/paw-memory",
       "allow": {
-        "env": ["VOLE_MEMORY_DIR"]
+        "network": ["*"],
+        "env": ["VOLE_MEMORY_DIR", "VOLE_EMBEDDING_PROVIDER", "VOLE_EMBEDDING_MODEL",
+                "VOLE_EMBEDDING_DIMS", "VOLE_EMBEDDING_BASE_URL",
+                "OLLAMA_HOST", "OPENAI_API_KEY", "GEMINI_API_KEY"]
       }
     },
     {
@@ -35,7 +38,9 @@
     {
       "name": "@openvole/paw-compact",
       "allow": {
-        "env": ["VOLE_COMPACT_KEEP_RECENT"]
+        "network": ["*"],
+        "env": ["VOLE_COMPACT_KEEP_RECENT", "VOLE_COMPACT_MODEL",
+                "OLLAMA_HOST", "OPENAI_API_KEY", "GEMINI_API_KEY", "ANTHROPIC_API_KEY"]
       }
     },
     {
@@ -106,6 +111,21 @@
     }
   },
 
+  "_comment_agents": "Named agent profiles for sub-agent spawning. Brain calls spawn_agent({agent: 'researcher'}) to use a profile.",
+  "agents": {
+    "researcher": {
+      "role": "Research Agent",
+      "instructions": "Focus on finding accurate, factual information. Cite sources when possible.",
+      "allowTools": ["web_fetch", "scrape_page", "memory_search", "memory_write", "workspace_write", "workspace_read"],
+      "maxIterations": 15
+    },
+    "writer": {
+      "role": "Content Writer",
+      "denyTools": ["shell_exec", "shell_exec_background", "db_execute"],
+      "maxIterations": 10
+    }
+  },
+
   "_comment_toolProfiles": "Restrict tools by task source — 'paw' covers channel paws (Telegram, Slack, etc.)",
   "toolProfiles": {
     "paw": {
@@ -125,6 +145,16 @@
     "sandboxFilesystem": true,
 
     "_comment_allowedPaths": "Extra paths paws can access outside .openvole/",
-    "allowedPaths": []
+    "allowedPaths": [],
+
+    "_comment_docker": "Optional Docker container sandbox — stronger isolation than Node.js --permission. Requires Docker installed.",
+    "docker": {
+      "enabled": false,
+      "image": "node:20-slim",
+      "memory": "512m",
+      "cpus": "1.0",
+      "scope": "session",
+      "network": "none"
+    }
   }
 }

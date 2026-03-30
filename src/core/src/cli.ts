@@ -4,10 +4,6 @@ import 'dotenv/config'
 import * as path from 'node:path'
 import { createEngine } from './index.js'
 import {
-	addPawToLock,
-	removePawFromLock,
-	addSkillToLock,
-	removeSkillFromLock,
 	addPawToConfig,
 	removePawFromConfig,
 	addSkillToConfig,
@@ -121,6 +117,11 @@ Skill management:
   vole skill list                        List Skills and activation status
   vole skill add <name>                  Install and register a Skill
   vole skill remove <name>              Uninstall and deregister a Skill
+  vole skill search <query>              Search VoleHub for skills
+  vole skill install <name>              Install a skill from VoleHub
+  vole skill uninstall <name>            Remove a VoleHub skill
+  vole skill publish [path]              Prepare a skill for VoleHub publishing
+  vole skill hub                         List installed VoleHub skills
 
 Tool management:
   vole tool list                         List all registered tools (from manifests)
@@ -609,7 +610,6 @@ async function handlePawCommand(
 							childProcess: manifest.permissions.childProcess,
 						}
 					: undefined
-				await addPawToLock(projectRoot, name, manifest.version, defaultAllow)
 				await addPawToConfig(projectRoot, name, defaultAllow)
 				// Create paw data directory
 				const pawDataDir = path.join(projectRoot, '.openvole', 'paws', manifest.name.replace(/^@openvole\//, ''))
@@ -636,7 +636,6 @@ async function handlePawCommand(
 			}
 			const { execa: execaFn } = await import('execa')
 			await execaFn('npm', ['uninstall', name], { cwd: projectRoot, stdio: 'inherit' })
-			await removePawFromLock(projectRoot, name)
 			await removePawFromConfig(projectRoot, name)
 			logger.info(`Removed ${name} from vole.config.json`)
 			break
@@ -717,7 +716,6 @@ async function handleSkillCommand(
 				process.exit(1)
 			}
 
-			await addSkillToLock(projectRoot, name, definition.version ?? '0.0.0')
 			await addSkillToConfig(projectRoot, name)
 			logger.info(`Added "${definition.name}" to vole.config.json`)
 			if (definition.requiredTools.length > 0) {
@@ -735,7 +733,6 @@ async function handleSkillCommand(
 				logger.error('Usage: vole skill remove <name>')
 				process.exit(1)
 			}
-			await removeSkillFromLock(projectRoot, name)
 			await removeSkillFromConfig(projectRoot, name)
 
 			// Delete from .openvole/skills/
@@ -754,9 +751,115 @@ async function handleSkillCommand(
 			break
 		}
 
+		case 'search': {
+			const query = args.slice(1).join(' ')
+			if (!query) {
+				logger.error('Usage: vole skill search <query>')
+				process.exit(1)
+			}
+			const { VoleHubClient } = await import('./skill/volehub.js')
+			const hub = new VoleHubClient()
+			try {
+				const results = await hub.search(query)
+				if (results.length === 0) {
+					logger.info('No skills found.')
+				} else {
+					logger.info(`Found ${results.length} skill(s):`)
+					for (const skill of results) {
+						logger.info(`  ${skill.name}@${skill.version} — ${skill.description}`)
+						if (skill.tags.length > 0) {
+							logger.info(`    tags: ${skill.tags.join(', ')}`)
+						}
+						if (skill.requiredTools.length > 0) {
+							logger.info(`    requires: ${skill.requiredTools.join(', ')}`)
+						}
+					}
+				}
+			} catch (err) {
+				logger.error(`VoleHub search failed: ${err instanceof Error ? err.message : String(err)}`)
+			}
+			break
+		}
+
+		case 'install': {
+			const skillName = args[1]
+			if (!skillName) {
+				logger.error('Usage: vole skill install <name>')
+				process.exit(1)
+			}
+			const { VoleHubClient: HubClient } = await import('./skill/volehub.js')
+			const hubClient = new HubClient()
+			try {
+				const result = await hubClient.install(skillName, projectRoot)
+				logger.info(`Installed ${result.skill.name}@${result.skill.version} to ${result.path}`)
+				// Add to config
+				await addSkillToConfig(projectRoot, `volehub/${result.skill.name}`)
+				logger.info(`Added "volehub/${result.skill.name}" to vole.config.json`)
+			} catch (err) {
+				logger.error(`VoleHub install failed: ${err instanceof Error ? err.message : String(err)}`)
+			}
+			break
+		}
+
+		case 'uninstall': {
+			const uninstallName = args[1]
+			if (!uninstallName) {
+				logger.error('Usage: vole skill uninstall <name>')
+				process.exit(1)
+			}
+			const { VoleHubClient: UninstallClient } = await import('./skill/volehub.js')
+			const uninstallClient = new UninstallClient()
+			const removed = await uninstallClient.uninstall(uninstallName, projectRoot)
+			if (removed) {
+				await removeSkillFromConfig(projectRoot, `volehub/${uninstallName}`)
+				logger.info(`Uninstalled "${uninstallName}" and removed from config`)
+			} else {
+				logger.error(`Skill "${uninstallName}" not found in VoleHub installations`)
+			}
+			break
+		}
+
+		case 'publish': {
+			const publishPath = args[1] ?? '.'
+			const { VoleHubClient: PubClient } = await import('./skill/volehub.js')
+			const pubClient = new PubClient()
+			try {
+				const skillPath = path.resolve(projectRoot, publishPath)
+				const prepared = await pubClient.preparePublish(skillPath)
+				logger.info(`Skill ready for publishing:`)
+				logger.info(`  name: ${prepared.name}`)
+				logger.info(`  version: ${prepared.version}`)
+				logger.info(`  description: ${prepared.description}`)
+				logger.info(`  hash: ${prepared.contentHash}`)
+				logger.info(`  tools: ${prepared.requiredTools.join(', ') || 'none'}`)
+				logger.info(`  tags: ${prepared.tags.join(', ') || 'none'}`)
+				logger.info('')
+				logger.info('To publish, create a PR against https://github.com/openvole/volehub')
+				logger.info(`with your SKILL.md in skills/${prepared.name}/`)
+			} catch (err) {
+				logger.error(`Publish preparation failed: ${err instanceof Error ? err.message : String(err)}`)
+			}
+			break
+		}
+
+		case 'hub': {
+			const { VoleHubClient: ListClient } = await import('./skill/volehub.js')
+			const listClient = new ListClient()
+			const installed = await listClient.listInstalled(projectRoot)
+			if (installed.length === 0) {
+				logger.info('No VoleHub skills installed.')
+			} else {
+				logger.info(`VoleHub skills (${installed.length}):`)
+				for (const skill of installed) {
+					logger.info(`  ${skill.name}@${skill.version} (installed: ${skill.installedAt})`)
+				}
+			}
+			break
+		}
+
 		default:
 			logger.error(`Unknown skill command: ${subcommand}`)
-			logger.info('Available: list, add, remove')
+			logger.info('Available: list, create, add, remove, search, install, uninstall, publish, hub')
 			process.exit(1)
 	}
 }
@@ -1196,20 +1299,12 @@ ${hooksCode}
 `,
 	)
 
-	// Auto-register in vole.lock.json
 	const allow: Record<string, unknown> = {}
 	if (networkDomains.length > 0) allow.network = networkDomains
 	if (listenPorts.length > 0) allow.listen = listenPorts
 	if (envVars.length > 0) allow.env = envVars
-	await addPawToLock(
-		projectRoot,
-		`./paws/${pawName}`,
-		'0.1.0',
-		Object.keys(allow).length > 0 ? allow as import('./paw/types.js').PawConfig['allow'] : undefined,
-	)
 
 	logger.info(`Created paws/${pawName}/`)
-	logger.info(`Registered in vole.lock.json`)
 	if (tools.length > 0) {
 		logger.info(`Generated ${tools.length} tool${tools.length > 1 ? 's' : ''}: ${tools.map((t) => t.name).join(', ')}`)
 	}
@@ -1290,7 +1385,6 @@ ${instructions}
 	await fs.writeFile(path.join(skillDir, 'SKILL.md'), skillMd)
 
 	// Auto-register in config and lock file (use bare name — resolver finds it in .openvole/skills/)
-	await addSkillToLock(projectRoot, skillName, '0.1.0')
 	await addSkillToConfig(projectRoot, skillName)
 
 	logger.info(`Created .openvole/skills/${skillName}/`)
@@ -1346,7 +1440,6 @@ async function handleClawHubCommand(
 			const definition = await loadSkillFromDirectory(path.resolve(projectRoot, '.openvole', 'skills', 'clawhub', skillDir))
 
 			if (definition) {
-				await addSkillToLock(projectRoot, localPath, definition.version ?? '0.0.0')
 				await addSkillToConfig(projectRoot, localPath)
 				logger.info(`Added "${definition.name}" to vole.config.json`)
 				if (definition.requiredTools.length > 0) {
@@ -1407,7 +1500,6 @@ async function handleClawHubCommand(
 			}
 
 			// Remove from config
-			await removeSkillFromLock(projectRoot, `clawhub/${skillName}`)
 			await removeSkillFromConfig(projectRoot, `clawhub/${skillName}`)
 
 			logger.info(`Removed "${skillName}" from vole.config.json`)

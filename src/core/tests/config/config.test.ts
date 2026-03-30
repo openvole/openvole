@@ -118,34 +118,17 @@ describe('loadConfig', () => {
 		expect(config.loop.maxIterations).toBe(10)
 	})
 
-	it('merges lock file paws into config', async () => {
-		const configData = { paws: ['existing-paw'] }
+	it('loads only from vole.config.json (no lock file merge)', async () => {
+		const configData = { paws: ['existing-paw'], skills: ['my-skill'] }
 		await fs.writeFile(
 			path.join(tmpDir, 'vole.config.json'),
 			JSON.stringify(configData),
 			'utf-8',
 		)
 
-		// Create lock file
-		const openvoleDir = path.join(tmpDir, '.openvole')
-		await fs.mkdir(openvoleDir, { recursive: true })
-		const lock = {
-			paws: [
-				{ name: 'lock-paw', version: '1.0.0' },
-				{ name: 'existing-paw', version: '1.0.0' },
-			],
-			skills: [{ name: 'lock-skill', version: '1.0.0' }],
-		}
-		await fs.writeFile(
-			path.join(openvoleDir, 'vole.lock.json'),
-			JSON.stringify(lock),
-			'utf-8',
-		)
-
 		const config = await loadConfig(path.join(tmpDir, 'vole.config.ts'))
 		const pawNames = config.paws.map((p) => (typeof p === 'string' ? p : p.name))
-		expect(pawNames).toContain('existing-paw')
-		expect(pawNames).toContain('lock-paw')
-		expect(config.skills).toContain('lock-skill')
+		expect(pawNames).toEqual(['existing-paw'])
+		expect(config.skills).toEqual(['my-skill'])
 	})
 })

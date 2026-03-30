@@ -563,6 +563,7 @@ export class PawRegistry {
 					healthy: p.healthy,
 					inProcess: p.inProcess,
 					transport: p.transport,
+					category: p.manifest?.category ?? 'tool',
 					toolCount: this.toolRegistry.toolsForPaw(p.name).length,
 				}))
 			case 'skills':

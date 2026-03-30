@@ -148,7 +148,9 @@ describe('createCoreTools', () => {
 			taskQueue.setRunner(async () => {
 				await runnerPromise
 			})
-			taskQueue.enqueue('agent task', 'agent')
+			taskQueue.enqueue('agent task', 'agent', {
+				metadata: { agentDepth: 2 },
+			})
 
 			// Let the drain loop pick up the task
 			await new Promise((r) => setTimeout(r, 10))
@@ -158,7 +160,7 @@ describe('createCoreTools', () => {
 				max_iterations: 5,
 			})) as any
 			expect(result.ok).toBe(false)
-			expect(result.error).toMatch(/sub-agents cannot spawn/i)
+			expect(result.error).toMatch(/max agent spawn depth/i)
 
 			resolveRunner!()
 		})

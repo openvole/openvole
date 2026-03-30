@@ -4,14 +4,8 @@
 export {
 	defineConfig,
 	loadConfig,
-	readLockFile,
-	writeLockFile,
-	addPawToLock,
-	removePawFromLock,
-	addSkillToLock,
-	removeSkillFromLock,
 } from './config/index.js'
-export type { VoleConfig, LoopConfig, HeartbeatConfig, VoleLock, RateLimits } from './config/index.js'
+export type { VoleConfig, LoopConfig, HeartbeatConfig, RateLimits } from './config/index.js'
 
 // Core
 export { createMessageBus } from './core/bus.js'
@@ -25,6 +19,10 @@ export { ContextBudgetManager } from './core/context-budget.js'
 export type { TokenBudget } from './core/context-budget.js'
 export { CostTracker } from './core/cost-tracker.js'
 export type { CostEntry, TaskCostSummary } from './core/cost-tracker.js'
+export type { AgentProfile, DockerSandboxConfig } from './config/index.js'
+export { DockerSandboxManager } from './paw/docker-sandbox.js'
+export { VoleHubClient } from './skill/volehub.js'
+export type { VoleHubSkill, VoleHubIndex } from './skill/volehub.js'
 export { buildSystemPrompt, loadSystemPromptContent } from './core/system-prompt.js'
 export type { SystemPromptContent } from './core/system-prompt.js'
 export { Vault } from './core/vault.js'
