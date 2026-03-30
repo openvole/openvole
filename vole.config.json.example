@@ -111,6 +111,21 @@
     }
   },
 
+  "_comment_agents": "Named agent profiles for sub-agent spawning. Brain calls spawn_agent({agent: 'researcher'}) to use a profile.",
+  "agents": {
+    "researcher": {
+      "role": "Research Agent",
+      "instructions": "Focus on finding accurate, factual information. Cite sources when possible.",
+      "allowTools": ["web_fetch", "scrape_page", "memory_search", "memory_write", "workspace_write", "workspace_read"],
+      "maxIterations": 15
+    },
+    "writer": {
+      "role": "Content Writer",
+      "denyTools": ["shell_exec", "shell_exec_background", "db_execute"],
+      "maxIterations": 10
+    }
+  },
+
   "_comment_toolProfiles": "Restrict tools by task source — 'paw' covers channel paws (Telegram, Slack, etc.)",
   "toolProfiles": {
     "paw": {
