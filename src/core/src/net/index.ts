@@ -9,6 +9,7 @@ import { createLogger } from '../core/logger.js'
 import { generateKeyPair, loadKeyPair, type VoleKeyPair } from './keys.js'
 import { VoleNetTransport, type TransportConfig } from './transport.js'
 import { VoleNetDiscovery, type DiscoveryConfig } from './discovery.js'
+import { RemoteTaskManager } from './remote-task.js'
 import type { ToolRegistry } from '../tool/registry.js'
 import { createMessage, type RemoteToolInfo, type VoleNetInstance } from './protocol.js'
 
@@ -43,6 +44,7 @@ export class VoleNetManager {
 	private keyPair: VoleKeyPair | null = null
 	private transport: VoleNetTransport | null = null
 	private discovery: VoleNetDiscovery | null = null
+	private remoteTaskMgr: RemoteTaskManager | null = null
 	private config: VoleNetConfig
 	private projectRoot: string
 	private toolRegistry: ToolRegistry | null = null
@@ -121,6 +123,18 @@ export class VoleNetManager {
 			}
 		})
 
+		// Initialize remote task manager
+		this.remoteTaskMgr = new RemoteTaskManager(
+			this.transport,
+			this.discovery,
+			this.keyPair.instanceId,
+			this.keyPair.privateKey,
+			this.config.routing,
+		)
+
+		// Make VoleNet accessible to core tools via globalThis
+		;(globalThis as any).__volenet__ = this
+
 		// Connect to configured peers
 		if (this.config.peers) {
 			for (const peer of this.config.peers) {
@@ -139,12 +153,15 @@ export class VoleNetManager {
 	async stop(): Promise<void> {
 		if (!this.started) return
 
+		this.remoteTaskMgr?.dispose()
 		this.discovery?.stop()
 		await this.transport?.stop()
 
+		this.remoteTaskMgr = null
 		this.discovery = null
 		this.transport = null
 		this.started = false
+		;(globalThis as any).__volenet__ = undefined
 
 		logger.info('VoleNet stopped')
 	}
@@ -168,6 +185,13 @@ export class VoleNetManager {
 	 */
 	findToolOwner(toolName: string): { instanceId: string; instance: VoleNetInstance } | null {
 		return this.discovery?.findToolOwner(toolName) ?? null
+	}
+
+	/**
+	 * Get the remote task manager.
+	 */
+	getRemoteTaskManager(): RemoteTaskManager | null {
+		return this.remoteTaskMgr
 	}
 
 	/**
@@ -234,3 +258,5 @@ export class VoleNetManager {
 export { generateKeyPair, loadKeyPair, trustPeer, revokePeer, loadAuthorizedVoles } from './keys.js'
 export type { VoleKeyPair } from './keys.js'
 export type { VoleNetInstance, RemoteToolInfo } from './protocol.js'
+export { RemoteTaskManager } from './remote-task.js'
+export type { RemoteTaskRequest, RemoteTaskResult, RemoteToolCallRequest, RemoteToolCallResult } from './remote-task.js'

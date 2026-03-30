@@ -526,6 +526,99 @@ export function createCoreTools(
 			},
 		},
 
+		// === VoleNet tools ===
+		{
+			name: 'list_instances',
+			description: 'List all connected VoleNet peer instances with their capabilities, roles, and status. Only available when VoleNet is enabled.',
+			parameters: z.object({}),
+			async execute() {
+				const voleNet = (globalThis as any).__volenet__
+				if (!voleNet?.isActive()) {
+					return { ok: false, error: 'VoleNet is not enabled. Set net.enabled: true in vole.config.json' }
+				}
+				const instances = voleNet.getInstances()
+				const remoteTools = voleNet.getRemoteTools()
+				return {
+					ok: true,
+					instances: instances.map((i: any) => ({
+						id: i.id.substring(0, 8),
+						name: i.name,
+						role: i.role,
+						capabilities: i.capabilities,
+						lastSeen: i.lastSeen,
+					})),
+					remoteToolCount: remoteTools.length,
+				}
+			},
+		},
+		{
+			name: 'spawn_remote_agent',
+			description: 'Delegate a task to a remote VoleNet peer. The remote instance runs the task independently and returns the result. Use list_instances to see available peers.',
+			parameters: z.object({
+				task: z.string().describe('Task description for the remote agent'),
+				instance: z.string().optional().describe('Target instance name or ID. If omitted, auto-selects best peer.'),
+				max_iterations: z.number().optional().describe('Max iterations on remote (default: 10)'),
+				timeout_ms: z.number().optional().describe('Timeout in ms (default: 300000 = 5 minutes)'),
+			}),
+			async execute(params) {
+				const { task: taskInput, instance, max_iterations, timeout_ms } = params as {
+					task: string; instance?: string; max_iterations?: number; timeout_ms?: number
+				}
+				const voleNet = (globalThis as any).__volenet__
+				if (!voleNet?.isActive()) {
+					return { ok: false, error: 'VoleNet is not enabled' }
+				}
+
+				const remoteTaskMgr = voleNet.getRemoteTaskManager()
+				if (!remoteTaskMgr) {
+					return { ok: false, error: 'Remote task manager not initialized' }
+				}
+
+				// Resolve target instance
+				let targetId: string | null = null
+				if (instance) {
+					const instances = voleNet.getInstances()
+					const target = instances.find((i: any) =>
+						i.name === instance || i.id.startsWith(instance),
+					)
+					targetId = target?.id ?? null
+				} else {
+					// Auto-select: pick peer with lowest load
+					const instances = voleNet.getInstances()
+					if (instances.length > 0) {
+						targetId = instances.sort((a: any, b: any) => a.load - b.load)[0].id
+					}
+				}
+
+				if (!targetId) {
+					return { ok: false, error: `No peer found${instance ? `: "${instance}"` : ''}. Use list_instances to see available peers.` }
+				}
+
+				const result = await remoteTaskMgr.delegateTask(targetId, {
+					taskId: '',
+					input: taskInput,
+					maxIterations: max_iterations,
+				}, timeout_ms ?? 300_000)
+
+				return { ok: true, ...result }
+			},
+		},
+		{
+			name: 'get_remote_result',
+			description: 'Check the status of a remote VoleNet task.',
+			parameters: z.object({
+				task_id: z.string().describe('Remote task ID from spawn_remote_agent'),
+			}),
+			async execute(params) {
+				// Remote results are returned inline by spawn_remote_agent (it waits)
+				// This tool exists for future async delegation
+				return {
+					ok: false,
+					error: 'spawn_remote_agent returns results directly. Use it instead.',
+				}
+			},
+		},
+
 		// === Web tools ===
 		{
 			name: 'web_fetch',
