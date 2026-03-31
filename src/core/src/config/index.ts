@@ -118,7 +118,7 @@ export interface VoleConfig {
 /** Default configuration values */
 const DEFAULT_LOOP_CONFIG: LoopConfig = {
 	maxIterations: 10,
-	confirmBeforeAct: true,
+	confirmBeforeAct: false,
 	taskConcurrency: 1,
 	compactThreshold: 50,
 	rateLimits: undefined,
