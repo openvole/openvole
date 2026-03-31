@@ -512,37 +512,54 @@ export class VoleNetManager {
 	 */
 	isPeerAllowedBrain(peerId: string): boolean {
 		if (!this.config.peers) return false
+		const peerTrust = this.matchPeerConfig(peerId)
+		return peerTrust?.allowBrain === true
+	}
+
+	/**
+	 * Match a connected peer to its config entry.
+	 * Matches by port (handles localhost vs real IP) or by instance name.
+	 */
+	private matchPeerConfig(peerId: string): {
+		url: string; trust?: string; allowTools?: string[]; denyTools?: string[]; allowBrain?: boolean
+	} | null {
+		if (!this.config.peers) return null
 		const instance = this.discovery?.getInstances().find((i) => i.id === peerId)
-		if (!instance) return false
+		if (!instance) return null
 
 		for (const peerConfig of this.config.peers) {
-			// Match by URL — check if this peer's endpoint matches the config
-			if (instance.endpoint.includes(new URL(peerConfig.url).host)) {
-				return peerConfig.allowBrain === true
+			try {
+				const configUrl = new URL(peerConfig.url)
+				const configPort = configUrl.port || (configUrl.protocol === 'https:' ? '443' : '80')
+
+				// Match by port (handles localhost:9701 matching 192.168.x.x:9701)
+				if (instance.endpoint.includes(`:${configPort}`)) {
+					return peerConfig
+				}
+
+				// Also match by exact host
+				if (instance.endpoint.includes(configUrl.host)) {
+					return peerConfig
+				}
+			} catch {
+				continue
 			}
 		}
-		return false
+		return null
 	}
 
 	/**
 	 * Get trust level for a peer.
 	 */
 	getPeerTrust(peerId: string): { trust: string; allowTools?: string[]; denyTools?: string[]; allowBrain?: boolean } | null {
-		if (!this.config.peers) return null
-		const instance = this.discovery?.getInstances().find((i) => i.id === peerId)
-		if (!instance) return null
-
-		for (const peerConfig of this.config.peers) {
-			if (instance.endpoint.includes(new URL(peerConfig.url).host)) {
-				return {
-					trust: peerConfig.trust ?? 'full',
-					allowTools: peerConfig.allowTools,
-					denyTools: peerConfig.denyTools,
-					allowBrain: peerConfig.allowBrain,
-				}
-			}
+		const peerConfig = this.matchPeerConfig(peerId)
+		if (!peerConfig) return null
+		return {
+			trust: peerConfig.trust ?? 'full',
+			allowTools: peerConfig.allowTools,
+			denyTools: peerConfig.denyTools,
+			allowBrain: peerConfig.allowBrain,
 		}
-		return null
 	}
 
 	/**
