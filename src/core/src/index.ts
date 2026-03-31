@@ -168,6 +168,7 @@ export async function createEngine(
 		toolRegistry.addAlwaysVisiblePaw('@openvole/paw-memory')
 		toolRegistry.addAlwaysVisiblePaw('@openvole/paw-session')
 		toolRegistry.addAlwaysVisiblePaw('@openvole/paw-compact')
+		toolRegistry.addAlwaysVisiblePaw('__volenet__')
 	}
 
 	// Wire up query sources so Paws can query skills and tasks
