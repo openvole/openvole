@@ -1021,21 +1021,25 @@ async function handleToolCommand(
 			const coreTools = createCoreTools(scheduler, taskQueue, projectRoot, skillRegistry, vault)
 			toolRegistry.register('__core__', coreTools, true)
 
-			// Start VoleNet if configured (for list_instances, spawn_remote_agent)
-			let voleNetInstance: any = null
+			// For VoleNet tools, query the running instance via HTTP
 			const config = await (await import('./config/index.js')).loadConfig(
 				path.resolve(projectRoot, 'vole.config.json'),
 			)
 			const netConfig = config.net
-			if (netConfig?.enabled) {
+			if (netConfig?.enabled && (toolName === 'list_instances' || toolName === 'spawn_remote_agent')) {
 				try {
-					const { VoleNetManager } = await import('./net/index.js')
-					voleNetInstance = new VoleNetManager(netConfig, projectRoot)
-					await voleNetInstance.start(toolRegistry)
-					// Wait briefly for peer connections
-					await new Promise((r) => setTimeout(r, 2000))
-				} catch (err) {
-					logger.warn(`VoleNet: ${err instanceof Error ? err.message : String(err)}`)
+					const port = netConfig.port ?? 9700
+					const resp = await fetch(`http://localhost:${port}/volenet/info`, { signal: AbortSignal.timeout(3000) })
+					if (resp.ok) {
+						const info = await resp.json()
+						// For list_instances, query the running instance directly
+						if (toolName === 'list_instances') {
+							console.log(JSON.stringify(info, null, 2))
+							process.exit(0)
+						}
+					}
+				} catch {
+					logger.warn('VoleNet instance not reachable — is vole start running?')
 				}
 			}
 
@@ -1043,7 +1047,6 @@ async function handleToolCommand(
 			if (!tool) {
 				logger.error(`Tool "${toolName}" not found in core tools`)
 				logger.info('Core tools only — paw tools require a running "vole start" instance')
-				if (voleNetInstance) await voleNetInstance.stop()
 				process.exit(1)
 			}
 
@@ -1055,13 +1058,10 @@ async function handleToolCommand(
 				console.log(JSON.stringify(result, null, 2))
 			} catch (err) {
 				logger.error(`Tool execution failed: ${err instanceof Error ? err.message : err}`)
-				if (voleNetInstance) await voleNetInstance.stop()
 				process.exit(1)
 			}
 
-			if (voleNetInstance) await voleNetInstance.stop()
 			process.exit(0)
-			break
 		}
 
 		default:

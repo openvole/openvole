@@ -95,14 +95,21 @@ export class VoleNetTransport {
 			}
 
 			if (req.url === '/volenet/info' && req.method === 'GET') {
-				const wsCount = Array.from(this.peers.values())
-					.filter((p) => p.ws?.readyState === WebSocket.OPEN).length
+				const peerList = this.getPeers()
 				res.writeHead(200, { 'Content-Type': 'application/json' })
 				res.end(JSON.stringify({
+					ok: true,
 					protocol: 'volenet',
 					version: 1,
-					peers: this.peers.size,
-					websocketConnections: wsCount,
+					peers: peerList.map((p) => ({
+						id: p.peerId.substring(0, 8),
+						endpoint: p.endpoint,
+						connected: p.connected,
+						transport: p.transport,
+						lastSeen: p.lastSeen,
+					})),
+					peerCount: peerList.length,
+					websocketConnections: peerList.filter((p) => p.transport === 'websocket').length,
 				}))
 				return
 			}
