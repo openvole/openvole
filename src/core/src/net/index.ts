@@ -26,15 +26,26 @@ export interface VoleNetConfig {
 	keyPath?: string
 	peers?: Array<{
 		url: string
+		/** What this peer can do on OUR instance */
 		trust?: 'full' | 'tool' | 'read'
 		allowTools?: string[]
 		denyTools?: string[]
+		/** Allow this peer to use our Brain for their tasks (LLM cost on us) */
+		allowBrain?: boolean
 	}>
 	share?: {
 		tools?: boolean
 		memory?: boolean
 		session?: boolean
 	}
+
+	/**
+	 * Brain source for brainless workers:
+	 * - "local" (default): use local brain paw
+	 * - "remote": delegate thinking to a peer that allows brain sharing
+	 * - "<instanceName>": delegate to a specific peer's brain
+	 */
+	brainSource?: 'local' | 'remote' | string
 	tls?: {
 		cert: string
 		key: string
@@ -245,6 +256,61 @@ export class VoleNetManager {
 			}
 		})
 
+		// Handle incoming task:delegate — run task with our brain if allowed
+		this.transport.onMessage(async (message) => {
+			if (message.type === 'task:delegate' && this.keyPair) {
+				const request = message.payload as { taskId: string; input: string; maxIterations?: number }
+				if (!request?.input) return
+
+				// Check if this peer is allowed to use our brain
+				if (!this.isPeerAllowedBrain(message.from)) {
+					logger.warn(`Brain access denied for peer ${message.from.substring(0, 8)}`)
+					const deny = createMessage('task:result', this.keyPair.instanceId, message.from, {
+						taskId: request.taskId, status: 'failed',
+						error: 'Brain access not allowed. Coordinator must set allowBrain: true for this peer.',
+					}, this.keyPair.privateKey)
+					await this.transport!.sendToPeer(message.from, deny)
+					return
+				}
+
+				logger.info(`Brain delegation from ${message.from.substring(0, 8)}: "${request.input.substring(0, 80)}"`)
+				messageBus?.emit('task:queued', { taskId: request.taskId })
+
+				// Enqueue the task locally — it will run through our brain
+				const taskQueue = (globalThis as any).__volenet_taskqueue__
+				if (taskQueue) {
+					const task = taskQueue.enqueue(request.input, 'agent', {
+						metadata: {
+							maxIterations: request.maxIterations ?? 10,
+							remotePeerId: message.from,
+							remoteTaskId: request.taskId,
+						},
+					})
+
+					// Wait for completion and send result back
+					const checkInterval = setInterval(async () => {
+						const t = taskQueue.get(task.id)
+						if (t && (t.status === 'completed' || t.status === 'failed' || t.status === 'cancelled')) {
+							clearInterval(checkInterval)
+							const result = createMessage('task:result', this.keyPair!.instanceId, message.from, {
+								taskId: request.taskId,
+								status: t.status,
+								result: t.result,
+								error: t.error,
+							}, this.keyPair!.privateKey)
+							await this.transport!.sendToPeer(message.from, result)
+							logger.info(`Brain delegation result sent to ${message.from.substring(0, 8)}: ${t.status}`)
+						}
+					}, 1000)
+				} else {
+					const noQueue = createMessage('task:result', this.keyPair.instanceId, message.from, {
+						taskId: request.taskId, status: 'failed', error: 'Task queue not available',
+					}, this.keyPair.privateKey)
+					await this.transport!.sendToPeer(message.from, noQueue)
+				}
+			}
+		})
+
 		// Initialize remote task manager
 		this.remoteTaskMgr = new RemoteTaskManager(
 			this.transport,
@@ -413,6 +479,70 @@ export class VoleNetManager {
 		if (instances.length === 0) return null
 		const sorted = [...instances].sort((a, b) => a.load - b.load)
 		return sorted[0]
+	}
+
+	/**
+	 * Check if this instance should delegate thinking to a remote brain.
+	 * Returns the target peer instance ID, or null if local brain should be used.
+	 */
+	shouldDelegateBrain(): string | null {
+		const brainSource = this.config.brainSource
+		if (!brainSource || brainSource === 'local') return null
+
+		const instances = this.discovery?.getInstances() ?? []
+		if (instances.length === 0) return null
+
+		if (brainSource === 'remote') {
+			// Find any peer — preferring coordinators
+			const sorted = [...instances].sort((a, b) => {
+				if (a.role === 'coordinator' && b.role !== 'coordinator') return -1
+				if (b.role === 'coordinator' && a.role !== 'coordinator') return 1
+				return 0
+			})
+			return sorted[0]?.id ?? null
+		}
+
+		// Specific instance name
+		const target = instances.find((i) => i.name === brainSource)
+		return target?.id ?? null
+	}
+
+	/**
+	 * Check if a specific peer is allowed to use our brain.
+	 */
+	isPeerAllowedBrain(peerId: string): boolean {
+		if (!this.config.peers) return false
+		const instance = this.discovery?.getInstances().find((i) => i.id === peerId)
+		if (!instance) return false
+
+		for (const peerConfig of this.config.peers) {
+			// Match by URL — check if this peer's endpoint matches the config
+			if (instance.endpoint.includes(new URL(peerConfig.url).host)) {
+				return peerConfig.allowBrain === true
+			}
+		}
+		return false
+	}
+
+	/**
+	 * Get trust level for a peer.
+	 */
+	getPeerTrust(peerId: string): { trust: string; allowTools?: string[]; denyTools?: string[]; allowBrain?: boolean } | null {
+		if (!this.config.peers) return null
+		const instance = this.discovery?.getInstances().find((i) => i.id === peerId)
+		if (!instance) return null
+
+		for (const peerConfig of this.config.peers) {
+			if (instance.endpoint.includes(new URL(peerConfig.url).host)) {
+				return {
+					trust: peerConfig.trust ?? 'full',
+					allowTools: peerConfig.allowTools,
+					denyTools: peerConfig.denyTools,
+					allowBrain: peerConfig.allowBrain,
+				}
+			}
+		}
+		return null
 	}
 
 	/**

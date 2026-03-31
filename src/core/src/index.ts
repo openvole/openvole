@@ -179,6 +179,27 @@ export async function createEngine(
 
 	// Wire up the task runner
 	taskQueue.setRunner(async (task) => {
+		// Check if we should delegate to a remote brain
+		const voleNet = (globalThis as any).__volenet__
+		if (voleNet?.isActive()) {
+			const targetBrain = voleNet.shouldDelegateBrain()
+			if (targetBrain) {
+				const remoteMgr = voleNet.getRemoteTaskManager()
+				if (remoteMgr) {
+					engineLogger.info(`Delegating task to remote brain: ${targetBrain.substring(0, 8)}`)
+					const result = await remoteMgr.delegateTask(targetBrain, {
+						taskId: task.id,
+						input: task.input,
+						maxIterations: config.loop.maxIterations,
+					})
+					task.result = result.result ?? result.error ?? 'Remote task completed'
+					if (result.status === 'failed') task.error = result.error ?? 'Remote task failed'
+					if (task.source === 'user') io.notify(task.result ?? 'Done')
+					return
+				}
+			}
+		}
+
 		await runAgentLoop(task, {
 			bus,
 			toolRegistry,
@@ -296,6 +317,7 @@ export async function createEngine(
 			// Start VoleNet if configured
 			const netConfig = (config as any).net as import('./net/index.js').VoleNetConfig | undefined
 			if (netConfig?.enabled) {
+				;(globalThis as any).__volenet_taskqueue__ = taskQueue
 				try {
 					const { VoleNetManager } = await import('./net/index.js')
 					const voleNet = new VoleNetManager(netConfig, projectRoot)
