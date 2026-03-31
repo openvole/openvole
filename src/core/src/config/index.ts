@@ -111,6 +111,8 @@ export interface VoleConfig {
 	security?: SecurityConfig
 	/** Named agent profiles for sub-agent spawning */
 	agents?: Record<string, AgentProfile>
+	/** VoleNet distributed networking */
+	net?: import('../net/index.js').VoleNetConfig
 }
 
 /** Default configuration values */
@@ -154,6 +156,7 @@ export function defineConfig(config: Partial<VoleConfig>): VoleConfig {
 		},
 		toolProfiles: config.toolProfiles,
 		security: config.security,
+		net: config.net,
 	}
 }
 
@@ -186,6 +189,7 @@ async function loadUserConfig(configPath: string): Promise<VoleConfig> {
 			},
 			toolProfiles: config.toolProfiles,
 			security: config.security,
+			net: config.net,
 		}
 	} catch {
 		// JSON not found or invalid, try JS candidates
@@ -216,6 +220,7 @@ async function loadUserConfig(configPath: string): Promise<VoleConfig> {
 				},
 				toolProfiles: config.toolProfiles,
 		security: config.security,
+			net: config.net,
 			}
 		} catch {
 			continue

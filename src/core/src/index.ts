@@ -293,6 +293,20 @@ export async function createEngine(
 				engineLogger.info(`Heartbeat enabled — cron: ${heartbeatCron}${config.heartbeat.runOnStart ? ', running now' : ''}`)
 			}
 
+			// Start VoleNet if configured
+			const netConfig = (config as any).net as import('./net/index.js').VoleNetConfig | undefined
+			if (netConfig?.enabled && !headless) {
+				try {
+					const { VoleNetManager } = await import('./net/index.js')
+					const voleNet = new VoleNetManager(netConfig, projectRoot)
+					await voleNet.start(toolRegistry)
+					;(engine as any).__volenet__ = voleNet
+					engineLogger.info(`VoleNet active — ${voleNet.getInstances().length} peer(s) connected`)
+				} catch (err) {
+					engineLogger.error(`VoleNet failed to start: ${err instanceof Error ? err.message : String(err)}`)
+				}
+			}
+
 			engineLogger.info(
 				`Ready — ${toolRegistry.list().length} tools, ` +
 					`${pawRegistry.list().length} paws, ` +
@@ -308,6 +322,11 @@ export async function createEngine(
 			if (shuttingDown) return
 			shuttingDown = true
 			engineLogger.info('Shutting down...')
+			// Stop VoleNet
+			const voleNet = (engine as any).__volenet__
+			if (voleNet) {
+				await voleNet.stop()
+			}
 			scheduler.clearAll()
 			taskQueue.cancelAll()
 			await Promise.all(pawRegistry.list().map((paw) => pawRegistry.unload(paw.name)))
