@@ -142,7 +142,7 @@ export class VoleNetManager {
 		this.transport.onMessage((message) => {
 			if (message.type === 'tool:list' && this.toolRegistry && this.keyPair) {
 				const tools: RemoteToolInfo[] = this.toolRegistry.list()
-					.filter((t) => t.pawName !== '__volenet__') // don't echo remote tools back
+					.filter((t) => !t.pawName.startsWith('__volenet')) // don't echo remote tools back
 					.map((t) => ({
 						name: t.name,
 						description: t.description,
@@ -200,12 +200,17 @@ export class VoleNetManager {
 				const remoteTaskMgr = this.remoteTaskMgr
 				const sourceInstanceId = message.from
 
+				// Determine the peer instance name for the paw label
+				const peerInstance = this.discovery?.getInstances().find((i) => i.id === message.from)
+				const peerName = peerInstance?.name ?? message.from.substring(0, 8)
+				const pawLabel = `__volenet:${peerName}__`
+
 				// Create wrapper tool definitions that forward to the remote peer
 				const remoteToolDefs = tools
 					.filter((t) => !this.toolRegistry!.get(t.name)) // don't override local tools
 					.map((t) => ({
 						name: t.name,
-						description: `[remote: ${t.instanceName}] ${t.description}`,
+						description: `[remote: ${peerName}] ${t.description}`,
 						parameters: { parse: () => {} } as any, // no schema validation for remote tools
 						async execute(params: unknown) {
 							const result = await remoteTaskMgr.executeRemoteTool(
@@ -217,8 +222,8 @@ export class VoleNetManager {
 					}))
 
 				if (remoteToolDefs.length > 0) {
-					this.toolRegistry!.register(`__volenet__`, remoteToolDefs, false)
-					logger.info(`Registered ${remoteToolDefs.length} remote tools from ${message.from.substring(0, 8)}`)
+					this.toolRegistry!.register(pawLabel, remoteToolDefs, false)
+					logger.info(`Registered ${remoteToolDefs.length} remote tools from ${peerName} as ${pawLabel}`)
 				}
 			}
 		})
