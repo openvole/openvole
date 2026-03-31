@@ -92,6 +92,7 @@ export class VoleNetManager {
 	private remoteTaskMgr: RemoteTaskManager | null = null
 	private sync: VoleNetSync | null = null
 	private leader: VoleNetLeader | null = null
+	private toolProviders = new Map<string, string[]>()
 	private config: VoleNetConfig
 	private projectRoot: string
 	private toolRegistry: ToolRegistry | null = null
@@ -228,21 +229,49 @@ export class VoleNetManager {
 				const remoteTaskMgr = this.remoteTaskMgr
 				const sourceInstanceId = message.from
 
-				// Determine the peer instance name for the paw label
 				const peerInstance = this.discovery?.getInstances().find((i) => i.id === message.from)
 				const peerName = peerInstance?.name ?? message.from.substring(0, 8)
 				const pawLabel = `__volenet:${peerName}__`
 
-				// Create wrapper tool definitions that forward to the remote peer
+				// Track which peers provide which tools (for load-balanced routing)
+				for (const t of tools) {
+					if (!this.toolProviders) this.toolProviders = new Map()
+					const providers = this.toolProviders.get(t.name) ?? []
+					if (!providers.includes(sourceInstanceId)) {
+						providers.push(sourceInstanceId)
+						this.toolProviders.set(t.name, providers)
+					}
+				}
+
+				const discovery = this.discovery!
+				const toolProviders = this.toolProviders!
+
+				// Create wrapper tool definitions — route to best available peer at call time
 				const remoteToolDefs = tools
 					.filter((t) => !this.toolRegistry!.get(t.name)) // don't override local tools
 					.map((t) => ({
 						name: t.name,
 						description: `[remote: ${peerName}] ${t.description}`,
-						parameters: { parse: () => {} } as any, // no schema validation for remote tools
+						parameters: { parse: () => {} } as any,
 						async execute(params: unknown) {
+							// Pick best peer: least loaded among all providers of this tool
+							const providers = toolProviders.get(t.name) ?? [sourceInstanceId]
+							let targetId = providers[0]
+
+							if (providers.length > 1) {
+								const instances = discovery.getInstances()
+								let bestLoad = Infinity
+								for (const pid of providers) {
+									const inst = instances.find((i) => i.id === pid)
+									if (inst && inst.load < bestLoad) {
+										bestLoad = inst.load
+										targetId = pid
+									}
+								}
+							}
+
 							const result = await remoteTaskMgr.executeRemoteTool(
-								sourceInstanceId, t.name, params,
+								targetId, t.name, params,
 							)
 							if (result.success) return result.output
 							throw new Error(result.error ?? 'Remote tool execution failed')
