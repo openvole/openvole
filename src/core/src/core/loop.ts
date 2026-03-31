@@ -717,8 +717,8 @@ async function executeSingleAction(
 		)
 	}
 
-	// Check if the owning Paw is healthy
-	if (!tool.inProcess && !pawRegistry.isHealthy(tool.pawName)) {
+	// Check if the owning Paw is healthy (skip for VoleNet remote tools — they handle their own connectivity)
+	if (!tool.inProcess && !tool.pawName.startsWith('__volenet') && !pawRegistry.isHealthy(tool.pawName)) {
 		return failureResult(
 			action.tool,
 			tool.pawName,
