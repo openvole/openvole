@@ -10,7 +10,7 @@ describe('defineConfig', () => {
 		expect(config.paws).toEqual([])
 		expect(config.skills).toEqual([])
 		expect(config.loop.maxIterations).toBe(10)
-		expect(config.loop.confirmBeforeAct).toBe(true)
+		expect(config.loop.confirmBeforeAct).toBe(false)
 		expect(config.loop.taskConcurrency).toBe(1)
 		expect(config.loop.compactThreshold).toBe(50)
 		expect(config.heartbeat.enabled).toBe(false)
@@ -40,7 +40,7 @@ describe('defineConfig', () => {
 		})
 		expect(config.loop.maxIterations).toBe(5)
 		// Defaults should fill in the rest
-		expect(config.loop.confirmBeforeAct).toBe(true)
+		expect(config.loop.confirmBeforeAct).toBe(false)
 		expect(config.loop.taskConcurrency).toBe(1)
 	})
 
@@ -108,7 +108,7 @@ describe('loadConfig', () => {
 		expect(config.paws).toEqual(['paw-a'])
 		expect(config.loop.maxIterations).toBe(25)
 		// Defaults should still be merged
-		expect(config.loop.confirmBeforeAct).toBe(true)
+		expect(config.loop.confirmBeforeAct).toBe(false)
 	})
 
 	it('falls back to defaults when no file exists', async () => {

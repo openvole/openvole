@@ -363,6 +363,22 @@ export class VoleNetManager {
 			syncConfig,
 		)
 
+		// Set up session sync handler — write remote session entries to local transcript
+		this.sync.setSessionWriteHandler(async (entry) => {
+			const fs = await import('node:fs/promises')
+			const pathMod = await import('node:path')
+			const sessionDir = pathMod.resolve(
+				this.projectRoot, '.openvole', 'paws', 'paw-session',
+				entry.sessionId.replace(/[/\\]/g, '_'),
+			)
+			await fs.mkdir(sessionDir, { recursive: true })
+			const transcriptPath = pathMod.join(sessionDir, 'transcript.md')
+			const timestamp = new Date(entry.timestamp).toTimeString().slice(0, 8)
+			const line = `[${timestamp}] ${entry.role}: ${entry.content.replace(/\n/g, ' ').substring(0, 2000)}\n`
+			await fs.appendFile(transcriptPath, line, 'utf-8')
+			logger.info(`Session sync received: ${entry.sessionId} — ${entry.role} from ${entry.instanceId.substring(0, 8)}`)
+		})
+
 		// Initialize leader election
 		this.leader = new VoleNetLeader(
 			this.transport,

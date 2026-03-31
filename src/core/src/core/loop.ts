@@ -125,6 +125,18 @@ export async function runAgentLoop(
 		timestamp: Date.now(),
 	})
 
+	// Propagate user message to VoleNet peers (session sync)
+	const voleNetSync = (globalThis as any).__volenet__?.getSync?.()
+	if (voleNetSync && task.sessionId) {
+		voleNetSync.propagateSessionWrite({
+			sessionId: task.sessionId,
+			role: 'user',
+			content: task.input,
+			timestamp: Date.now(),
+			instanceId: (globalThis as any).__volenet__?.getKeyPair?.()?.instanceId ?? 'unknown',
+		}).catch(() => {})
+	}
+
 	// === BOOTSTRAP — runs once at task start ===
 	logger.debug('Phase: bootstrap')
 	context = await pawRegistry.runBootstrapHooks(context)
@@ -385,6 +397,16 @@ export async function runAgentLoop(
 					content: plan.response,
 					timestamp: Date.now(),
 				})
+			}
+			// Propagate brain response to VoleNet peers (session sync)
+			if (voleNetSync && task.sessionId && plan.response) {
+				voleNetSync.propagateSessionWrite({
+					sessionId: task.sessionId,
+					role: 'brain',
+					content: plan.response,
+					timestamp: Date.now(),
+					instanceId: (globalThis as any).__volenet__?.getKeyPair?.()?.instanceId ?? 'unknown',
+				}).catch(() => {})
 			}
 			logCostSummary()
 			logger.info(`Task ${task.id} completed by Brain at iteration ${context.iteration + 1}`)
