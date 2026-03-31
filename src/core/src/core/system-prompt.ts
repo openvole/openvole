@@ -145,6 +145,32 @@ export function buildSystemPrompt(
 - Time: ${now.toLocaleTimeString('en-US', { hour12: true })}
 - Platform: ${process.platform}`)
 
+	// Dynamic: VoleNet context
+	if (metadata?.volenet && typeof metadata.volenet === 'object') {
+		const net = metadata.volenet as {
+			instanceName: string
+			role: string
+			isLeader: boolean
+			peers: Array<{ name: string; role: string; tools: string[] }>
+		}
+		const lines = [`## VoleNet (Distributed Agent Network)`]
+		lines.push(`This instance: **${net.instanceName}** (${net.role}${net.isLeader ? ', leader' : ''})`)
+		if (net.peers && net.peers.length > 0) {
+			lines.push('Connected peers:')
+			for (const peer of net.peers) {
+				const toolList = peer.tools.length > 0 ? peer.tools.join(', ') : 'no tools shared'
+				lines.push(`- **${peer.name}** (${peer.role}) — ${toolList}`)
+			}
+			lines.push('')
+			lines.push('Use `discover_tools` with intent to find remote tools from peers.')
+			lines.push('Use `spawn_remote_agent` to delegate a full task to a specific peer instance.')
+		} else {
+			lines.push('No peers connected.')
+		}
+		parts.push('')
+		parts.push(lines.join('\n'))
+	}
+
 	// Dynamic: Memory
 	if (metadata?.memory && typeof metadata.memory === 'string') {
 		const memory = metadata.memory as string

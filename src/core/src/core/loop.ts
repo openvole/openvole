@@ -129,6 +129,29 @@ export async function runAgentLoop(
 	logger.debug('Phase: bootstrap')
 	context = await pawRegistry.runBootstrapHooks(context)
 
+	// Inject VoleNet context if active
+	const voleNet = (globalThis as any).__volenet__
+	if (voleNet?.isActive()) {
+		const instances = voleNet.getInstances()
+		const remoteTools = voleNet.getRemoteTools()
+		const toolsByPeer = new Map<string, string[]>()
+		for (const tool of remoteTools) {
+			const list = toolsByPeer.get(tool.instanceName) ?? []
+			list.push(tool.name)
+			toolsByPeer.set(tool.instanceName, list)
+		}
+		context.metadata.volenet = {
+			instanceName: voleNet.config?.instanceName ?? 'vole',
+			role: voleNet.config?.role ?? 'peer',
+			isLeader: voleNet.isLeader(),
+			peers: instances.map((i: any) => ({
+				name: i.name,
+				role: i.role,
+				tools: toolsByPeer.get(i.name) ?? [],
+			})),
+		}
+	}
+
 	let consecutiveBrainFailures = 0
 	let consecutiveNoResponse = 0
 	let idleIterations = 0
