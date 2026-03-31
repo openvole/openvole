@@ -5,6 +5,7 @@
  */
 
 import * as path from 'node:path'
+import * as os from 'node:os'
 import { createLogger } from '../core/logger.js'
 import { generateKeyPair, loadKeyPair, type VoleKeyPair } from './keys.js'
 import { VoleNetTransport, type TransportConfig } from './transport.js'
@@ -357,11 +358,11 @@ export class VoleNetManager {
 	}
 
 	private getHostname(): string {
-		const { networkInterfaces } = require('node:os')
-		const nets = networkInterfaces()
+		const nets = os.networkInterfaces()
+		if (!nets) return 'localhost'
 		// Find first non-internal IPv4 address
 		for (const name of Object.keys(nets)) {
-			for (const net of nets[name]) {
+			for (const net of nets[name] ?? []) {
 				if (net.family === 'IPv4' && !net.internal) {
 					return net.address
 				}
