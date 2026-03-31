@@ -121,6 +121,11 @@ export class VoleNetLeader {
 		return this.leaderId === this.instanceId
 	}
 
+	/** Trigger re-election (called when peers change) */
+	reelect(): void {
+		this.electLeader()
+	}
+
 	/**
 	 * Elect leader.
 	 * If forcedLeader is set, that instance name is always leader.

@@ -260,6 +260,11 @@ export class VoleNetManager {
 			() => logger.info('This instance lost VoleNet leadership'),
 		)
 
+		// Re-elect leader immediately when peers join/leave
+		this.discovery.setOnPeerChanged(() => {
+			this.leader?.reelect()
+		})
+
 		// Make VoleNet accessible to core tools via globalThis
 		;(globalThis as any).__volenet__ = this
 

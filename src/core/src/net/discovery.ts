@@ -31,6 +31,7 @@ export class VoleNetDiscovery {
 	private config: DiscoveryConfig
 	private healthTimer: ReturnType<typeof setInterval> | undefined
 	private authorizedPeers = new Map<string, { publicKey: KeyObject; name: string }>()
+	private onPeerChanged?: () => void
 
 	constructor(transport: VoleNetTransport, config: DiscoveryConfig) {
 		this.transport = transport
@@ -40,6 +41,11 @@ export class VoleNetDiscovery {
 	/**
 	 * Start discovery — load authorized peers, announce self, begin health checks.
 	 */
+	/** Set callback for when peers join/leave (triggers leader re-election) */
+	setOnPeerChanged(handler: () => void): void {
+		this.onPeerChanged = handler
+	}
+
 	async start(): Promise<void> {
 		// Load authorized peers
 		this.authorizedPeers = await loadAuthorizedVoles(this.config.netDir)
@@ -185,6 +191,9 @@ export class VoleNetDiscovery {
 
 		logger.info(`Peer discovered: ${instance.name} (${instance.id.substring(0, 8)}) — ${instance.capabilities.join(', ')}`)
 
+		// Trigger re-election now that a new peer joined
+		this.onPeerChanged?.()
+
 		// Send response with our info
 		const response = createMessage(
 			'discover:response',
@@ -243,6 +252,7 @@ export class VoleNetDiscovery {
 		}
 
 		logger.info(`Peer confirmed: ${instance.name} (${instance.id.substring(0, 8)})`)
+		this.onPeerChanged?.()
 	}
 
 	private handlePing(message: VoleNetMessage): void {
