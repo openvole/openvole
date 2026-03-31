@@ -1021,10 +1021,29 @@ async function handleToolCommand(
 			const coreTools = createCoreTools(scheduler, taskQueue, projectRoot, skillRegistry, vault)
 			toolRegistry.register('__core__', coreTools, true)
 
+			// Start VoleNet if configured (for list_instances, spawn_remote_agent)
+			let voleNetInstance: any = null
+			const config = await (await import('./config/index.js')).loadConfig(
+				path.resolve(projectRoot, 'vole.config.json'),
+			)
+			const netConfig = config.net
+			if (netConfig?.enabled) {
+				try {
+					const { VoleNetManager } = await import('./net/index.js')
+					voleNetInstance = new VoleNetManager(netConfig, projectRoot)
+					await voleNetInstance.start(toolRegistry)
+					// Wait briefly for peer connections
+					await new Promise((r) => setTimeout(r, 2000))
+				} catch (err) {
+					logger.warn(`VoleNet: ${err instanceof Error ? err.message : String(err)}`)
+				}
+			}
+
 			const tool = toolRegistry.get(toolName)
 			if (!tool) {
 				logger.error(`Tool "${toolName}" not found in core tools`)
 				logger.info('Core tools only — paw tools require a running "vole start" instance')
+				if (voleNetInstance) await voleNetInstance.stop()
 				process.exit(1)
 			}
 
@@ -1036,9 +1055,12 @@ async function handleToolCommand(
 				console.log(JSON.stringify(result, null, 2))
 			} catch (err) {
 				logger.error(`Tool execution failed: ${err instanceof Error ? err.message : err}`)
+				if (voleNetInstance) await voleNetInstance.stop()
 				process.exit(1)
 			}
 
+			if (voleNetInstance) await voleNetInstance.stop()
+			process.exit(0)
 			break
 		}
 
