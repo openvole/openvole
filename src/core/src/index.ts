@@ -299,7 +299,7 @@ export async function createEngine(
 				try {
 					const { VoleNetManager } = await import('./net/index.js')
 					const voleNet = new VoleNetManager(netConfig, projectRoot)
-					await voleNet.start(toolRegistry)
+					await voleNet.start(toolRegistry, bus)
 					;(engine as any).__volenet__ = voleNet
 					engineLogger.info(`VoleNet active — ${voleNet.getInstances().length} peer(s) connected`)
 				} catch (err) {

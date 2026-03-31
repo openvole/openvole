@@ -13,6 +13,7 @@ export type BusEvents = {
 	'task:failed': { taskId: string; error?: unknown; result?: string }
 	'task:cancelled': { taskId: string }
 	'agent:completed': { taskId: string; parentTaskId: string; status: string; result?: string; error?: string }
+	'volenet:tool:executed': { toolName: string; fromInstance: string; success: boolean; durationMs: number; error?: string }
 	'rate:limited': { bucket: string; source?: string }
 }
 

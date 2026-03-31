@@ -94,11 +94,12 @@ export class VoleNetManager {
 	/**
 	 * Start VoleNet — load keys, start transport, connect to peers.
 	 */
-	async start(toolRegistry?: ToolRegistry): Promise<void> {
+	async start(toolRegistry?: ToolRegistry, bus?: import('../core/bus.js').MessageBus): Promise<void> {
 		if (this.started) return
 		if (!this.config.enabled) return
 
 		this.toolRegistry = toolRegistry ?? null
+		const messageBus = bus
 		const netDir = this.getNetDir()
 
 		// Load or generate keypair
@@ -185,12 +186,18 @@ export class VoleNetManager {
 							? output.substring(0, 200)
 							: JSON.stringify(output).substring(0, 200)
 						logger.info(`Remote tool call completed: ${toolName} → success (${durationMs}ms) — ${outputPreview}`)
+						messageBus?.emit('volenet:tool:executed', {
+							toolName, fromInstance: message.from.substring(0, 8), success: true, durationMs,
+						})
 						response = createMessage('tool:result', this.keyPair.instanceId, message.from, {
 							callId, success: true, output,
 						}, this.keyPair.privateKey)
 					} catch (err) {
 						const errorMsg = err instanceof Error ? err.message : String(err)
 						logger.error(`Remote tool call failed: ${toolName} → ${errorMsg}`)
+						messageBus?.emit('volenet:tool:executed', {
+							toolName, fromInstance: message.from.substring(0, 8), success: false, durationMs: 0, error: errorMsg,
+						})
 						response = createMessage('tool:result', this.keyPair.instanceId, message.from, {
 							callId, success: false, error: errorMsg,
 						}, this.keyPair.privateKey)
