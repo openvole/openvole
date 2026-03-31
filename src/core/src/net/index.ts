@@ -353,7 +353,7 @@ export class VoleNetManager {
 	}
 
 	private getNetDir(): string {
-		const keyPath = this.config.keyPath ?? '.openvole/net'
+		const keyPath = this.config.keyPath ?? '.openvole/net/vole_key'
 		return path.resolve(this.projectRoot, path.dirname(keyPath))
 	}
 
