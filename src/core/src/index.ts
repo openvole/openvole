@@ -295,7 +295,7 @@ export async function createEngine(
 
 			// Start VoleNet if configured
 			const netConfig = (config as any).net as import('./net/index.js').VoleNetConfig | undefined
-			if (netConfig?.enabled && !headless) {
+			if (netConfig?.enabled) {
 				try {
 					const { VoleNetManager } = await import('./net/index.js')
 					const voleNet = new VoleNetManager(netConfig, projectRoot)
