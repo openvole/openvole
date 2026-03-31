@@ -167,27 +167,37 @@ export class VoleNetManager {
 				const { callId, toolName, params } = message.payload as {
 					callId: string; toolName: string; params: unknown
 				}
-				logger.info(`Remote tool call from ${message.from.substring(0, 8)}: ${toolName}`)
+				logger.info(`Remote tool call from ${message.from.substring(0, 8)}: ${toolName}(${JSON.stringify(params)})`)
 
 				const tool = this.toolRegistry.get(toolName)
 				let response
 				if (!tool) {
+					logger.warn(`Remote tool call failed: "${toolName}" not found`)
 					response = createMessage('tool:result', this.keyPair.instanceId, message.from, {
 						callId, success: false, error: `Tool "${toolName}" not found`,
 					}, this.keyPair.privateKey)
 				} else {
 					try {
+						const startTime = Date.now()
 						const output = await tool.execute(params)
+						const durationMs = Date.now() - startTime
+						const outputPreview = typeof output === 'string'
+							? output.substring(0, 200)
+							: JSON.stringify(output).substring(0, 200)
+						logger.info(`Remote tool call completed: ${toolName} → success (${durationMs}ms) — ${outputPreview}`)
 						response = createMessage('tool:result', this.keyPair.instanceId, message.from, {
 							callId, success: true, output,
 						}, this.keyPair.privateKey)
 					} catch (err) {
+						const errorMsg = err instanceof Error ? err.message : String(err)
+						logger.error(`Remote tool call failed: ${toolName} → ${errorMsg}`)
 						response = createMessage('tool:result', this.keyPair.instanceId, message.from, {
-							callId, success: false, error: err instanceof Error ? err.message : String(err),
+							callId, success: false, error: errorMsg,
 						}, this.keyPair.privateKey)
 					}
 				}
 				await this.transport!.sendToPeer(message.from, response)
+				logger.info(`Remote tool result sent to ${message.from.substring(0, 8)}`)
 			}
 		})
 

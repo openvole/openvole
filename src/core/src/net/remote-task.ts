@@ -218,6 +218,14 @@ export class RemoteTaskManager {
 		if (pending) {
 			clearTimeout(pending.timer)
 			this.pendingToolCalls.delete(result.callId)
+			if (result.success) {
+				const preview = typeof result.output === 'string'
+					? result.output.substring(0, 200)
+					: JSON.stringify(result.output).substring(0, 200)
+				logger.info(`Remote tool result received from ${message.from.substring(0, 8)}: success — ${preview}`)
+			} else {
+				logger.warn(`Remote tool result received from ${message.from.substring(0, 8)}: failed — ${result.error}`)
+			}
 			pending.resolve(result)
 		}
 	}
