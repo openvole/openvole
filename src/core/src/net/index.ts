@@ -138,16 +138,18 @@ export class VoleNetManager {
 		this.discovery = new VoleNetDiscovery(this.transport, discoveryConfig)
 		await this.discovery.start()
 
-		// Register tool:list handler
+		// Handle tool:list requests — respond with our local tools
 		this.transport.onMessage((message) => {
 			if (message.type === 'tool:list' && this.toolRegistry && this.keyPair) {
-				const tools: RemoteToolInfo[] = this.toolRegistry.list().map((t) => ({
-					name: t.name,
-					description: t.description,
-					pawName: t.pawName,
-					instanceId: this.keyPair!.instanceId,
-					instanceName: this.config.instanceName ?? 'vole',
-				}))
+				const tools: RemoteToolInfo[] = this.toolRegistry.list()
+					.filter((t) => t.pawName !== '__volenet__') // don't echo remote tools back
+					.map((t) => ({
+						name: t.name,
+						description: t.description,
+						pawName: t.pawName,
+						instanceId: this.keyPair!.instanceId,
+						instanceName: this.config.instanceName ?? 'vole',
+					}))
 				const response = createMessage(
 					'tool:list:response',
 					this.keyPair.instanceId,
@@ -156,6 +158,68 @@ export class VoleNetManager {
 					this.keyPair.privateKey,
 				)
 				this.transport!.sendToPeer(message.from, response)
+			}
+		})
+
+		// Handle incoming tool:call — execute locally and return result
+		this.transport.onMessage(async (message) => {
+			if (message.type === 'tool:call' && this.toolRegistry && this.keyPair) {
+				const { callId, toolName, params } = message.payload as {
+					callId: string; toolName: string; params: unknown
+				}
+				logger.info(`Remote tool call from ${message.from.substring(0, 8)}: ${toolName}`)
+
+				const tool = this.toolRegistry.get(toolName)
+				let response
+				if (!tool) {
+					response = createMessage('tool:result', this.keyPair.instanceId, message.from, {
+						callId, success: false, error: `Tool "${toolName}" not found`,
+					}, this.keyPair.privateKey)
+				} else {
+					try {
+						const output = await tool.execute(params)
+						response = createMessage('tool:result', this.keyPair.instanceId, message.from, {
+							callId, success: true, output,
+						}, this.keyPair.privateKey)
+					} catch (err) {
+						response = createMessage('tool:result', this.keyPair.instanceId, message.from, {
+							callId, success: false, error: err instanceof Error ? err.message : String(err),
+						}, this.keyPair.privateKey)
+					}
+				}
+				await this.transport!.sendToPeer(message.from, response)
+			}
+		})
+
+		// When peer tool lists arrive, register them as remote tools in local registry
+		this.transport.onMessage((message) => {
+			if (message.type === 'tool:list:response' && this.toolRegistry && this.keyPair && this.remoteTaskMgr) {
+				const tools = message.payload as RemoteToolInfo[]
+				if (!Array.isArray(tools) || tools.length === 0) return
+
+				const remoteTaskMgr = this.remoteTaskMgr
+				const sourceInstanceId = message.from
+
+				// Create wrapper tool definitions that forward to the remote peer
+				const remoteToolDefs = tools
+					.filter((t) => !this.toolRegistry!.get(t.name)) // don't override local tools
+					.map((t) => ({
+						name: t.name,
+						description: `[remote: ${t.instanceName}] ${t.description}`,
+						parameters: { parse: () => {} } as any, // no schema validation for remote tools
+						async execute(params: unknown) {
+							const result = await remoteTaskMgr.executeRemoteTool(
+								sourceInstanceId, t.name, params,
+							)
+							if (result.success) return result.output
+							throw new Error(result.error ?? 'Remote tool execution failed')
+						},
+					}))
+
+				if (remoteToolDefs.length > 0) {
+					this.toolRegistry!.register(`__volenet__`, remoteToolDefs, false)
+					logger.info(`Registered ${remoteToolDefs.length} remote tools from ${message.from.substring(0, 8)}`)
+				}
 			}
 		})
 
