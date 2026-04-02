@@ -8,7 +8,7 @@ echo "🐹 Setting up OpenVole (telegram)..."
 
 # Initialize project
 npm init -y > /dev/null 2>&1
-npm install openvole @openvole/paw-ollama @openvole/paw-memory @openvole/paw-session @openvole/paw-compact @openvole/paw-dashboard @openvole/paw-telegram @openvole/paw-browser
+npm install openvole @openvole/paw-brain @openvole/paw-memory @openvole/paw-session @openvole/paw-compact @openvole/paw-dashboard @openvole/paw-telegram @openvole/paw-browser
 
 # Scaffold .openvole/ directory with identity files
 npx vole init
@@ -16,13 +16,15 @@ npx vole init
 # Overwrite config with telegram setup
 cat > vole.config.json << 'EOF'
 {
-  "brain": "@openvole/paw-ollama",
+  "brain": "@openvole/paw-brain",
   "paws": [
     {
-      "name": "@openvole/paw-ollama",
+      "name": "@openvole/paw-brain",
       "allow": {
-        "network": ["127.0.0.1"],
-        "env": ["OLLAMA_HOST", "OLLAMA_MODEL", "OLLAMA_API_KEY"]
+        "network": ["*"],
+        "env": ["BRAIN_PROVIDER", "BRAIN_API_KEY", "BRAIN_MODEL",
+                "OLLAMA_HOST", "OLLAMA_MODEL", "OLLAMA_API_KEY",
+                "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY"]
       }
     },
     {
@@ -86,6 +88,7 @@ EOF
 
 # Create .env template
 cat > .env << 'EOF'
+BRAIN_PROVIDER=ollama
 OLLAMA_HOST=http://localhost:11434
 OLLAMA_MODEL=qwen3:latest
 VOLE_LOG_LEVEL=info
@@ -100,7 +103,7 @@ EOF
 echo ""
 echo "✅ OpenVole (telegram) ready!"
 echo ""
-echo "   Includes: Brain (Ollama) + Memory + Session + Compact + Dashboard + Telegram + Browser"
+echo "   Includes: Brain + Memory + Session + Compact + Dashboard + Telegram + Browser"
 echo ""
 echo "   Next steps:"
 echo "   1. Edit .env — add TELEGRAM_BOT_TOKEN and TELEGRAM_ALLOW_FROM"

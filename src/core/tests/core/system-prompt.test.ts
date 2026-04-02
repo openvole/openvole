@@ -19,17 +19,17 @@ describe('System Prompt', () => {
 
 	describe('loadSystemPromptContent', () => {
 		it('returns default prompt when no BRAIN.md exists', async () => {
-			const content = await loadSystemPromptContent(tmpDir, 'paw-ollama')
+			const content = await loadSystemPromptContent(tmpDir, 'paw-brain')
 			expect(content.brainPrompt).toContain('You are an AI agent')
 			expect(content.identityContext).toBe('')
 		})
 
 		it('loads BRAIN.md from paw data dir', async () => {
-			const brainDir = path.join(tmpDir, '.openvole', 'paws', 'paw-ollama')
+			const brainDir = path.join(tmpDir, '.openvole', 'paws', 'paw-brain')
 			await fs.mkdir(brainDir, { recursive: true })
 			await fs.writeFile(path.join(brainDir, 'BRAIN.md'), 'Custom brain prompt here.')
 
-			const content = await loadSystemPromptContent(tmpDir, '@openvole/paw-ollama')
+			const content = await loadSystemPromptContent(tmpDir, '@openvole/paw-brain')
 			expect(content.brainPrompt).toBe('Custom brain prompt here.')
 		})
 

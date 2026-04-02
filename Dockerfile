@@ -14,6 +14,7 @@ COPY src/skill-sdk/package.json src/skill-sdk/package.json
 COPY paws/paw-dashboard/package.json paws/paw-dashboard/package.json
 COPY paws/paw-mcp/package.json paws/paw-mcp/package.json
 COPY paws/paw-telegram/package.json paws/paw-telegram/package.json
+COPY paws/paw-brain/package.json paws/paw-brain/package.json
 COPY paws/paw-ollama/package.json paws/paw-ollama/package.json
 COPY paws/paw-shell/package.json paws/paw-shell/package.json
 COPY paws/paw-browser/package.json paws/paw-browser/package.json
@@ -53,6 +54,11 @@ COPY paws/paw-telegram/src paws/paw-telegram/src
 COPY paws/paw-telegram/tsconfig.json paws/paw-telegram/tsconfig.json
 COPY paws/paw-telegram/tsup.config.ts paws/paw-telegram/tsup.config.ts
 COPY paws/paw-telegram/vole-paw.json paws/paw-telegram/vole-paw.json
+
+COPY paws/paw-brain/src paws/paw-brain/src
+COPY paws/paw-brain/tsconfig.json paws/paw-brain/tsconfig.json
+COPY paws/paw-brain/tsup.config.ts paws/paw-brain/tsup.config.ts
+COPY paws/paw-brain/vole-paw.json paws/paw-brain/vole-paw.json
 
 COPY paws/paw-ollama/src paws/paw-ollama/src
 COPY paws/paw-ollama/tsconfig.json paws/paw-ollama/tsconfig.json
@@ -98,6 +104,9 @@ COPY --from=build /app/paws/paw-mcp/vole-paw.json ./paws/paw-mcp/
 COPY --from=build /app/paws/paw-telegram/dist ./paws/paw-telegram/dist
 COPY --from=build /app/paws/paw-telegram/package.json ./paws/paw-telegram/
 COPY --from=build /app/paws/paw-telegram/vole-paw.json ./paws/paw-telegram/
+COPY --from=build /app/paws/paw-brain/dist ./paws/paw-brain/dist
+COPY --from=build /app/paws/paw-brain/package.json ./paws/paw-brain/
+COPY --from=build /app/paws/paw-brain/vole-paw.json ./paws/paw-brain/
 COPY --from=build /app/paws/paw-ollama/dist ./paws/paw-ollama/dist
 COPY --from=build /app/paws/paw-ollama/package.json ./paws/paw-ollama/
 COPY --from=build /app/paws/paw-ollama/vole-paw.json ./paws/paw-ollama/
@@ -160,6 +169,11 @@ COPY paws/paw-telegram/src paws/paw-telegram/src
 COPY paws/paw-telegram/tsconfig.json paws/paw-telegram/tsconfig.json
 COPY paws/paw-telegram/tsup.config.ts paws/paw-telegram/tsup.config.ts
 COPY paws/paw-telegram/vole-paw.json paws/paw-telegram/vole-paw.json
+
+COPY paws/paw-brain/src paws/paw-brain/src
+COPY paws/paw-brain/tsconfig.json paws/paw-brain/tsconfig.json
+COPY paws/paw-brain/tsup.config.ts paws/paw-brain/tsup.config.ts
+COPY paws/paw-brain/vole-paw.json paws/paw-brain/vole-paw.json
 
 COPY paws/paw-ollama/src paws/paw-ollama/src
 COPY paws/paw-ollama/tsconfig.json paws/paw-ollama/tsconfig.json

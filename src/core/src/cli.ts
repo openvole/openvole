@@ -436,7 +436,7 @@ async function initProject(projectRoot: string): Promise<void> {
 	logger.info('Created .env')
 	logger.info('')
 	logger.info('Next: install paws and start')
-	logger.info('  npm install @openvole/paw-ollama @openvole/paw-memory')
+	logger.info('  npm install @openvole/paw-brain @openvole/paw-memory')
 	logger.info('  npx vole start')
 }
 

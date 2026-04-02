@@ -14,17 +14,18 @@ npx vole paw list
 
 ## All 27 Official Paws
 
-### Brain (5)
+### Brain (1 + 5 legacy)
 
 LLM providers that power the Think phase. [Learn more](/paws-brain)
 
 | Paw | Purpose |
 |-----|---------|
-| `paw-ollama` | Local LLM via Ollama |
-| `paw-claude` | Anthropic Claude models |
-| `paw-openai` | OpenAI models |
-| `paw-gemini` | Google Gemini models |
-| `paw-xai` | xAI Grok models |
+| `paw-brain` | **Unified multi-provider brain** (Anthropic, OpenAI, Gemini, xAI, Ollama) |
+| `paw-ollama` | *(deprecated)* Local LLM via Ollama |
+| `paw-claude` | *(deprecated)* Anthropic Claude models |
+| `paw-openai` | *(deprecated)* OpenAI models |
+| `paw-gemini` | *(deprecated)* Google Gemini models |
+| `paw-xai` | *(deprecated)* xAI Grok models |
 
 ### Channel (6)
 

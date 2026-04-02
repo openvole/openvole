@@ -6,8 +6,8 @@ OpenVole uses a single `vole.config.json` file — plain JSON, no imports.
 
 ```json
 {
-  "brain": "@openvole/paw-ollama",
-  "paws": ["@openvole/paw-ollama", "@openvole/paw-memory"],
+  "brain": "@openvole/paw-brain",
+  "paws": ["@openvole/paw-brain", "@openvole/paw-memory"],
   "skills": ["clawhub/summarize"],
   "loop": { "maxIterations": 25, "compactThreshold": 50 },
   "heartbeat": { "enabled": false, "cron": "*/30 * * * *" },
@@ -22,7 +22,7 @@ OpenVole uses a single `vole.config.json` file — plain JSON, no imports.
 The Brain Paw to use for LLM calls. Must be one of the installed Brain Paws.
 
 ```json
-{ "brain": "@openvole/paw-ollama" }
+{ "brain": "@openvole/paw-brain" }
 ```
 
 ### `paws`
@@ -34,10 +34,12 @@ Array of installed Paws. Each entry can be a string (package name) or an object 
   "paws": [
     "@openvole/paw-memory",
     {
-      "name": "@openvole/paw-ollama",
+      "name": "@openvole/paw-brain",
       "allow": {
-        "network": ["127.0.0.1"],
-        "env": ["OLLAMA_HOST", "OLLAMA_MODEL"]
+        "network": ["*"],
+        "env": ["BRAIN_PROVIDER", "BRAIN_API_KEY", "BRAIN_MODEL",
+                "OLLAMA_HOST", "OLLAMA_MODEL", "OLLAMA_API_KEY",
+                "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY"]
       }
     }
   ]
@@ -147,7 +149,7 @@ When a Paw entry is an object, the `allow` field controls permissions:
 │   │   └── user/, paw/, heartbeat/
 │   ├── paw-session/         ← session transcripts
 │   │   └── cli:default/, telegram:123/
-│   ├── paw-ollama/          ← brain paw data
+│   ├── paw-brain/           ← brain paw data
 │   │   └── BRAIN.md         ← system prompt (scaffolded on first run)
 │   └── paw-mcp/             ← MCP config
 │       └── servers.json
@@ -174,4 +176,4 @@ Customize agent behavior with optional markdown files in `.openvole/`:
 | `USER.md` | User profile and preferences |
 | `AGENT.md` | Operating rules and constraints |
 
-All Brain Paws (Ollama, Claude, OpenAI, Gemini, xAI) load these on startup.
+The Brain Paw (`paw-brain`) loads these on startup.

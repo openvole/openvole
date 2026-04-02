@@ -40,7 +40,7 @@ export default definePaw({
 A Paw connects OpenVole to the outside world. It runs in an isolated subprocess and registers tools that the Brain can call.
 
 **Types of Paws:**
-- **Brain** — implements the Think phase (e.g., paw-ollama, paw-claude)
+- **Brain** — implements the Think phase (e.g., paw-brain)
 - **Channel** — receives messages from users (e.g., paw-telegram, paw-slack)
 - **Tool** — provides capabilities (e.g., paw-browser, paw-shell)
 - **Infrastructure** — internal services (e.g., paw-memory, paw-session)
