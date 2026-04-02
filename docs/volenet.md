@@ -116,7 +116,162 @@ Same user, same conversation across devices. Session and memory sync in both dir
 }
 ```
 
-### Pattern 5: Brain Sharing
+### Pattern 5: Multi-User Team
+
+Each team member has their own Brain and tools, but they share a common memory and tool server.
+
+```
+┌──────────────┐  ┌──────────────┐  ┌──────────────┐
+│  Alice       │  │  Bob         │  │  Carol        │
+│  Brain+CLI   │  │  Brain+CLI   │  │  Brain+Telegram│
+│  port 9700   │  │  port 9701   │  │  port 9702    │
+└──────┬───────┘  └──────┬───────┘  └──────┬────────┘
+       │                 │                  │
+       └────────────┬────┴──────────────────┘
+                    │
+          ┌─────────▼─────────┐
+          │  Shared Server    │
+          │  DB + Shell + MCP │
+          │  port 9703        │
+          └───────────────────┘
+```
+
+```json
+// Alice's instance
+{
+  "brain": "@openvole/paw-brain",
+  "net": {
+    "enabled": true, "instanceName": "alice", "role": "peer", "port": 9700,
+    "peers": [
+      { "url": "http://server:9703", "trust": "full" },
+      { "url": "http://bob:9701", "trust": "read" },
+      { "url": "http://carol:9702", "trust": "read" }
+    ],
+    "share": { "tools": false, "memory": true }
+  }
+}
+
+// Shared server (no brain, exposes tools to all)
+{
+  "paws": [
+    { "name": "@openvole/paw-database", "allow": { "network": ["*"], "filesystem": ["./"] } },
+    { "name": "@openvole/paw-shell", "allow": { "childProcess": true, "filesystem": ["./"] } }
+  ],
+  "net": {
+    "enabled": true, "instanceName": "shared-server", "role": "worker", "port": 9703,
+    "peers": [
+      { "url": "http://alice:9700", "trust": "tool" },
+      { "url": "http://bob:9701", "trust": "tool" },
+      { "url": "http://carol:9702", "trust": "tool" }
+    ],
+    "share": { "tools": true, "memory": false }
+  }
+}
+```
+
+**Use cases:** Small team sharing a database server, dev team with shared infrastructure, agency with per-client agents.
+
+### Pattern 6: Central Brain Company
+
+One powerful Brain server handles all thinking. Thin worker clients just expose tools and channels — no LLM cost per client.
+
+```
+                    ┌─────────────────────┐
+                    │   Brain Server      │
+                    │   GPU + paw-brain   │
+                    │   port 9700         │
+                    └──────────┬──────────┘
+           ┌───────────────────┼───────────────────┐
+           │                   │                   │
+  ┌────────▼────────┐ ┌───────▼────────┐ ┌────────▼────────┐
+  │  Client A       │ │  Client B      │ │  Client N       │
+  │  Telegram+Shell │ │  Slack+Browser │ │  CLI+Database   │
+  │  brainSource:   │ │  brainSource:  │ │  brainSource:   │
+  │  "remote"       │ │  "remote"      │ │  "remote"       │
+  └─────────────────┘ └────────────────┘ └─────────────────┘
+```
+
+```json
+// Brain server — accepts brain delegation from all clients
+{
+  "brain": "@openvole/paw-brain",
+  "paws": [
+    { "name": "@openvole/paw-brain", "allow": { "network": ["*"], "env": ["BRAIN_PROVIDER", "BRAIN_API_KEY", "BRAIN_MODEL"] } },
+    { "name": "@openvole/paw-memory", "allow": { "network": ["*"] } }
+  ],
+  "net": {
+    "enabled": true, "instanceName": "brain-server", "role": "coordinator", "port": 9700,
+    "peers": [
+      { "url": "http://client-a:9701", "trust": "full", "allowBrain": true },
+      { "url": "http://client-b:9702", "trust": "full", "allowBrain": true },
+      { "url": "http://client-n:9703", "trust": "full", "allowBrain": true }
+    ],
+    "share": { "tools": false, "memory": true }
+  }
+}
+
+// Client A — no brain, delegates thinking to brain-server
+{
+  "paws": [
+    { "name": "@openvole/paw-telegram", "allow": { "network": ["*"], "env": ["TELEGRAM_BOT_TOKEN", "TELEGRAM_ALLOW_FROM"] } },
+    { "name": "@openvole/paw-shell", "allow": { "childProcess": true, "filesystem": ["./"] } }
+  ],
+  "net": {
+    "enabled": true, "instanceName": "client-a", "role": "worker", "port": 9701,
+    "peers": [{ "url": "http://brain-server:9700", "trust": "full" }],
+    "share": { "tools": true, "memory": false },
+    "brainSource": "remote"
+  }
+}
+```
+
+**Use cases:** Company-wide AI assistant, centralized LLM billing, GPU server with thin clients, managed AI service.
+
+### Pattern 7: Autonomous Swarm
+
+Self-organizing agents with no fixed coordinator. Any peer can lead. Tasks automatically forward to the least-loaded instance.
+
+```
+  ┌──────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐
+  │  Agent 1 │◄──►│  Agent 2 │◄──►│  Agent 3 │◄──►│  Agent 4 │
+  │  Brain   │    │  Brain   │    │  Brain   │    │  Brain   │
+  │  Shell   │    │  Browser │    │  DB      │    │  Scraper │
+  └──────────┘    └──────────┘    └──────────┘    └──────────┘
+       ▲                                               ▲
+       └───────────────────────────────────────────────┘
+                    Full mesh — all peers connected
+```
+
+```json
+// Every agent has the same net structure (different instanceName/port)
+{
+  "brain": "@openvole/paw-brain",
+  "net": {
+    "enabled": true, "instanceName": "agent-1", "role": "peer", "port": 9700,
+    "peers": [
+      { "url": "http://agent-2:9701", "trust": "full" },
+      { "url": "http://agent-3:9702", "trust": "full" },
+      { "url": "http://agent-4:9703", "trust": "full" }
+    ],
+    "share": { "tools": true, "memory": true, "session": false },
+    "leader": "auto",
+    "heartbeatMode": "leader",
+    "brainMode": "loadbalance",
+    "taskOverflow": "forward",
+    "maxQueuedTasks": 5
+  }
+}
+```
+
+Key behaviors:
+- **Leader election:** Lowest instance ID becomes leader automatically. If it disconnects, the next lowest takes over within 30 seconds.
+- **Load balancing:** Incoming tasks route to the peer with the lowest current load.
+- **Task overflow:** When a peer's queue is full, tasks automatically forward to another peer.
+- **Tool sharing:** Each agent's unique tools are available to all others.
+
+**Use cases:** Resilient autonomous research, parallel task processing, fault-tolerant monitoring across regions.
+
+### Pattern 8: Brain Sharing
 
 Workers without a Brain delegate thinking to a coordinator's Brain.
 
@@ -137,6 +292,8 @@ Workers without a Brain delegate thinking to a coordinator's Brain.
   }
 }
 ```
+
+**Use cases:** Workers that only need tool execution, not their own LLM reasoning.
 
 ## Remote Tool Execution
 
