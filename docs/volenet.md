@@ -5,11 +5,11 @@ VoleNet is OpenVole's distributed agent networking layer. It connects multiple O
 ## How It Works
 
 ```
-┌─────────────────────┐         WebSocket          ┌─────────────────────┐
-│   Coordinator       │◄──────────────────────────►│   Worker            │
+┌──────────────────────┐         WebSocket          ┌─────────────────────┐
+│   Coordinator        │◄──────────────────────────►│   Worker            │
 │   (Brain + Telegram) │                            │   (Shell tools)     │
-│   port 9700         │         Ed25519 signed      │   port 9701         │
-└─────────────────────┘         messages            └─────────────────────┘
+│   port 9700          │         Ed25519 signed     │   port 9701         │
+└──────────────────────┘         messages           └─────────────────────┘
          │                                                    │
          │              ┌─────────────────────┐               │
          └──────────────►   Worker            │◄──────────────┘
@@ -121,11 +121,11 @@ Same user, same conversation across devices. Session and memory sync in both dir
 Each team member has their own Brain and tools, but they share a common memory and tool server.
 
 ```
-┌──────────────┐  ┌──────────────┐  ┌──────────────┐
-│  Alice       │  │  Bob         │  │  Carol        │
+┌──────────────┐  ┌──────────────┐  ┌────────────────┐
+│  Alice       │  │  Bob         │  │  Carol         │
 │  Brain+CLI   │  │  Brain+CLI   │  │  Brain+Telegram│
-│  port 9700   │  │  port 9701   │  │  port 9702    │
-└──────┬───────┘  └──────┬───────┘  └──────┬────────┘
+│  port 9700   │  │  port 9701   │  │  port 9702     │
+└──────┬───────┘  └──────┬───────┘  └──────┬─────────┘
        │                 │                  │
        └────────────┬────┴──────────────────┘
                     │
