@@ -1,12 +1,12 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import * as fs from 'node:fs/promises'
 import * as os from 'node:os'
 import * as path from 'node:path'
-import { createCoreTools } from '../../src/tool/core-tools.js'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { createMessageBus } from '../../src/core/bus.js'
 import { SchedulerStore } from '../../src/core/scheduler.js'
 import { TaskQueue } from '../../src/core/task.js'
 import { Vault } from '../../src/core/vault.js'
-import { createMessageBus } from '../../src/core/bus.js'
+import { createCoreTools } from '../../src/tool/core-tools.js'
 import type { ToolDefinition } from '../../src/tool/types.js'
 
 // Minimal SkillRegistry mock

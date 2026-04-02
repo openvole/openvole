@@ -1,5 +1,5 @@
-import type { PawDefinition, AgentContext, ActionResult } from './types.js'
 import { createIpcTransport } from './transport.js'
+import type { ActionResult, AgentContext, PawDefinition } from './types.js'
 
 /**
  * definePaw — the primary export for Paw developers.

@@ -8,7 +8,7 @@ echo "🐹 Setting up OpenVole (basic)..."
 
 # Initialize project
 npm init -y > /dev/null 2>&1
-npm install openvole @openvole/paw-ollama @openvole/paw-memory @openvole/paw-session @openvole/paw-compact @openvole/paw-dashboard
+npm install openvole @openvole/paw-brain @openvole/paw-memory @openvole/paw-session @openvole/paw-compact @openvole/paw-dashboard
 
 # Scaffold .openvole/ directory with identity files
 npx vole init
@@ -16,13 +16,15 @@ npx vole init
 # Overwrite config with basic setup
 cat > vole.config.json << 'EOF'
 {
-  "brain": "@openvole/paw-ollama",
+  "brain": "@openvole/paw-brain",
   "paws": [
     {
-      "name": "@openvole/paw-ollama",
+      "name": "@openvole/paw-brain",
       "allow": {
-        "network": ["127.0.0.1"],
-        "env": ["OLLAMA_HOST", "OLLAMA_MODEL", "OLLAMA_API_KEY"]
+        "network": ["*"],
+        "env": ["BRAIN_PROVIDER", "BRAIN_API_KEY", "BRAIN_MODEL",
+                "OLLAMA_HOST", "OLLAMA_MODEL", "OLLAMA_API_KEY",
+                "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY"]
       }
     },
     {
@@ -63,6 +65,7 @@ EOF
 
 # Create .env
 cat > .env << 'EOF'
+BRAIN_PROVIDER=ollama
 OLLAMA_HOST=http://localhost:11434
 OLLAMA_MODEL=qwen3:latest
 VOLE_LOG_LEVEL=info
@@ -72,7 +75,7 @@ EOF
 echo ""
 echo "✅ OpenVole (basic) ready!"
 echo ""
-echo "   Includes: Brain (Ollama) + Memory + Session + Compact + Dashboard"
+echo "   Includes: Brain + Memory + Session + Compact + Dashboard"
 echo ""
 echo "   Make sure Ollama is running, then:"
 echo "   npx vole start"

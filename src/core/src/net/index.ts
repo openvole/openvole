@@ -1,0 +1,844 @@
+/**
+ * VoleNet Manager — lifecycle management for the distributed networking layer.
+ * Initializes transport, discovery, and key management.
+ * Starts/stops with the engine.
+ */
+
+import * as os from 'node:os'
+import * as path from 'node:path'
+import { createLogger } from '../core/logger.js'
+import type { ToolRegistry } from '../tool/registry.js'
+import { type DiscoveryConfig, VoleNetDiscovery } from './discovery.js'
+import { type VoleKeyPair, generateKeyPair, loadKeyPair } from './keys.js'
+import { VoleNetLeader } from './leader.js'
+import { type RemoteToolInfo, type VoleNetInstance, createMessage } from './protocol.js'
+import { RemoteTaskManager } from './remote-task.js'
+import { type SyncConfig, VoleNetSync } from './sync.js'
+import { type TransportConfig, VoleNetTransport } from './transport.js'
+
+const logger = createLogger('volenet')
+
+export interface VoleNetConfig {
+	enabled?: boolean
+	instanceName?: string
+	role?: 'coordinator' | 'worker' | 'peer'
+	port?: number
+	keyPath?: string
+	peers?: Array<{
+		url: string
+		/** What this peer can do on OUR instance */
+		trust?: 'full' | 'tool' | 'read'
+		allowTools?: string[]
+		denyTools?: string[]
+		/** Allow this peer to use our Brain for their tasks (LLM cost on us) */
+		allowBrain?: boolean
+	}>
+	share?: {
+		tools?: boolean
+		memory?: boolean
+		session?: boolean
+	}
+
+	/**
+	 * Brain source for brainless workers:
+	 * - "local" (default): use local brain paw
+	 * - "remote": delegate thinking to a peer that allows brain sharing
+	 * - "<instanceName>": delegate to a specific peer's brain
+	 */
+	brainSource?: 'local' | 'remote' | string
+	tls?: {
+		cert: string
+		key: string
+	}
+	discovery?: 'manual' | 'mdns'
+	routing?: Record<string, string>
+
+	/**
+	 * Leader selection mode:
+	 * - "auto" (default): lowest instance ID wins, automatic failover
+	 * - "<instanceName>": force a specific instance as leader
+	 */
+	leader?: 'auto' | string
+
+	/**
+	 * Heartbeat mode:
+	 * - "leader" (default): only the leader runs heartbeat/schedules
+	 * - "independent": each instance runs its own heartbeat independently
+	 */
+	heartbeatMode?: 'leader' | 'independent'
+
+	/**
+	 * Brain load balancing:
+	 * - "local" (default): each instance handles its own tasks
+	 * - "loadbalance": route incoming tasks to the least-loaded brain across peers
+	 */
+	brainMode?: 'local' | 'loadbalance'
+
+	/**
+	 * Task overflow behavior when local queue is full:
+	 * - "reject" (default): reject the task
+	 * - "forward": forward to the least-loaded peer automatically
+	 */
+	taskOverflow?: 'reject' | 'forward'
+
+	/** Max queued tasks before overflow triggers (default: 10) */
+	maxQueuedTasks?: number
+}
+
+export class VoleNetManager {
+	private keyPair: VoleKeyPair | null = null
+	private transport: VoleNetTransport | null = null
+	private discovery: VoleNetDiscovery | null = null
+	private remoteTaskMgr: RemoteTaskManager | null = null
+	private sync: VoleNetSync | null = null
+	private leader: VoleNetLeader | null = null
+	private toolProviders = new Map<string, string[]>()
+	private config: VoleNetConfig
+	private projectRoot: string
+	private toolRegistry: ToolRegistry | null = null
+	private started = false
+
+	constructor(config: VoleNetConfig, projectRoot: string) {
+		this.config = config
+		this.projectRoot = projectRoot
+	}
+
+	/**
+	 * Start VoleNet — load keys, start transport, connect to peers.
+	 */
+	async start(
+		toolRegistry?: ToolRegistry,
+		bus?: import('../core/bus.js').MessageBus,
+	): Promise<void> {
+		if (this.started) return
+		if (!this.config.enabled) return
+
+		this.toolRegistry = toolRegistry ?? null
+		const messageBus = bus
+		const netDir = this.getNetDir()
+
+		// Load or generate keypair
+		this.keyPair = await loadKeyPair(netDir)
+		if (!this.keyPair) {
+			logger.info('No keypair found — generating new Ed25519 keypair')
+			this.keyPair = await generateKeyPair(netDir, this.config.instanceName ?? 'vole')
+		}
+
+		logger.info(`Instance ID: ${this.keyPair.instanceId}`)
+		logger.info(`Public key: ${this.keyPair.publicKeyString}`)
+
+		// Start transport
+		const port = this.config.port ?? 9700
+		const transportConfig: TransportConfig = {
+			port,
+			tls: this.config.tls,
+		}
+		this.transport = new VoleNetTransport(transportConfig)
+		await this.transport.start()
+
+		// Start discovery
+		const hostname = this.getHostname()
+		const scheme = this.config.tls ? 'https' : 'http'
+		const endpoint = `${scheme}://${hostname}:${port}`
+
+		const discoveryConfig: DiscoveryConfig = {
+			netDir,
+			instanceId: this.keyPair.instanceId,
+			instanceName: this.config.instanceName ?? 'vole',
+			role: this.config.role ?? 'peer',
+			endpoint,
+			capabilities: this.getCapabilities(),
+			privateKey: this.keyPair.privateKey,
+			publicKeyString: this.keyPair.publicKeyString,
+		}
+		this.discovery = new VoleNetDiscovery(this.transport, discoveryConfig)
+		await this.discovery.start()
+
+		// Handle tool:list requests — respond with our local tools
+		this.transport.onMessage((message) => {
+			if (message.type === 'tool:list' && this.toolRegistry && this.keyPair) {
+				const tools: RemoteToolInfo[] = this.toolRegistry
+					.list()
+					.filter((t) => !t.pawName.startsWith('__volenet')) // don't echo remote tools back
+					.map((t) => ({
+						name: t.name,
+						description: t.description,
+						pawName: t.pawName,
+						instanceId: this.keyPair!.instanceId,
+						instanceName: this.config.instanceName ?? 'vole',
+					}))
+				const response = createMessage(
+					'tool:list:response',
+					this.keyPair.instanceId,
+					message.from,
+					tools,
+					this.keyPair.privateKey,
+				)
+				this.transport!.sendToPeer(message.from, response)
+			}
+		})
+
+		// Handle incoming tool:call — execute locally and return result
+		this.transport.onMessage(async (message) => {
+			if (message.type === 'tool:call' && this.toolRegistry && this.keyPair) {
+				const { callId, toolName, params } = message.payload as {
+					callId: string
+					toolName: string
+					params: unknown
+				}
+				logger.info(
+					`Remote tool call from ${message.from.substring(0, 8)}: ${toolName}(${JSON.stringify(params)})`,
+				)
+
+				const tool = this.toolRegistry.get(toolName)
+				let response
+				if (!tool) {
+					logger.warn(`Remote tool call failed: "${toolName}" not found`)
+					response = createMessage(
+						'tool:result',
+						this.keyPair.instanceId,
+						message.from,
+						{
+							callId,
+							success: false,
+							error: `Tool "${toolName}" not found`,
+						},
+						this.keyPair.privateKey,
+					)
+				} else {
+					try {
+						const startTime = Date.now()
+						const output = await tool.execute(params)
+						const durationMs = Date.now() - startTime
+						const outputPreview =
+							typeof output === 'string'
+								? output.substring(0, 200)
+								: JSON.stringify(output).substring(0, 200)
+						logger.info(
+							`Remote tool call completed: ${toolName} → success (${durationMs}ms) — ${outputPreview}`,
+						)
+						messageBus?.emit('volenet:tool:executed', {
+							toolName,
+							fromInstance: message.from.substring(0, 8),
+							success: true,
+							durationMs,
+						})
+						response = createMessage(
+							'tool:result',
+							this.keyPair.instanceId,
+							message.from,
+							{
+								callId,
+								success: true,
+								output,
+							},
+							this.keyPair.privateKey,
+						)
+					} catch (err) {
+						const errorMsg = err instanceof Error ? err.message : String(err)
+						logger.error(`Remote tool call failed: ${toolName} → ${errorMsg}`)
+						messageBus?.emit('volenet:tool:executed', {
+							toolName,
+							fromInstance: message.from.substring(0, 8),
+							success: false,
+							durationMs: 0,
+							error: errorMsg,
+						})
+						response = createMessage(
+							'tool:result',
+							this.keyPair.instanceId,
+							message.from,
+							{
+								callId,
+								success: false,
+								error: errorMsg,
+							},
+							this.keyPair.privateKey,
+						)
+					}
+				}
+				await this.transport!.sendToPeer(message.from, response)
+				logger.info(`Remote tool result sent to ${message.from.substring(0, 8)}`)
+			}
+		})
+
+		// When peer tool lists arrive, register them as remote tools in local registry
+		this.transport.onMessage((message) => {
+			if (
+				message.type === 'tool:list:response' &&
+				this.toolRegistry &&
+				this.keyPair &&
+				this.remoteTaskMgr
+			) {
+				const tools = message.payload as RemoteToolInfo[]
+				if (!Array.isArray(tools) || tools.length === 0) return
+
+				const remoteTaskMgr = this.remoteTaskMgr
+				const sourceInstanceId = message.from
+
+				const peerInstance = this.discovery?.getInstances().find((i) => i.id === message.from)
+				const peerName = peerInstance?.name ?? message.from.substring(0, 8)
+				const pawLabel = `__volenet:${peerName}__`
+
+				// Track which peers provide which tools (for load-balanced routing)
+				for (const t of tools) {
+					if (!this.toolProviders) this.toolProviders = new Map()
+					const providers = this.toolProviders.get(t.name) ?? []
+					if (!providers.includes(sourceInstanceId)) {
+						providers.push(sourceInstanceId)
+						this.toolProviders.set(t.name, providers)
+					}
+				}
+
+				const discovery = this.discovery!
+				const toolProviders = this.toolProviders!
+
+				// Create wrapper tool definitions — handle duplicates with peer-specific names
+				const remoteToolDefs: Array<{
+					name: string
+					description: string
+					parameters: any
+					execute: (params: unknown) => Promise<unknown>
+				}> = []
+
+				for (const t of tools) {
+					const existingTool = this.toolRegistry!.get(t.name)
+					const isLocalTool = existingTool && !existingTool.pawName.startsWith('__volenet')
+
+					if (isLocalTool) {
+						// Don't override local tools — skip
+						continue
+					}
+
+					if (existingTool) {
+						// Another peer already registered this tool name — we have a conflict.
+						// Rename the existing tool to <existingPeerName>/<toolName>
+						// and register the new one as <peerName>/<toolName>.
+						const existingPeerName = existingTool.pawName
+							.replace('__volenet:', '')
+							.replace('__', '')
+						const existingPeerInstance = this.discovery
+							?.getInstances()
+							.find((i) => i.name === existingPeerName)
+						const existingPeerId = existingPeerInstance?.id ?? sourceInstanceId
+
+						// Only rename existing if it hasn't been renamed yet (still plain name)
+						if (!existingTool.name.includes('/')) {
+							const renamedExisting = {
+								name: `${existingPeerName}/${t.name}`,
+								description: existingTool.description,
+								parameters: { parse: () => {} } as any,
+								async execute(params: unknown) {
+									const result = await remoteTaskMgr.executeRemoteTool(
+										existingPeerId,
+										t.name,
+										params,
+									)
+									if (result.success) return result.output
+									throw new Error(result.error ?? 'Remote tool execution failed')
+								},
+							}
+							this.toolRegistry!.register(existingTool.pawName, [renamedExisting], false)
+							logger.info(
+								`Renamed remote tool ${t.name} → ${renamedExisting.name} (conflict resolution)`,
+							)
+						}
+
+						// Register new peer's tool as <peerName>/<toolName>
+						const prefixedName = `${peerName}/${t.name}`
+						remoteToolDefs.push({
+							name: prefixedName,
+							description: `[remote: ${peerName}] ${t.description}`,
+							parameters: { parse: () => {} } as any,
+							async execute(params: unknown) {
+								const result = await remoteTaskMgr.executeRemoteTool(
+									sourceInstanceId,
+									t.name,
+									params,
+								)
+								if (result.success) return result.output
+								throw new Error(result.error ?? 'Remote tool execution failed')
+							},
+						})
+					} else {
+						// First registration — use plain name, load-balanced
+						remoteToolDefs.push({
+							name: t.name,
+							description: `[remote: ${peerName}] ${t.description}`,
+							parameters: { parse: () => {} } as any,
+							async execute(params: unknown) {
+								// Pick best peer: least loaded among all providers of this tool
+								const providers = toolProviders.get(t.name) ?? [sourceInstanceId]
+								let targetId = providers[0]
+
+								if (providers.length > 1) {
+									const instances = discovery.getInstances()
+									let bestLoad = Number.POSITIVE_INFINITY
+									for (const pid of providers) {
+										const inst = instances.find((i) => i.id === pid)
+										if (inst && inst.load < bestLoad) {
+											bestLoad = inst.load
+											targetId = pid
+										}
+									}
+								}
+
+								const result = await remoteTaskMgr.executeRemoteTool(targetId, t.name, params)
+								if (result.success) return result.output
+								throw new Error(result.error ?? 'Remote tool execution failed')
+							},
+						})
+					}
+				}
+
+				if (remoteToolDefs.length > 0) {
+					this.toolRegistry!.register(pawLabel, remoteToolDefs, false)
+					logger.info(
+						`Registered ${remoteToolDefs.length} remote tools from ${peerName} as ${pawLabel}`,
+					)
+				}
+			}
+		})
+
+		// Handle incoming task:delegate — run task with our brain if allowed
+		this.transport.onMessage(async (message) => {
+			if (message.type === 'task:delegate' && this.keyPair) {
+				const request = message.payload as { taskId: string; input: string; maxIterations?: number }
+				if (!request?.input) return
+
+				// Check if this peer is allowed to use our brain
+				if (!this.isPeerAllowedBrain(message.from)) {
+					logger.warn(`Brain access denied for peer ${message.from.substring(0, 8)}`)
+					const deny = createMessage(
+						'task:result',
+						this.keyPair.instanceId,
+						message.from,
+						{
+							taskId: request.taskId,
+							status: 'failed',
+							error:
+								'Brain access not allowed. Coordinator must set allowBrain: true for this peer.',
+						},
+						this.keyPair.privateKey,
+					)
+					await this.transport!.sendToPeer(message.from, deny)
+					return
+				}
+
+				logger.info(
+					`Brain delegation from ${message.from.substring(0, 8)}: "${request.input.substring(0, 80)}"`,
+				)
+				messageBus?.emit('task:queued', { taskId: request.taskId })
+
+				// Enqueue the task locally — it will run through our brain
+				const taskQueue = (globalThis as any).__volenet_taskqueue__
+				if (taskQueue) {
+					const task = taskQueue.enqueue(request.input, 'agent', {
+						metadata: {
+							maxIterations: request.maxIterations ?? 10,
+							remotePeerId: message.from,
+							remoteTaskId: request.taskId,
+						},
+					})
+
+					// Wait for completion and send result back
+					const checkInterval = setInterval(async () => {
+						const t = taskQueue.get(task.id)
+						if (
+							t &&
+							(t.status === 'completed' || t.status === 'failed' || t.status === 'cancelled')
+						) {
+							clearInterval(checkInterval)
+							const result = createMessage(
+								'task:result',
+								this.keyPair!.instanceId,
+								message.from,
+								{
+									taskId: request.taskId,
+									status: t.status,
+									result: t.result,
+									error: t.error,
+								},
+								this.keyPair!.privateKey,
+							)
+							await this.transport!.sendToPeer(message.from, result)
+							logger.info(
+								`Brain delegation result sent to ${message.from.substring(0, 8)}: ${t.status}`,
+							)
+						}
+					}, 1000)
+				} else {
+					const noQueue = createMessage(
+						'task:result',
+						this.keyPair.instanceId,
+						message.from,
+						{
+							taskId: request.taskId,
+							status: 'failed',
+							error: 'Task queue not available',
+						},
+						this.keyPair.privateKey,
+					)
+					await this.transport!.sendToPeer(message.from, noQueue)
+				}
+			}
+		})
+
+		// Initialize remote task manager
+		this.remoteTaskMgr = new RemoteTaskManager(
+			this.transport,
+			this.discovery,
+			this.keyPair.instanceId,
+			this.keyPair.privateKey,
+			this.config.routing,
+		)
+
+		// Initialize sync manager
+		const syncConfig: SyncConfig = {
+			memory: this.config.share?.memory ?? false,
+			session: this.config.share?.session ?? false,
+		}
+		this.sync = new VoleNetSync(
+			this.transport,
+			this.discovery,
+			this.keyPair.instanceId,
+			this.config.instanceName ?? 'vole',
+			this.keyPair.privateKey,
+			syncConfig,
+		)
+
+		// Set up session sync handler — write remote session entries to local transcript
+		this.sync.setSessionWriteHandler(async (entry) => {
+			const fs = await import('node:fs/promises')
+			const pathMod = await import('node:path')
+			const sessionDir = pathMod.resolve(
+				this.projectRoot,
+				'.openvole',
+				'paws',
+				'paw-session',
+				entry.sessionId.replace(/[/\\]/g, '_'),
+			)
+			await fs.mkdir(sessionDir, { recursive: true })
+			const transcriptPath = pathMod.join(sessionDir, 'transcript.md')
+			const timestamp = new Date(entry.timestamp).toTimeString().slice(0, 8)
+			const line = `[${timestamp}] ${entry.role}: ${entry.content.replace(/\n/g, ' ').substring(0, 2000)}\n`
+			await fs.appendFile(transcriptPath, line, 'utf-8')
+			logger.info(
+				`Session sync received: ${entry.sessionId} — ${entry.role} from ${entry.instanceId.substring(0, 8)}`,
+			)
+		})
+
+		// Initialize leader election
+		this.leader = new VoleNetLeader(
+			this.transport,
+			this.discovery,
+			this.keyPair.instanceId,
+			this.config.instanceName ?? 'vole',
+			this.keyPair.privateKey,
+			this.config.leader,
+		)
+		this.leader.start(
+			() => logger.info('This instance is now the VoleNet leader (owns heartbeat/schedules)'),
+			() => logger.info('This instance lost VoleNet leadership'),
+		)
+
+		// Re-elect leader immediately when peers join/leave
+		this.discovery.setOnPeerChanged(() => {
+			this.leader?.reelect()
+		})
+
+		// Make VoleNet accessible to core tools via globalThis
+		;(globalThis as any).__volenet__ = this
+
+		// Connect to configured peers
+		if (this.config.peers) {
+			for (const peer of this.config.peers) {
+				logger.info(`Connecting to peer: ${peer.url}`)
+				await this.discovery.connectToPeer(peer.url)
+			}
+		}
+
+		this.started = true
+		logger.info(`VoleNet started — ${this.config.role ?? 'peer'} mode, port ${port}`)
+	}
+
+	/**
+	 * Stop VoleNet — disconnect peers, stop transport.
+	 */
+	async stop(): Promise<void> {
+		if (!this.started) return
+
+		this.leader?.stop()
+		this.sync?.dispose()
+		this.remoteTaskMgr?.dispose()
+		this.discovery?.stop()
+		await this.transport?.stop()
+
+		this.leader = null
+		this.sync = null
+		this.remoteTaskMgr = null
+		this.discovery = null
+		this.transport = null
+		this.started = false
+		;(globalThis as any).__volenet__ = undefined
+
+		logger.info('VoleNet stopped')
+	}
+
+	/**
+	 * Get connected instances.
+	 */
+	getInstances(): VoleNetInstance[] {
+		return this.discovery?.getInstances() ?? []
+	}
+
+	/**
+	 * Get all remote tools.
+	 */
+	getRemoteTools(): RemoteToolInfo[] {
+		return this.discovery?.getRemoteTools() ?? []
+	}
+
+	/**
+	 * Find which peer owns a tool.
+	 */
+	findToolOwner(toolName: string): { instanceId: string; instance: VoleNetInstance } | null {
+		return this.discovery?.findToolOwner(toolName) ?? null
+	}
+
+	/**
+	 * Get the remote task manager.
+	 */
+	getRemoteTaskManager(): RemoteTaskManager | null {
+		return this.remoteTaskMgr
+	}
+
+	/**
+	 * Get the sync manager (for memory/session propagation).
+	 */
+	getSync(): VoleNetSync | null {
+		return this.sync
+	}
+
+	/**
+	 * Get the leader election manager.
+	 */
+	getLeader(): VoleNetLeader | null {
+		return this.leader
+	}
+
+	/**
+	 * Check if this instance is the VoleNet leader.
+	 */
+	isLeader(): boolean {
+		return this.leader?.isLeader() ?? true // standalone = always leader
+	}
+
+	/**
+	 * Check if this instance should run heartbeat.
+	 * In "independent" mode, every instance runs heartbeat.
+	 * In "leader" mode (default), only the leader runs it.
+	 */
+	shouldRunHeartbeat(): boolean {
+		if (!this.started) return true // standalone = always run
+		if (this.config.heartbeatMode === 'independent') return true
+		return this.isLeader()
+	}
+
+	/**
+	 * Find the best peer for load-balanced task routing.
+	 * Returns null if local should handle it (or no peers available).
+	 */
+	findLeastLoadedPeer(): VoleNetInstance | null {
+		if (this.config.brainMode !== 'loadbalance') return null
+		const instances = this.discovery?.getInstances() ?? []
+		if (instances.length === 0) return null
+		// Sort by load ascending, pick lowest
+		const sorted = [...instances].sort((a, b) => a.load - b.load)
+		// Only forward if the peer has lower load than us
+		// (our load is estimated from task queue size)
+		return sorted[0].load < 0.8 ? sorted[0] : null
+	}
+
+	/**
+	 * Check if a task should be forwarded to a peer (overflow mode).
+	 * Returns the target peer or null if local should handle it.
+	 */
+	shouldForwardTask(currentQueueSize: number): VoleNetInstance | null {
+		if (this.config.taskOverflow !== 'forward') return null
+		const maxQueued = this.config.maxQueuedTasks ?? 10
+		if (currentQueueSize < maxQueued) return null
+		// Forward to least-loaded peer
+		const instances = this.discovery?.getInstances() ?? []
+		if (instances.length === 0) return null
+		const sorted = [...instances].sort((a, b) => a.load - b.load)
+		return sorted[0]
+	}
+
+	/**
+	 * Check if this instance should delegate thinking to a remote brain.
+	 * Returns the target peer instance ID, or null if local brain should be used.
+	 */
+	shouldDelegateBrain(): string | null {
+		const brainSource = this.config.brainSource
+		if (!brainSource || brainSource === 'local') return null
+
+		const instances = this.discovery?.getInstances() ?? []
+		if (instances.length === 0) return null
+
+		if (brainSource === 'remote') {
+			// Find any peer — preferring coordinators
+			const sorted = [...instances].sort((a, b) => {
+				if (a.role === 'coordinator' && b.role !== 'coordinator') return -1
+				if (b.role === 'coordinator' && a.role !== 'coordinator') return 1
+				return 0
+			})
+			return sorted[0]?.id ?? null
+		}
+
+		// Specific instance name
+		const target = instances.find((i) => i.name === brainSource)
+		return target?.id ?? null
+	}
+
+	/**
+	 * Check if a specific peer is allowed to use our brain.
+	 */
+	isPeerAllowedBrain(peerId: string): boolean {
+		if (!this.config.peers) return false
+		const peerTrust = this.matchPeerConfig(peerId)
+		return peerTrust?.allowBrain === true
+	}
+
+	/**
+	 * Match a connected peer to its config entry.
+	 * Matches by port (handles localhost vs real IP) or by instance name.
+	 */
+	private matchPeerConfig(peerId: string): {
+		url: string
+		trust?: string
+		allowTools?: string[]
+		denyTools?: string[]
+		allowBrain?: boolean
+	} | null {
+		if (!this.config.peers) return null
+		const instance = this.discovery?.getInstances().find((i) => i.id === peerId)
+		if (!instance) return null
+
+		for (const peerConfig of this.config.peers) {
+			try {
+				const configUrl = new URL(peerConfig.url)
+				const configPort = configUrl.port || (configUrl.protocol === 'https:' ? '443' : '80')
+
+				// Match by port (handles localhost:9701 matching 192.168.x.x:9701)
+				if (instance.endpoint.includes(`:${configPort}`)) {
+					return peerConfig
+				}
+
+				// Also match by exact host
+				if (instance.endpoint.includes(configUrl.host)) {
+					return peerConfig
+				}
+			} catch {
+				continue
+			}
+		}
+		return null
+	}
+
+	/**
+	 * Get trust level for a peer.
+	 */
+	getPeerTrust(
+		peerId: string,
+	): { trust: string; allowTools?: string[]; denyTools?: string[]; allowBrain?: boolean } | null {
+		const peerConfig = this.matchPeerConfig(peerId)
+		if (!peerConfig) return null
+		return {
+			trust: peerConfig.trust ?? 'full',
+			allowTools: peerConfig.allowTools,
+			denyTools: peerConfig.denyTools,
+			allowBrain: peerConfig.allowBrain,
+		}
+	}
+
+	/**
+	 * Get the keypair (for CLI display).
+	 */
+	getKeyPair(): VoleKeyPair | null {
+		return this.keyPair
+	}
+
+	/**
+	 * Get the transport (for sending messages).
+	 */
+	getTransport(): VoleNetTransport | null {
+		return this.transport
+	}
+
+	/**
+	 * Get the discovery manager.
+	 */
+	getDiscovery(): VoleNetDiscovery | null {
+		return this.discovery
+	}
+
+	/**
+	 * Check if VoleNet is active.
+	 */
+	isActive(): boolean {
+		return this.started
+	}
+
+	private getNetDir(): string {
+		const keyPath = this.config.keyPath ?? '.openvole/net/vole_key'
+		return path.resolve(this.projectRoot, path.dirname(keyPath))
+	}
+
+	private getHostname(): string {
+		const nets = os.networkInterfaces()
+		if (!nets) return 'localhost'
+		// Find first non-internal IPv4 address
+		for (const name of Object.keys(nets)) {
+			for (const net of nets[name] ?? []) {
+				if (net.family === 'IPv4' && !net.internal) {
+					return net.address
+				}
+			}
+		}
+		return 'localhost'
+	}
+
+	private getCapabilities(): string[] {
+		const caps: string[] = []
+		if (this.toolRegistry) {
+			// List paw categories as capabilities
+			const pawNames = new Set(this.toolRegistry.list().map((t) => t.pawName))
+			for (const name of pawNames) {
+				if (name !== '__core__') caps.push(name)
+			}
+		}
+		return caps
+	}
+}
+
+// Re-export key types and functions for CLI use
+export { generateKeyPair, loadKeyPair, trustPeer, revokePeer, loadAuthorizedVoles } from './keys.js'
+export type { VoleKeyPair } from './keys.js'
+export type { VoleNetInstance, RemoteToolInfo } from './protocol.js'
+export { RemoteTaskManager } from './remote-task.js'
+export type {
+	RemoteTaskRequest,
+	RemoteTaskResult,
+	RemoteToolCallRequest,
+	RemoteToolCallResult,
+} from './remote-task.js'
+export { VoleNetSync } from './sync.js'
+export type {
+	MemorySyncEntry,
+	MemorySearchRequest,
+	MemorySearchResult,
+	SessionSyncEntry,
+} from './sync.js'
+export { VoleNetLeader } from './leader.js'
+export type { LeaderState } from './leader.js'

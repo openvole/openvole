@@ -1,9 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import * as fs from 'node:fs/promises'
-import * as path from 'node:path'
 import * as os from 'node:os'
-import { loadSystemPromptContent, buildSystemPrompt } from '../../src/core/system-prompt.js'
+import * as path from 'node:path'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { ActiveSkill, ToolSummary } from '../../src/context/types.js'
+import { buildSystemPrompt, loadSystemPromptContent } from '../../src/core/system-prompt.js'
 
 describe('System Prompt', () => {
 	let tmpDir: string
@@ -19,17 +19,17 @@ describe('System Prompt', () => {
 
 	describe('loadSystemPromptContent', () => {
 		it('returns default prompt when no BRAIN.md exists', async () => {
-			const content = await loadSystemPromptContent(tmpDir, 'paw-ollama')
+			const content = await loadSystemPromptContent(tmpDir, 'paw-brain')
 			expect(content.brainPrompt).toContain('You are an AI agent')
 			expect(content.identityContext).toBe('')
 		})
 
 		it('loads BRAIN.md from paw data dir', async () => {
-			const brainDir = path.join(tmpDir, '.openvole', 'paws', 'paw-ollama')
+			const brainDir = path.join(tmpDir, '.openvole', 'paws', 'paw-brain')
 			await fs.mkdir(brainDir, { recursive: true })
 			await fs.writeFile(path.join(brainDir, 'BRAIN.md'), 'Custom brain prompt here.')
 
-			const content = await loadSystemPromptContent(tmpDir, '@openvole/paw-ollama')
+			const content = await loadSystemPromptContent(tmpDir, '@openvole/paw-brain')
 			expect(content.brainPrompt).toBe('Custom brain prompt here.')
 		})
 
@@ -147,9 +147,7 @@ describe('System Prompt', () => {
 		})
 
 		it('orders static content before dynamic', () => {
-			const skills: ActiveSkill[] = [
-				{ name: 'test-skill', description: 'Test', satisfiedBy: [] },
-			]
+			const skills: ActiveSkill[] = [{ name: 'test-skill', description: 'Test', satisfiedBy: [] }]
 			const tools: ToolSummary[] = [
 				{ name: 'test_tool', description: 'Test tool', pawName: 'paw-test' },
 			]
@@ -173,11 +171,7 @@ describe('System Prompt', () => {
 		})
 
 		it('omits empty sections', () => {
-			const prompt = buildSystemPrompt(
-				{ brainPrompt: 'Hello.', identityContext: '' },
-				[],
-				[],
-			)
+			const prompt = buildSystemPrompt({ brainPrompt: 'Hello.', identityContext: '' }, [], [])
 			expect(prompt).not.toContain('Available Skills')
 			expect(prompt).not.toContain('Available Tools')
 			expect(prompt).not.toContain('Agent Memory')

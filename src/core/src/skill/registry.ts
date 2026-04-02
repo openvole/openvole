@@ -1,11 +1,11 @@
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 import type { MessageBus } from '../core/bus.js'
+import { createLogger } from '../core/logger.js'
 import type { ToolRegistry } from '../tool/registry.js'
-import type { SkillInstance } from './types.js'
 import { loadSkillFromDirectory } from './loader.js'
 import { resolveSkills } from './resolver.js'
-import { createLogger } from '../core/logger.js'
+import type { SkillInstance } from './types.js'
 
 const logger = createLogger('skill-registry')
 
@@ -74,9 +74,8 @@ export class SkillRegistry {
 
 		// Use the config key as the registry key to avoid collisions
 		// clawhub/summarize → "clawhub/summarize", email-triage → "email-triage"
-		const registryKey = nameOrPath.startsWith('.') || nameOrPath.startsWith('/')
-			? definition.name
-			: nameOrPath
+		const registryKey =
+			nameOrPath.startsWith('.') || nameOrPath.startsWith('/') ? definition.name : nameOrPath
 
 		if (this.skills.has(registryKey)) {
 			logger.warn(`Skill "${registryKey}" is already loaded`)

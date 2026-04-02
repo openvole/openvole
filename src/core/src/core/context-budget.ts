@@ -21,7 +21,7 @@ export interface TokenBudget {
 export class ContextBudgetManager {
 	constructor(
 		private maxTokens: number,
-		private responseReserve: number = 4000,
+		private responseReserve = 4000,
 	) {}
 
 	/**
@@ -43,10 +43,7 @@ export class ContextBudgetManager {
 	 * Each message has ~4 tokens overhead (role, formatting).
 	 */
 	estimateMessagesTokens(messages: AgentMessage[]): number {
-		return messages.reduce(
-			(sum, m) => sum + this.estimateTokens(m.content) + 4,
-			0,
-		)
+		return messages.reduce((sum, m) => sum + this.estimateTokens(m.content) + 4, 0)
 	}
 
 	/**
@@ -59,11 +56,7 @@ export class ContextBudgetManager {
 		messagesTokens: number,
 	): TokenBudget {
 		const total =
-			systemPromptTokens +
-			toolTokens +
-			sessionHistoryTokens +
-			messagesTokens +
-			this.responseReserve
+			systemPromptTokens + toolTokens + sessionHistoryTokens + messagesTokens + this.responseReserve
 		return {
 			systemPrompt: systemPromptTokens,
 			tools: toolTokens,
@@ -111,15 +104,14 @@ export class ContextBudgetManager {
 		const lastBrainIndices = this.findLastNIndices(trimmed, (m) => m.role === 'brain', 2)
 		// Also protect unseen tool results (Brain hasn't processed them yet)
 		const unseenToolResultIndices = trimmed
-			.map((m, i) => m.role === 'tool_result' && m.seenAtIteration === undefined ? i : -1)
+			.map((m, i) => (m.role === 'tool_result' && m.seenAtIteration === undefined ? i : -1))
 			.filter((i) => i >= 0)
 
-		const protectedIndices = new Set<number>([
-			firstUserIdx,
-			lastUserIdx,
-			...lastBrainIndices,
-			...unseenToolResultIndices,
-		].filter((i) => i >= 0))
+		const protectedIndices = new Set<number>(
+			[firstUserIdx, lastUserIdx, ...lastBrainIndices, ...unseenToolResultIndices].filter(
+				(i) => i >= 0,
+			),
+		)
 
 		// Pass 1: Summarize old tool results
 		for (let i = 0; i < trimmed.length && currentTokens > availableTokens; i++) {
@@ -248,7 +240,11 @@ export class ContextBudgetManager {
 		return -1
 	}
 
-	private findLastNIndices(arr: AgentMessage[], predicate: (m: AgentMessage) => boolean, n: number): number[] {
+	private findLastNIndices(
+		arr: AgentMessage[],
+		predicate: (m: AgentMessage) => boolean,
+		n: number,
+	): number[] {
 		const indices: number[] = []
 		for (let i = arr.length - 1; i >= 0 && indices.length < n; i--) {
 			if (predicate(arr[i])) indices.push(i)

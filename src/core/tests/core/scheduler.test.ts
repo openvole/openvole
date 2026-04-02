@@ -1,7 +1,7 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import * as fs from 'node:fs/promises'
 import * as os from 'node:os'
 import * as path from 'node:path'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SchedulerStore } from '../../src/core/scheduler.js'
 
 describe('SchedulerStore', () => {
@@ -94,7 +94,9 @@ describe('SchedulerStore', () => {
 			const savePath = path.join(tmpDir, 'schedules.json')
 			await fs.writeFile(
 				savePath,
-				JSON.stringify([{ id: 'restored-1', input: 'restored task', cron: '*/10 * * * *', createdAt: Date.now() }]),
+				JSON.stringify([
+					{ id: 'restored-1', input: 'restored task', cron: '*/10 * * * *', createdAt: Date.now() },
+				]),
 			)
 
 			const newScheduler = new SchedulerStore()

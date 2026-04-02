@@ -1,9 +1,9 @@
-import * as fs from 'node:fs/promises'
 import { accessSync } from 'node:fs'
+import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 import { z } from 'zod'
-import type { PawManifest } from './types.js'
 import { createLogger } from '../core/logger.js'
+import type { PawManifest } from './types.js'
 
 const logger = createLogger('paw-manifest')
 
@@ -53,9 +53,7 @@ export function resolvePawPath(name: string, projectRoot: string): string {
 }
 
 /** Read and validate a vole-paw.json manifest */
-export async function readPawManifest(
-	pawPath: string,
-): Promise<PawManifest | null> {
+export async function readPawManifest(pawPath: string): Promise<PawManifest | null> {
 	const manifestPath = path.join(pawPath, 'vole-paw.json')
 
 	try {
@@ -64,9 +62,7 @@ export async function readPawManifest(
 		const result = pawManifestSchema.safeParse(parsed)
 
 		if (!result.success) {
-			logger.error(
-				`Invalid manifest at ${manifestPath}: ${result.error.message}`,
-			)
+			logger.error(`Invalid manifest at ${manifestPath}: ${result.error.message}`)
 			return null
 		}
 

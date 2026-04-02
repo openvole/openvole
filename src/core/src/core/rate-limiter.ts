@@ -19,7 +19,9 @@ export class RateLimiter {
 
 		const timestamps = this.buckets.get(bucket) ?? []
 		if (timestamps.length >= limit) {
-			logger.debug(`Bucket "${bucket}" rate-limited: ${timestamps.length}/${limit} in ${windowMs}ms window`)
+			logger.debug(
+				`Bucket "${bucket}" rate-limited: ${timestamps.length}/${limit} in ${windowMs}ms window`,
+			)
 			return false
 		}
 

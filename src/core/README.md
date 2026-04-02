@@ -28,7 +28,7 @@ mkdir my-agent && cd my-agent
 npm init -y
 npm install openvole
 npx vole init
-npx vole paw add @openvole/paw-ollama
+npx vole paw add @openvole/paw-brain
 npx vole paw add @openvole/paw-memory
 npx vole paw add @openvole/paw-dashboard
 ```
@@ -37,13 +37,15 @@ Edit `vole.config.json`:
 
 ```json
 {
-  "brain": "@openvole/paw-ollama",
+  "brain": "@openvole/paw-brain",
   "paws": [
     {
-      "name": "@openvole/paw-ollama",
+      "name": "@openvole/paw-brain",
       "allow": {
-        "network": ["127.0.0.1"],
-        "env": ["OLLAMA_HOST", "OLLAMA_MODEL"]
+        "network": ["*"],
+        "env": ["BRAIN_PROVIDER", "BRAIN_API_KEY", "BRAIN_MODEL",
+                "OLLAMA_HOST", "OLLAMA_MODEL", "OLLAMA_API_KEY",
+                "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY"]
       }
     },
     {
@@ -63,6 +65,7 @@ Edit `vole.config.json`:
 Create `.env`:
 
 ```
+BRAIN_PROVIDER=ollama
 OLLAMA_HOST=http://localhost:11434
 OLLAMA_MODEL=qwen3:latest
 ```
@@ -168,13 +171,15 @@ When asked to summarize content:
 
 ### Brain Paw
 
-The Brain is a Paw — the core is LLM-ignorant. Swap models by swapping Brain Paws:
+The Brain is a Paw — the core is LLM-ignorant. Use `@openvole/paw-brain` — a single unified brain paw that supports all providers:
 
-- `@openvole/paw-ollama` — local models via Ollama
-- `@openvole/paw-claude` — Anthropic Claude models
-- `@openvole/paw-openai` — OpenAI models
-- `@openvole/paw-gemini` — Google Gemini models
-- `@openvole/paw-xai` — xAI Grok models
+- **Anthropic Claude** — `BRAIN_PROVIDER=anthropic`
+- **OpenAI** — `BRAIN_PROVIDER=openai`
+- **Google Gemini** — `BRAIN_PROVIDER=gemini`
+- **xAI Grok** — `BRAIN_PROVIDER=xai`
+- **Ollama (local)** — `BRAIN_PROVIDER=ollama`
+
+> Legacy single-provider paws (`paw-ollama`, `paw-claude`, `paw-openai`, `paw-gemini`, `paw-xai`) are deprecated but still available.
 
 ## Features
 
@@ -290,7 +295,7 @@ Customize agent behavior with optional markdown files in `.openvole/`:
 | `USER.md` | User profile and preferences |
 | `AGENT.md` | Operating rules and constraints |
 
-All Brain Paws (Ollama, Claude, OpenAI, Gemini, xAI) load these on startup.
+The Brain Paw (`paw-brain`) loads these on startup.
 
 ### Workspace
 
@@ -329,15 +334,16 @@ npx vole paw add @openvole/paw-dashboard
 
 All paws live in [PawHub](https://github.com/openvole/pawhub) and are installed via npm.
 
-### Brain (5)
+### Brain (1 + 5 legacy)
 
 | Paw | Purpose |
 |-----|---------|
-| `paw-ollama` | Local LLM via Ollama |
-| `paw-claude` | Anthropic Claude models |
-| `paw-openai` | OpenAI models |
-| `paw-gemini` | Google Gemini models |
-| `paw-xai` | xAI Grok models |
+| `paw-brain` | **Unified multi-provider brain** (Anthropic, OpenAI, Gemini, xAI, Ollama) |
+| `paw-ollama` | *(deprecated)* Local LLM via Ollama |
+| `paw-claude` | *(deprecated)* Anthropic Claude models |
+| `paw-openai` | *(deprecated)* OpenAI models |
+| `paw-gemini` | *(deprecated)* Google Gemini models |
+| `paw-xai` | *(deprecated)* xAI Grok models |
 
 ### Channel (4)
 
@@ -416,8 +422,8 @@ Single `vole.config.json` — plain JSON, no imports:
 
 ```json
 {
-  "brain": "@openvole/paw-ollama",
-  "paws": ["@openvole/paw-ollama", "@openvole/paw-memory"],
+  "brain": "@openvole/paw-brain",
+  "paws": ["@openvole/paw-brain", "@openvole/paw-memory"],
   "skills": ["clawhub/summarize"],
   "loop": { "maxIterations": 25, "compactThreshold": 50 },
   "heartbeat": { "enabled": false, "cron": "*/30 * * * *" },
@@ -468,7 +474,7 @@ Both are open-source AI agent frameworks. Different philosophies, many shared co
 | **Skill marketplace** | ClawHub-compatible (`vole clawhub install`) | ClawHub (13K+ skills) |
 | **Skill loading** | Progressive on-demand | Progressive on-demand |
 | **Brain/LLM** | External Paw — core is LLM-ignorant | Configurable provider in core |
-| **Brain options** | 5 (Ollama, Claude, OpenAI, Gemini, xAI) | Multi-provider with fallback chains |
+| **Brain options** | Unified paw-brain (Ollama, Claude, OpenAI, Gemini, xAI) | Multi-provider with fallback chains |
 | **Heartbeat** | HEARTBEAT.md + cron | HEARTBEAT.md + cron |
 | **Memory** | Source-isolated (user/paw/heartbeat scoped) | Shared (no source isolation) |
 | **Identity files** | BRAIN.md, SOUL.md, USER.md, AGENT.md | SOUL.md, USER.md, AGENTS.md |

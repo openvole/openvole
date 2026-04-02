@@ -10,9 +10,4 @@
 export type LoopPhase = 'perceive' | 'think' | 'act' | 'observe'
 
 /** Phase ordering for logging and tracing */
-export const PHASE_ORDER: readonly LoopPhase[] = [
-	'perceive',
-	'think',
-	'act',
-	'observe',
-] as const
+export const PHASE_ORDER: readonly LoopPhase[] = ['perceive', 'think', 'act', 'observe'] as const

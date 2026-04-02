@@ -1,8 +1,8 @@
 import * as crypto from 'node:crypto'
-import type { MessageBus } from './bus.js'
-import type { RateLimiter } from './rate-limiter.js'
 import type { RateLimits } from '../config/index.js'
+import type { MessageBus } from './bus.js'
 import { createLogger } from './logger.js'
+import type { RateLimiter } from './rate-limiter.js'
 
 /** Task states */
 export type TaskStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
@@ -256,7 +256,9 @@ export class TaskQueue {
 			task.status = 'failed'
 			task.completedAt = Date.now()
 			task.error = err instanceof Error ? err.message : String(err)
-			task.result = task.result || 'Sorry, something went wrong while processing your request. Please try again.'
+			task.result =
+				task.result ||
+				'Sorry, something went wrong while processing your request. Please try again.'
 			logger.error(`Task ${task.id} failed: ${task.error}`)
 			this.bus.emit('task:failed', { taskId: task.id, error: err, result: task.result })
 			if (task.parentTaskId) {

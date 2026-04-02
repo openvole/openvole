@@ -1,6 +1,6 @@
 import type { ChildProcess } from 'node:child_process'
-import type { Readable, Writable } from 'node:stream'
 import * as crypto from 'node:crypto'
+import type { Readable, Writable } from 'node:stream'
 import type { TransportType } from '../paw/types.js'
 
 import { createLogger } from './logger.js'
@@ -24,7 +24,7 @@ interface PendingRequest {
 	timer: ReturnType<typeof setTimeout>
 }
 
-const DEFAULT_TIMEOUT_MS = parseInt(process.env.VOLE_IPC_TIMEOUT_MS ?? '300000', 10) // 5 minutes default
+const DEFAULT_TIMEOUT_MS = Number.parseInt(process.env.VOLE_IPC_TIMEOUT_MS ?? '300000', 10) // 5 minutes default
 
 /** Transport abstraction that handles both Node IPC and stdio JSON-RPC */
 export class IpcTransport {
@@ -114,7 +114,9 @@ export class IpcTransport {
 	}
 
 	private handleMessage(msg: IpcMessage): void {
-		logger.trace(`Received message: ${msg.method ?? msg.id ?? 'unknown'} ${JSON.stringify(msg.params ?? msg.result ?? '', null, 2)}`)
+		logger.trace(
+			`Received message: ${msg.method ?? msg.id ?? 'unknown'} ${JSON.stringify(msg.params ?? msg.result ?? '', null, 2)}`,
+		)
 
 		// Response to a pending request
 		if (msg.id && this.pending.has(msg.id)) {

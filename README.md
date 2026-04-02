@@ -107,23 +107,33 @@ curl -fsSL https://raw.githubusercontent.com/openvole/openvole/main/presets/full
 │   ┌────────────────────────────────────────────────┐        │
 │   │              Agent Loop (per task)             │        │
 │   │                                                │        │
-│   │   PERCEIVE ─── THINK ─── ACT ─── OBSERVE       │        │
-│   │       |           |        |         |         │        │
-│   │   Enrich      Brain    Execute   Process       │        │
-│   │   context     plans    tools     results       │        │
+│   │   BOOTSTRAP → PERCEIVE → COMPACT → THINK       │        │
+│   │       |          |          |         |         │        │
+│   │   Load data  Enrich     Compress   Brain       │        │
+│   │   + VoleNet  context    old msgs   plans       │        │
 │   │                                                │        │
+│   │   → ACT → OBSERVE → loop                       │        │
+│   │      |        |                                │        │
+│   │   Execute   Record                             │        │
+│   │   tools     results                            │        │
+│   │                                                │        │
+│   │       Context Budget Manager                   │        │
 │   └────────────────────────────────────────────────┘        │
 │                                                             │
-│   Task Queue ──── Scheduler ──── Message Bus                │
+│   Task Queue ── Scheduler ── Message Bus ── Cost Tracker    │
+│                                                             │
+│   VoleNet (optional distributed networking)                 │
+│   ├── WebSocket + Ed25519 Auth                              │
+│   ├── Remote Tools + Load Balancing                         │
+│   └── Memory/Session Sync + Leader Election                 │
 │                                                             │
 └──────┬──────────┬──────────┬──────────┬─────────────────────┘
        |          |          |          |
   [Brain Paw] [Channel]  [Tools]   [In-Process]
-   Ollama     Telegram   Browser    Compact
-   Claude     Slack      Shell      Memory
-   OpenAI     Discord    MCP        Session
-   Gemini     WhatsApp   Email/Resend/GitHub/Calendar
-   xAI        Voice Call Computer
+   paw-brain  Telegram   Browser    Compact
+   (unified)  Slack      Shell      Memory
+              Discord    Database   Session
+                         MCP        Dashboard
 ```
 
 Official Paws across four categories: Brain, Channel, Tool, and Infrastructure.
@@ -135,15 +145,17 @@ Official Paws across four categories: Brain, Channel, Tool, and Infrastructure.
 The only thing OpenVole does natively:
 
 ```
-Perceive → Think → Act → Observe → loop
+Bootstrap → Perceive → Compact → Think → Act → Observe → loop
 ```
 
 | Phase | What happens |
 |-------|-------------|
-| **Perceive** | Paws inject context (memory, time, calendar) |
-| **Think** | Brain Paw calls the LLM, returns a plan |
-| **Act** | Core executes tool calls from the plan |
-| **Observe** | Paws process results (log, update memory, notify) |
+| **Bootstrap** | Load memory, session, VoleNet context (once per task) |
+| **Perceive** | Paws inject dynamic context (time, calendar, unread messages) |
+| **Compact** | Compress old messages when threshold hit (frees context space) |
+| **Think** | Context budget trim → Brain Paw calls LLM → returns plan |
+| **Act** | Execute tool calls (local or remote via VoleNet). Rate limits enforced. |
+| **Observe** | Record results, update memory, sync to VoleNet peers |
 
 ### Paws
 
@@ -192,16 +204,17 @@ Auto-detects provider from available API keys if `BRAIN_PROVIDER` is not set. Pr
 
 | Tool | Purpose |
 |------|---------|
+| `discover_tools` | Search available tools by intent (BM25 ranking) |
 | `schedule_task` | Brain creates recurring tasks at runtime |
 | `cancel_schedule` / `list_schedules` | Manage schedules (persistent across restarts) |
 | `skill_read` | Load skill instructions on demand |
-| `skill_read_reference` / `skill_list_files` | Access skill resources |
 | `heartbeat_read` / `heartbeat_write` | Manage recurring jobs |
-| `workspace_write` / `workspace_read` | Read/write files in agent scratch space |
-| `workspace_list` / `workspace_delete` | List/delete workspace files |
-| `vault_store` | Store a secret (write-once, with optional metadata) |
-| `vault_get` / `vault_list` / `vault_delete` | Retrieve, list, or delete vault entries |
+| `workspace_write` / `workspace_read` | Read/write agent scratch space |
+| `vault_store` / `vault_get` / `vault_list` | Encrypted key-value store |
 | `web_fetch` | Lightweight URL fetching (GET/POST with headers, body) |
+| `spawn_agent` | Spawn sub-agent with named profile and tool restrictions |
+| `spawn_remote_agent` | Delegate task to a remote VoleNet peer |
+| `list_instances` / `get_remote_result` | Query VoleNet peers and remote task status |
 
 ### Heartbeat
 
@@ -327,6 +340,44 @@ Optional container-level isolation for paw subprocesses (stronger than default N
   }
 }
 ```
+
+### VoleNet — Distributed Agent Networking
+
+Connect multiple OpenVole instances across machines. Remote tools, shared memory, brain sharing — all authenticated with Ed25519 signatures.
+
+```json
+{
+  "net": {
+    "enabled": true,
+    "instanceName": "coordinator",
+    "role": "coordinator",
+    "port": 9700,
+    "peers": [
+      { "url": "http://worker:9701", "trust": "full" }
+    ],
+    "share": { "tools": true, "memory": true }
+  }
+}
+```
+
+Key capabilities:
+- **Remote tool execution** — tools on remote peers appear in the local registry, transparent to the Brain
+- **Peer-specific targeting** — `us-monitor/shell_exec` vs `eu-monitor/shell_exec` when multiple peers share a tool
+- **Brain sharing** — brainless workers delegate thinking to a coordinator (`brainSource: "remote"`)
+- **Memory sync** — write propagation and cross-peer search
+- **Session sync** — shared conversations across devices
+- **Leader election** — automatic failover, heartbeat coordination
+- **Load balancing** — tasks route to the least-loaded peer
+- **8 architecture patterns** — from single-brain + workers to autonomous swarms
+
+```bash
+vole net init my-instance        # Generate Ed25519 identity
+vole net show-key                # Share public key
+vole net trust "vole-ed25519 ..." # Trust a peer
+vole net status                  # Show network status
+```
+
+See [VoleNet documentation](https://openvole.github.io/openvole/volenet) for architecture patterns and setup guide.
 
 ### VoleHub
 

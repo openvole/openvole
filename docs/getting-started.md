@@ -35,7 +35,7 @@ This creates the base `vole.config.json` and `.openvole/` directory structure.
 A fresh OpenVole installation has zero tools, zero skills, zero opinions. Add the Paws you need:
 
 ```bash
-npx vole paw add @openvole/paw-ollama
+npx vole paw add @openvole/paw-brain
 npx vole paw add @openvole/paw-memory
 npx vole paw add @openvole/paw-dashboard
 ```
@@ -46,13 +46,15 @@ Edit `vole.config.json`:
 
 ```json
 {
-  "brain": "@openvole/paw-ollama",
+  "brain": "@openvole/paw-brain",
   "paws": [
     {
-      "name": "@openvole/paw-ollama",
+      "name": "@openvole/paw-brain",
       "allow": {
-        "network": ["127.0.0.1"],
-        "env": ["OLLAMA_HOST", "OLLAMA_MODEL"]
+        "network": ["*"],
+        "env": ["BRAIN_PROVIDER", "BRAIN_API_KEY", "BRAIN_MODEL",
+                "OLLAMA_HOST", "OLLAMA_MODEL", "OLLAMA_API_KEY",
+                "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY"]
       }
     },
     {
@@ -72,6 +74,7 @@ Edit `vole.config.json`:
 Create a `.env` file with your LLM settings:
 
 ```
+BRAIN_PROVIDER=ollama
 OLLAMA_HOST=http://localhost:11434
 OLLAMA_MODEL=qwen3:latest
 ```

@@ -1,6 +1,6 @@
 {
   "name": "openvole",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "description": "Micro-agent core — the minimal loop that makes agentic behavior possible",
   "type": "module",
   "main": "./dist/index.js",
@@ -27,6 +27,7 @@
     "execa": "^9.5.0",
     "mitt": "^3.0.1",
     "yaml": "^2.8.2",
+    "ws": "^8.18.0",
     "zod": "^3.23.0"
   },
   "optionalDependencies": {
@@ -34,6 +35,7 @@
   },
   "devDependencies": {
     "@types/dockerode": "^3.3.0",
+    "@types/ws": "^8.5.0",
     "@types/node": "^22.0.0",
     "tsup": "^8.3.0",
     "tsx": "^4.19.0",

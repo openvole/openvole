@@ -1,12 +1,12 @@
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 import { z } from 'zod'
-import type { ToolDefinition } from './types.js'
-import type { ToolRegistry } from './registry.js'
 import type { SchedulerStore } from '../core/scheduler.js'
 import type { TaskQueue } from '../core/task.js'
-import type { SkillRegistry } from '../skill/registry.js'
 import type { Vault } from '../core/vault.js'
+import type { SkillRegistry } from '../skill/registry.js'
+import type { ToolRegistry } from './registry.js'
+import type { ToolDefinition } from './types.js'
 
 /** Create the built-in core tools that are always available to the Brain */
 export function createCoreTools(
@@ -33,11 +33,16 @@ export function createCoreTools(
 		// === Scheduling tools ===
 		{
 			name: 'schedule_task',
-			description: 'Create a recurring scheduled task using a cron expression. Examples: "0 13 * * *" = daily at 1 PM UTC, "*/30 * * * *" = every 30 minutes, "0 9 * * 1" = every Monday at 9 AM UTC.',
+			description:
+				'Create a recurring scheduled task using a cron expression. Examples: "0 13 * * *" = daily at 1 PM UTC, "*/30 * * * *" = every 30 minutes, "0 9 * * 1" = every Monday at 9 AM UTC.',
 			parameters: z.object({
 				id: z.string().describe('Unique schedule ID (for cancellation)'),
 				input: z.string().describe('The task input to enqueue each time'),
-				cron: z.string().describe('Cron expression in UTC (minute hour day month weekday). Examples: "0 13 * * *" for daily 1 PM, "*/30 * * * *" for every 30 min'),
+				cron: z
+					.string()
+					.describe(
+						'Cron expression in UTC (minute hour day month weekday). Examples: "0 13 * * *" for daily 1 PM, "*/30 * * * *" for every 30 min',
+					),
 			}),
 			async execute(params) {
 				const { id, input, cron } = params as {
@@ -53,7 +58,10 @@ export function createCoreTools(
 					const entry = schedules.find((s) => s.id === id)
 					return { ok: true, id, cron, nextRun: entry?.nextRun }
 				} catch (err) {
-					return { ok: false, error: `Invalid cron expression: ${err instanceof Error ? err.message : err}` }
+					return {
+						ok: false,
+						error: `Invalid cron expression: ${err instanceof Error ? err.message : err}`,
+					}
 				}
 			},
 		},
@@ -108,7 +116,8 @@ export function createCoreTools(
 		// === Skill tools (on-demand loading) ===
 		{
 			name: 'skill_read',
-			description: 'Read the full SKILL.md instructions for a skill by name. Use this when a skill is relevant to the current task.',
+			description:
+				'Read the full SKILL.md instructions for a skill by name. Use this when a skill is relevant to the current task.',
 			parameters: z.object({
 				name: z.string().describe('Skill name to read'),
 			}),
@@ -119,10 +128,7 @@ export function createCoreTools(
 					return { ok: false, error: `Skill "${name}" not found` }
 				}
 				try {
-					const content = await fs.readFile(
-						path.join(skill.path, 'SKILL.md'),
-						'utf-8',
-					)
+					const content = await fs.readFile(path.join(skill.path, 'SKILL.md'), 'utf-8')
 					return { ok: true, name, content }
 				} catch {
 					return { ok: false, error: `Failed to read SKILL.md for "${name}"` }
@@ -131,10 +137,11 @@ export function createCoreTools(
 		},
 		{
 			name: 'skill_read_reference',
-			description: 'Read a reference file from a skill\'s references/ directory. Use this for API docs, schemas, or detailed guides.',
+			description:
+				"Read a reference file from a skill's references/ directory. Use this for API docs, schemas, or detailed guides.",
 			parameters: z.object({
 				name: z.string().describe('Skill name'),
-				file: z.string().describe('File path relative to the skill\'s references/ directory'),
+				file: z.string().describe("File path relative to the skill's references/ directory"),
 			}),
 			async execute(params) {
 				const { name, file } = params as { name: string; file: string }
@@ -157,7 +164,8 @@ export function createCoreTools(
 		},
 		{
 			name: 'skill_list_files',
-			description: 'List all files in a skill\'s directory including scripts, references, and assets.',
+			description:
+				"List all files in a skill's directory including scripts, references, and assets.",
 			parameters: z.object({
 				name: z.string().describe('Skill name'),
 			}),
@@ -179,7 +187,8 @@ export function createCoreTools(
 		// === Workspace tools ===
 		{
 			name: 'workspace_write',
-			description: 'Write a file to the workspace scratch space (.openvole/workspace/). Creates parent directories automatically.',
+			description:
+				'Write a file to the workspace scratch space (.openvole/workspace/). Creates parent directories automatically.',
 			parameters: z.object({
 				path: z.string().optional().describe('File path relative to the workspace directory'),
 				file: z.string().optional().describe('Alias for path'),
@@ -224,9 +233,13 @@ export function createCoreTools(
 		},
 		{
 			name: 'workspace_list',
-			description: 'List files and directories in the workspace scratch space (.openvole/workspace/). Returns recursive listing with file sizes.',
+			description:
+				'List files and directories in the workspace scratch space (.openvole/workspace/). Returns recursive listing with file sizes.',
 			parameters: z.object({
-				path: z.string().optional().describe('Subdirectory to list (relative to workspace root). Defaults to root.'),
+				path: z
+					.string()
+					.optional()
+					.describe('Subdirectory to list (relative to workspace root). Defaults to root.'),
 			}),
 			async execute(params) {
 				const { path: relPath } = params as { path?: string }
@@ -244,9 +257,13 @@ export function createCoreTools(
 		},
 		{
 			name: 'workspace_delete',
-			description: 'Delete a file or directory from the workspace scratch space (.openvole/workspace/).',
+			description:
+				'Delete a file or directory from the workspace scratch space (.openvole/workspace/).',
 			parameters: z.object({
-				path: z.string().optional().describe('File or directory path relative to the workspace directory'),
+				path: z
+					.string()
+					.optional()
+					.describe('File or directory path relative to the workspace directory'),
 				file: z.string().optional().describe('Alias for path'),
 			}),
 			async execute(params) {
@@ -269,15 +286,29 @@ export function createCoreTools(
 		// === Vault tools ===
 		{
 			name: 'vault_store',
-			description: 'Store a key-value pair in the secure vault with context metadata. Write-once: fails if key already exists (delete first to update).',
+			description:
+				'Store a key-value pair in the secure vault with context metadata. Write-once: fails if key already exists (delete first to update).',
 			parameters: z.object({
 				key: z.string().describe('Key name for the stored value'),
 				value: z.string().describe('Value to store (will be encrypted if VOLE_VAULT_KEY is set)'),
-				source: z.enum(['user', 'tool', 'brain']).optional().describe('Who stored this value. Defaults to brain.'),
-				meta: z.record(z.string()).optional().describe('Context metadata — e.g. { "service": "vibegigs", "handle": "bumblebee", "url": "https://vibegigs.com" }'),
+				source: z
+					.enum(['user', 'tool', 'brain'])
+					.optional()
+					.describe('Who stored this value. Defaults to brain.'),
+				meta: z
+					.record(z.string())
+					.optional()
+					.describe(
+						'Context metadata — e.g. { "service": "vibegigs", "handle": "bumblebee", "url": "https://vibegigs.com" }',
+					),
 			}),
 			async execute(params) {
-				const { key, value, source, meta } = params as { key: string; value: string; source?: string; meta?: Record<string, string> }
+				const { key, value, source, meta } = params as {
+					key: string
+					value: string
+					source?: string
+					meta?: Record<string, string>
+				}
 				const ok = await vault.store(key, value, source ?? 'brain', meta)
 				if (!ok) {
 					return { ok: false, error: 'Key already exists' }
@@ -302,7 +333,8 @@ export function createCoreTools(
 		},
 		{
 			name: 'vault_list',
-			description: 'List all keys in the vault with their sources and creation dates. Never returns values.',
+			description:
+				'List all keys in the vault with their sources and creation dates. Never returns values.',
 			parameters: z.object({}),
 			async execute() {
 				const entries = await vault.list()
@@ -335,7 +367,9 @@ export function createCoreTools(
 				agent: z
 					.string()
 					.optional()
-					.describe('Named agent profile from config (e.g. "researcher", "writer"). If not set, uses default with all tools.'),
+					.describe(
+						'Named agent profile from config (e.g. "researcher", "writer"). If not set, uses default with all tools.',
+					),
 				max_iterations: z
 					.number()
 					.optional()
@@ -343,14 +377,22 @@ export function createCoreTools(
 				context: z
 					.string()
 					.optional()
-					.describe('Additional context to pass to the sub-agent (e.g. key facts, constraints). Injected as a system message before the task.'),
+					.describe(
+						'Additional context to pass to the sub-agent (e.g. key facts, constraints). Injected as a system message before the task.',
+					),
 				priority: z
 					.enum(['urgent', 'normal', 'low'])
 					.optional()
 					.describe('Task priority. Default: normal.'),
 			}),
 			async execute(params) {
-				const { task: taskInput, agent: agentName, max_iterations, context: parentContext, priority } = params as {
+				const {
+					task: taskInput,
+					agent: agentName,
+					max_iterations,
+					context: parentContext,
+					priority,
+				} = params as {
 					task: string
 					agent?: string
 					max_iterations?: number
@@ -373,7 +415,9 @@ export function createCoreTools(
 
 				// Resolve agent profile from config
 				const config = callerTask?.metadata?.voleConfig as Record<string, unknown> | undefined
-				const agents = config?.agents as Record<string, import('../config/index.js').AgentProfile> | undefined
+				const agents = config?.agents as
+					| Record<string, import('../config/index.js').AgentProfile>
+					| undefined
 				const profile = agentName && agents ? agents[agentName] : undefined
 
 				if (agentName && !profile) {
@@ -420,11 +464,10 @@ export function createCoreTools(
 		},
 		{
 			name: 'get_agent_result',
-			description: 'Check the status and result of a spawned sub-agent task. Returns status, result, and cost metrics when available.',
+			description:
+				'Check the status and result of a spawned sub-agent task. Returns status, result, and cost metrics when available.',
 			parameters: z.object({
-				task_id: z
-					.string()
-					.describe('The task ID returned by spawn_agent'),
+				task_id: z.string().describe('The task ID returned by spawn_agent'),
 			}),
 			async execute(params) {
 				const { task_id } = params as { task_id: string }
@@ -449,14 +492,19 @@ export function createCoreTools(
 					return {
 						...base,
 						result: agentTask.result ?? null,
-						duration_ms: agentTask.completedAt && agentTask.startedAt
-							? agentTask.completedAt - agentTask.startedAt
+						duration_ms:
+							agentTask.completedAt && agentTask.startedAt
+								? agentTask.completedAt - agentTask.startedAt
+								: undefined,
+						cost: cost
+							? {
+									llm_calls: cost.llmCalls,
+									total_tokens:
+										((cost.totalInputTokens as number) ?? 0) +
+										((cost.totalOutputTokens as number) ?? 0),
+									total_cost: cost.totalCost,
+								}
 							: undefined,
-						cost: cost ? {
-							llm_calls: cost.llmCalls,
-							total_tokens: (cost.totalInputTokens as number ?? 0) + (cost.totalOutputTokens as number ?? 0),
-							total_cost: cost.totalCost,
-						} : undefined,
 					}
 				}
 
@@ -469,7 +517,8 @@ export function createCoreTools(
 		},
 		{
 			name: 'wait_for_agents',
-			description: 'Wait for one or more spawned sub-agent tasks to complete. Returns all results once all are done (or any fails/times out).',
+			description:
+				'Wait for one or more spawned sub-agent tasks to complete. Returns all results once all are done (or any fails/times out).',
 			parameters: z.object({
 				task_ids: z.array(z.string()).describe('Array of task IDs from spawn_agent'),
 				timeout_ms: z
@@ -495,8 +544,12 @@ export function createCoreTools(
 						}
 					})
 
-					const allDone = results.every((r) =>
-						r.status === 'completed' || r.status === 'failed' || r.status === 'cancelled' || r.status === 'not_found',
+					const allDone = results.every(
+						(r) =>
+							r.status === 'completed' ||
+							r.status === 'failed' ||
+							r.status === 'cancelled' ||
+							r.status === 'not_found',
 					)
 
 					if (allDone) {
@@ -526,14 +579,137 @@ export function createCoreTools(
 			},
 		},
 
+		// === VoleNet tools ===
+		{
+			name: 'list_instances',
+			description:
+				'List all connected VoleNet peer instances with their capabilities, roles, and status. Only available when VoleNet is enabled.',
+			parameters: z.object({}),
+			async execute() {
+				const voleNet = (globalThis as any).__volenet__
+				if (!voleNet?.isActive()) {
+					return {
+						ok: false,
+						error: 'VoleNet is not enabled. Set net.enabled: true in vole.config.json',
+					}
+				}
+				const instances = voleNet.getInstances()
+				const remoteTools = voleNet.getRemoteTools()
+				return {
+					ok: true,
+					instances: instances.map((i: any) => ({
+						id: i.id.substring(0, 8),
+						name: i.name,
+						role: i.role,
+						capabilities: i.capabilities,
+						lastSeen: i.lastSeen,
+					})),
+					remoteToolCount: remoteTools.length,
+				}
+			},
+		},
+		{
+			name: 'spawn_remote_agent',
+			description:
+				'Delegate a task to a remote VoleNet peer. The remote instance runs the task independently and returns the result. Use list_instances to see available peers.',
+			parameters: z.object({
+				task: z.string().describe('Task description for the remote agent'),
+				instance: z
+					.string()
+					.optional()
+					.describe('Target instance name or ID. If omitted, auto-selects best peer.'),
+				max_iterations: z.number().optional().describe('Max iterations on remote (default: 10)'),
+				timeout_ms: z.number().optional().describe('Timeout in ms (default: 300000 = 5 minutes)'),
+			}),
+			async execute(params) {
+				const {
+					task: taskInput,
+					instance,
+					max_iterations,
+					timeout_ms,
+				} = params as {
+					task: string
+					instance?: string
+					max_iterations?: number
+					timeout_ms?: number
+				}
+				const voleNet = (globalThis as any).__volenet__
+				if (!voleNet?.isActive()) {
+					return { ok: false, error: 'VoleNet is not enabled' }
+				}
+
+				const remoteTaskMgr = voleNet.getRemoteTaskManager()
+				if (!remoteTaskMgr) {
+					return { ok: false, error: 'Remote task manager not initialized' }
+				}
+
+				// Resolve target instance
+				let targetId: string | null = null
+				if (instance) {
+					const instances = voleNet.getInstances()
+					const target = instances.find(
+						(i: any) => i.name === instance || i.id.startsWith(instance),
+					)
+					targetId = target?.id ?? null
+				} else {
+					// Auto-select: pick peer with lowest load
+					const instances = voleNet.getInstances()
+					if (instances.length > 0) {
+						targetId = instances.sort((a: any, b: any) => a.load - b.load)[0].id
+					}
+				}
+
+				if (!targetId) {
+					return {
+						ok: false,
+						error: `No peer found${instance ? `: "${instance}"` : ''}. Use list_instances to see available peers.`,
+					}
+				}
+
+				const result = await remoteTaskMgr.delegateTask(
+					targetId,
+					{
+						taskId: '',
+						input: taskInput,
+						maxIterations: max_iterations,
+					},
+					timeout_ms ?? 300_000,
+				)
+
+				return { ok: true, ...result }
+			},
+		},
+		{
+			name: 'get_remote_result',
+			description: 'Check the status of a remote VoleNet task.',
+			parameters: z.object({
+				task_id: z.string().describe('Remote task ID from spawn_remote_agent'),
+			}),
+			async execute(params) {
+				// Remote results are returned inline by spawn_remote_agent (it waits)
+				// This tool exists for future async delegation
+				return {
+					ok: false,
+					error: 'spawn_remote_agent returns results directly. Use it instead.',
+				}
+			},
+		},
+
 		// === Web tools ===
 		{
 			name: 'web_fetch',
-			description: 'Fetch a URL and return its content as text. Use for APIs, web pages, JSON endpoints, or downloading text content. Much lighter than browser_navigate — use this when you just need the content, not browser interaction.',
+			description:
+				'Fetch a URL and return its content as text. Use for APIs, web pages, JSON endpoints, or downloading text content. Much lighter than browser_navigate — use this when you just need the content, not browser interaction.',
 			parameters: z.object({
 				url: z.string().describe('The URL to fetch'),
-				method: z.enum(['GET', 'POST', 'PUT', 'DELETE']).optional().describe('HTTP method. Defaults to GET.'),
-				headers: z.record(z.string()).optional().describe('Request headers (e.g. { "Authorization": "Bearer ..." })'),
+				method: z
+					.enum(['GET', 'POST', 'PUT', 'DELETE'])
+					.optional()
+					.describe('HTTP method. Defaults to GET.'),
+				headers: z
+					.record(z.string())
+					.optional()
+					.describe('Request headers (e.g. { "Authorization": "Bearer ..." })'),
 				body: z.string().optional().describe('Request body for POST/PUT'),
 			}),
 			async execute(params) {
@@ -555,9 +731,10 @@ export function createCoreTools(
 
 					// Truncate very large responses
 					const maxLen = 50_000
-					const content = text.length > maxLen
-						? text.substring(0, maxLen) + `\n\n[Truncated — ${text.length} chars total]`
-						: text
+					const content =
+						text.length > maxLen
+							? text.substring(0, maxLen) + `\n\n[Truncated — ${text.length} chars total]`
+							: text
 
 					return {
 						ok: response.ok,
@@ -584,11 +761,15 @@ export function createCoreTools(
 							intent: z
 								.string()
 								.optional()
-								.describe('What you want to do (e.g. "send an email", "browse a website", "take a screenshot")'),
+								.describe(
+									'What you want to do (e.g. "send an email", "browse a website", "take a screenshot")',
+								),
 							paw: z
 								.string()
 								.optional()
-								.describe('Load all tools from a specific paw (e.g. "paw-browser", "@openvole/paw-email")'),
+								.describe(
+									'Load all tools from a specific paw (e.g. "paw-browser", "@openvole/paw-email")',
+								),
 							all: z
 								.boolean()
 								.optional()
@@ -637,20 +818,13 @@ export function createCoreTools(
 								for (const skill of activeSkills) {
 									const desc = `${skill.name} ${skill.definition.description}`.toLowerCase()
 									const intentLower = intent.toLowerCase()
-									if (
-										intentLower.split(/\s+/).some((word) => desc.includes(word))
-									) {
+									if (intentLower.split(/\s+/).some((word) => desc.includes(word))) {
 										for (const toolName of skill.definition.requiredTools) {
-											if (
-												toolRegistry.has(toolName) &&
-												!results.find((r) => r.name === toolName)
-											) {
+											if (toolRegistry.has(toolName) && !results.find((r) => r.name === toolName)) {
 												results.push({
 													name: toolName,
-													description:
-														toolRegistry.get(toolName)?.description ?? '',
-													pawName:
-														toolRegistry.get(toolName)?.pawName ?? '',
+													description: toolRegistry.get(toolName)?.description ?? '',
+													pawName: toolRegistry.get(toolName)?.pawName ?? '',
 													score: 0.5,
 												})
 											}
@@ -709,7 +883,7 @@ async function listFilesRecursive(dir: string, prefix = ''): Promise<string[]> {
 	for (const entry of entries) {
 		const rel = prefix ? `${prefix}/${entry.name}` : entry.name
 		if (entry.isDirectory()) {
-			files.push(...await listFilesRecursive(path.join(dir, entry.name), rel))
+			files.push(...(await listFilesRecursive(path.join(dir, entry.name), rel)))
 		} else {
 			files.push(rel)
 		}

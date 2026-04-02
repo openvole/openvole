@@ -11,7 +11,7 @@ The core defines **when** each phase runs — the **how** is implemented by Paws
 | Memory | `paw-memory` (BM25 file search) | Vector database, RAG pipeline, external knowledge base |
 | Session | `paw-session` (file-based transcripts) | Redis, database-backed sessions, shared sessions |
 | Compaction | `paw-compact` (rule-based extraction) | LLM-based summarization, lossless DAG, sliding window |
-| Brain | `paw-ollama`, `paw-claude`, etc. | Any LLM provider, custom inference, local models |
+| Brain | `paw-brain` (unified multi-provider) | Any LLM provider, custom inference, local models |
 
 Install your custom paw, add it to `vole.config.json`, and the core uses it — no core changes needed. This is the microkernel approach: the core provides the lifecycle, paws provide the behavior.
 

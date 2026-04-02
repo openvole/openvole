@@ -1,8 +1,8 @@
 import type { ZodSchema } from 'zod'
-import type { ActionResult } from '../core/errors.js'
 import type { AgentContext } from '../context/types.js'
-import type { ToolDefinition } from '../tool/types.js'
+import type { ActionResult } from '../core/errors.js'
 import type { VoleIO } from '../io/types.js'
+import type { ToolDefinition } from '../tool/types.js'
 
 /** The plan returned by a Brain Paw during the Think phase */
 export interface AgentPlan {
@@ -24,7 +24,6 @@ export interface PlannedAction {
 	tool: string
 	params: unknown
 }
-
 
 /** Hook called once when a task starts — initialize Paw state for this task */
 export type BootstrapHook = (context: AgentContext) => Promise<AgentContext>

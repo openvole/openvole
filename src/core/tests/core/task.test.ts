@@ -1,7 +1,7 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { TaskQueue } from '../../src/core/task.js'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createMessageBus } from '../../src/core/bus.js'
 import type { MessageBus } from '../../src/core/bus.js'
+import { TaskQueue } from '../../src/core/task.js'
 
 describe('TaskQueue', () => {
 	let bus: MessageBus

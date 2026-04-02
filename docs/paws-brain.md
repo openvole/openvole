@@ -2,15 +2,25 @@
 
 The Brain is a Paw — the core is LLM-ignorant. Swap models by swapping Brain Paws. All Brain Paws implement the same `think()` interface.
 
-## Available Brain Paws
+## Unified Brain Paw
 
-| Paw | Provider | Install |
-|-----|----------|---------|
-| `paw-ollama` | Local models via Ollama | `npx vole paw add @openvole/paw-ollama` |
-| `paw-claude` | Anthropic Claude | `npx vole paw add @openvole/paw-claude` |
-| `paw-openai` | OpenAI (GPT-4, etc.) | `npx vole paw add @openvole/paw-openai` |
-| `paw-gemini` | Google Gemini | `npx vole paw add @openvole/paw-gemini` |
-| `paw-xai` | xAI Grok | `npx vole paw add @openvole/paw-xai` |
+Use `@openvole/paw-brain` — a single unified brain paw that supports all LLM providers:
+
+```bash
+npx vole paw add @openvole/paw-brain
+```
+
+Set the provider via `BRAIN_PROVIDER` env var, or let it auto-detect from available API keys:
+
+| Provider | `BRAIN_PROVIDER` | Required Env Var |
+|----------|------------------|------------------|
+| Ollama (local) | `ollama` | `OLLAMA_HOST`, `OLLAMA_MODEL` |
+| Anthropic Claude | `anthropic` | `ANTHROPIC_API_KEY` |
+| OpenAI | `openai` | `OPENAI_API_KEY` |
+| Google Gemini | `gemini` | `GEMINI_API_KEY` |
+| xAI Grok | `xai` | `XAI_API_KEY` |
+
+> Legacy single-provider paws (`paw-ollama`, `paw-claude`, `paw-openai`, `paw-gemini`, `paw-xai`) are deprecated but still available.
 
 ## Configuration
 
@@ -18,35 +28,29 @@ Set the active brain in `vole.config.json`:
 
 ```json
 {
-  "brain": "@openvole/paw-ollama",
+  "brain": "@openvole/paw-brain",
   "paws": [
     {
-      "name": "@openvole/paw-ollama",
+      "name": "@openvole/paw-brain",
       "allow": {
-        "network": ["127.0.0.1"],
-        "env": ["OLLAMA_HOST", "OLLAMA_MODEL"]
+        "network": ["*"],
+        "env": ["BRAIN_PROVIDER", "BRAIN_API_KEY", "BRAIN_MODEL",
+                "OLLAMA_HOST", "OLLAMA_MODEL", "OLLAMA_API_KEY",
+                "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY"]
       }
     }
   ]
 }
 ```
 
-Each Brain Paw needs its own environment variables. Common examples:
-
-| Paw | Environment Variables |
-|-----|----------------------|
-| `paw-ollama` | `OLLAMA_HOST`, `OLLAMA_MODEL` |
-| `paw-claude` | `ANTHROPIC_API_KEY`, `CLAUDE_MODEL` |
-| `paw-openai` | `OPENAI_API_KEY`, `OPENAI_MODEL` |
-| `paw-gemini` | `GOOGLE_API_KEY`, `GEMINI_MODEL` |
-| `paw-xai` | `XAI_API_KEY`, `XAI_MODEL` |
+Generic env vars (`BRAIN_API_KEY`, `BRAIN_MODEL`) work across all providers. Provider-specific env vars (e.g. `GEMINI_API_KEY`) take precedence over generic ones.
 
 ## BRAIN.md
 
-Each Brain Paw scaffolds a `BRAIN.md` file in its local config directory on first run:
+The Brain Paw scaffolds a `BRAIN.md` file in its local config directory on first run:
 
 ```
-.openvole/paws/paw-ollama/BRAIN.md
+.openvole/paws/paw-brain/BRAIN.md
 ```
 
 This file is the **system prompt** — it overrides the default system prompt entirely. Edit it to customize how the Brain behaves. The Brain Paw owns this file, not the core.

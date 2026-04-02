@@ -129,7 +129,10 @@ function _createIpcTransport() {
 		},
 
 		/** Create a task in the core's task queue (for channel Paws that receive inbound messages) */
-		async createTask(input: string, metadata?: Record<string, unknown> & { sessionId?: string }): Promise<{ taskId: string }> {
+		async createTask(
+			input: string,
+			metadata?: Record<string, unknown> & { sessionId?: string },
+		): Promise<{ taskId: string }> {
 			const { sessionId, ...rest } = metadata ?? {}
 			const id = crypto.randomUUID()
 			const message: IpcMessage = {

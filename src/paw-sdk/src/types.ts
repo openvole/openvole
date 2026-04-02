@@ -67,7 +67,6 @@ export interface PlannedAction {
 	params: unknown
 }
 
-
 /** Tool definition within a Paw */
 export interface ToolDefinition {
 	name: string

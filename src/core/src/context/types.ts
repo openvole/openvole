@@ -42,10 +42,7 @@ export interface AgentContext {
 }
 
 /** Create an empty AgentContext for a new task */
-export function createAgentContext(
-	taskId: string,
-	maxIterations: number,
-): AgentContext {
+export function createAgentContext(taskId: string, maxIterations: number): AgentContext {
 	return {
 		taskId,
 		messages: [],

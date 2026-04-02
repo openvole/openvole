@@ -1,8 +1,8 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import * as fs from 'node:fs/promises'
 import * as os from 'node:os'
 import * as path from 'node:path'
-import { defineConfig, normalizePawConfig, loadConfig } from '../../src/config/index.js'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { defineConfig, loadConfig, normalizePawConfig } from '../../src/config/index.js'
 
 describe('defineConfig', () => {
 	it('applies defaults for empty config', () => {
@@ -10,7 +10,7 @@ describe('defineConfig', () => {
 		expect(config.paws).toEqual([])
 		expect(config.skills).toEqual([])
 		expect(config.loop.maxIterations).toBe(10)
-		expect(config.loop.confirmBeforeAct).toBe(true)
+		expect(config.loop.confirmBeforeAct).toBe(false)
 		expect(config.loop.taskConcurrency).toBe(1)
 		expect(config.loop.compactThreshold).toBe(50)
 		expect(config.heartbeat.enabled).toBe(false)
@@ -40,7 +40,7 @@ describe('defineConfig', () => {
 		})
 		expect(config.loop.maxIterations).toBe(5)
 		// Defaults should fill in the rest
-		expect(config.loop.confirmBeforeAct).toBe(true)
+		expect(config.loop.confirmBeforeAct).toBe(false)
 		expect(config.loop.taskConcurrency).toBe(1)
 	})
 
@@ -97,18 +97,14 @@ describe('loadConfig', () => {
 			paws: ['paw-a'],
 			loop: { maxIterations: 25 },
 		}
-		await fs.writeFile(
-			path.join(tmpDir, 'vole.config.json'),
-			JSON.stringify(configData),
-			'utf-8',
-		)
+		await fs.writeFile(path.join(tmpDir, 'vole.config.json'), JSON.stringify(configData), 'utf-8')
 
 		const config = await loadConfig(path.join(tmpDir, 'vole.config.ts'))
 		expect(config.brain).toBe('test-brain')
 		expect(config.paws).toEqual(['paw-a'])
 		expect(config.loop.maxIterations).toBe(25)
 		// Defaults should still be merged
-		expect(config.loop.confirmBeforeAct).toBe(true)
+		expect(config.loop.confirmBeforeAct).toBe(false)
 	})
 
 	it('falls back to defaults when no file exists', async () => {
@@ -120,11 +116,7 @@ describe('loadConfig', () => {
 
 	it('loads only from vole.config.json (no lock file merge)', async () => {
 		const configData = { paws: ['existing-paw'], skills: ['my-skill'] }
-		await fs.writeFile(
-			path.join(tmpDir, 'vole.config.json'),
-			JSON.stringify(configData),
-			'utf-8',
-		)
+		await fs.writeFile(path.join(tmpDir, 'vole.config.json'), JSON.stringify(configData), 'utf-8')
 
 		const config = await loadConfig(path.join(tmpDir, 'vole.config.ts'))
 		const pawNames = config.paws.map((p) => (typeof p === 'string' ? p : p.name))

@@ -156,5 +156,86 @@
       "scope": "session",
       "network": "none"
     }
+  },
+
+  "_comment_net": "=== VoleNet — Distributed Agent Networking ===",
+  "_comment_net2": "Connect multiple OpenVole instances across machines. Peer-to-peer, no central server required.",
+  "_comment_net3": "Authentication via Ed25519 vole-keys (like SSH). Run 'vole net init' to generate keys.",
+  "net": {
+    "_comment_enabled": "Enable VoleNet networking (default: false — standalone mode)",
+    "enabled": false,
+
+    "_comment_instanceName": "Human-readable name for this instance (shown to peers)",
+    "instanceName": "my-vole",
+
+    "_comment_role": "Instance role: coordinator (delegates tasks), worker (executes tasks), peer (both)",
+    "role": "peer",
+
+    "_comment_port": "Port for VoleNet server (HTTPS + WebSocket)",
+    "port": 9700,
+
+    "_comment_keyPath": "Path to Ed25519 keypair (default: .openvole/net/vole_key)",
+    "keyPath": ".openvole/net/vole_key",
+
+    "_comment_peers": "Connected peers — URL + trust level + optional tool permissions",
+    "peers": [
+      {
+        "_comment": "Full trust — your own machine, all tools and memory shared",
+        "url": "https://192.168.1.50:9700",
+        "trust": "full"
+      },
+      {
+        "_comment": "Tool trust — shared server, specific tools only",
+        "url": "https://team-server.example.com:9700",
+        "trust": "tool",
+        "allowTools": ["db_query", "db_schema", "scrape_page"],
+        "denyTools": ["shell_exec", "fs_write"]
+      },
+      {
+        "_comment": "Read trust — observer, can search memory but not execute",
+        "url": "https://monitor.example.com:9700",
+        "trust": "read"
+      }
+    ],
+
+    "_comment_share": "What to share with peers",
+    "share": {
+      "_comment_tools": "Expose local tools to peers (peers can call your tools remotely)",
+      "tools": true,
+
+      "_comment_memory": "Sync memory writes to peers and include remote results in memory_search",
+      "memory": true,
+
+      "_comment_session": "Share session history across instances (same user, multiple devices)",
+      "session": false
+    },
+
+    "_comment_routing": "Route specific tools to specific peers (pattern: peer-name). Local tools always take priority unless routed.",
+    "routing": {
+      "image_*": "gpu-server",
+      "db_*": "db-server"
+    },
+
+    "_comment_tls": "TLS certificates for internet-facing instances (optional for LAN)",
+    "tls": {
+      "cert": "/path/to/cert.pem",
+      "key": "/path/to/key.pem"
+    },
+
+    "_comment_discovery": "Peer discovery: manual (config only) or mdns (auto-discover on LAN)",
+    "discovery": "manual",
+
+    "_comment_leader": "Leader selection: 'auto' (lowest ID wins) or an instance name to force as leader",
+    "leader": "auto",
+
+    "_comment_heartbeatMode": "Heartbeat mode: 'leader' (only leader runs heartbeat/schedules) or 'independent' (each instance runs its own)",
+    "heartbeatMode": "leader",
+
+    "_comment_brainMode": "Brain mode: 'local' (each handles own tasks) or 'loadbalance' (route to least-loaded brain)",
+    "brainMode": "local",
+
+    "_comment_taskOverflow": "Task overflow: 'reject' (reject when full) or 'forward' (auto-forward to least-loaded peer)",
+    "taskOverflow": "reject",
+    "maxQueuedTasks": 10
   }
 }

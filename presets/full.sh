@@ -9,7 +9,7 @@ echo "🐹 Setting up OpenVole (full)..."
 # Initialize project
 npm init -y > /dev/null 2>&1
 npm install openvole \
-  @openvole/paw-ollama \
+  @openvole/paw-brain \
   @openvole/paw-memory \
   @openvole/paw-session \
   @openvole/paw-compact \
@@ -26,13 +26,15 @@ npx vole init
 # Overwrite config with full setup
 cat > vole.config.json << 'EOF'
 {
-  "brain": "@openvole/paw-ollama",
+  "brain": "@openvole/paw-brain",
   "paws": [
     {
-      "name": "@openvole/paw-ollama",
+      "name": "@openvole/paw-brain",
       "allow": {
-        "network": ["127.0.0.1"],
-        "env": ["OLLAMA_HOST", "OLLAMA_MODEL", "OLLAMA_API_KEY"]
+        "network": ["*"],
+        "env": ["BRAIN_PROVIDER", "BRAIN_API_KEY", "BRAIN_MODEL",
+                "OLLAMA_HOST", "OLLAMA_MODEL", "OLLAMA_API_KEY",
+                "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY"]
       }
     },
     {
@@ -120,6 +122,7 @@ EOF
 
 # Create .env template
 cat > .env << 'EOF'
+BRAIN_PROVIDER=ollama
 OLLAMA_HOST=http://localhost:11434
 OLLAMA_MODEL=qwen3:latest
 VOLE_LOG_LEVEL=info
