@@ -219,24 +219,24 @@ async function loadUserConfig(configPath: string): Promise<VoleConfig> {
 					...config.heartbeat,
 				},
 				toolProfiles: config.toolProfiles,
-		security: config.security,
-			net: config.net,
+				security: config.security,
+				net: config.net,
 			}
 		} catch {
 			continue
 		}
 	}
 
-	console.warn(`[config] No config found (tried: ${jsonPath}, ${candidates.join(', ')}), using defaults`)
+	console.warn(
+		`[config] No config found (tried: ${jsonPath}, ${candidates.join(', ')}), using defaults`,
+	)
 	return defineConfig({})
 }
 
 // === vole.config.json management ===
 
 /** Read the raw vole.config.json */
-export async function readConfigFile(
-	projectRoot: string,
-): Promise<Record<string, unknown>> {
+export async function readConfigFile(projectRoot: string): Promise<Record<string, unknown>> {
 	const configPath = path.join(projectRoot, 'vole.config.json')
 	try {
 		const raw = await fs.readFile(configPath, 'utf-8')
@@ -263,9 +263,7 @@ export async function addPawToConfig(
 ): Promise<void> {
 	const config = await readConfigFile(projectRoot)
 	const paws = (config.paws ?? []) as Array<PawConfig | string>
-	const existing = paws.find((p) =>
-		typeof p === 'string' ? p === name : p.name === name,
-	)
+	const existing = paws.find((p) => (typeof p === 'string' ? p === name : p.name === name))
 	if (existing) return
 
 	paws.push(allow ? { name, allow } : name)
@@ -274,23 +272,15 @@ export async function addPawToConfig(
 }
 
 /** Remove a Paw from vole.config.json */
-export async function removePawFromConfig(
-	projectRoot: string,
-	name: string,
-): Promise<void> {
+export async function removePawFromConfig(projectRoot: string, name: string): Promise<void> {
 	const config = await readConfigFile(projectRoot)
 	const paws = (config.paws ?? []) as Array<PawConfig | string>
-	config.paws = paws.filter((p) =>
-		typeof p === 'string' ? p !== name : p.name !== name,
-	)
+	config.paws = paws.filter((p) => (typeof p === 'string' ? p !== name : p.name !== name))
 	await writeConfigFile(projectRoot, config)
 }
 
 /** Add a Skill to vole.config.json if not already present */
-export async function addSkillToConfig(
-	projectRoot: string,
-	name: string,
-): Promise<void> {
+export async function addSkillToConfig(projectRoot: string, name: string): Promise<void> {
 	const config = await readConfigFile(projectRoot)
 	const skills = (config.skills ?? []) as string[]
 	if (skills.includes(name)) return
@@ -301,10 +291,7 @@ export async function addSkillToConfig(
 }
 
 /** Remove a Skill from vole.config.json */
-export async function removeSkillFromConfig(
-	projectRoot: string,
-	name: string,
-): Promise<void> {
+export async function removeSkillFromConfig(projectRoot: string, name: string): Promise<void> {
 	const config = await readConfigFile(projectRoot)
 	const skills = (config.skills ?? []) as string[]
 	config.skills = skills.filter((s) => s !== name)

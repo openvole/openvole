@@ -14,7 +14,7 @@ const PRICING: Record<string, { input: number; output: number }> = {
 	'gpt-4.1': { input: 2.0, output: 8.0 },
 	'gpt-4.1-mini': { input: 0.4, output: 1.6 },
 	'gpt-4.1-nano': { input: 0.1, output: 0.4 },
-	'o3': { input: 10.0, output: 40.0 },
+	o3: { input: 10.0, output: 40.0 },
 	'o3-mini': { input: 1.1, output: 4.4 },
 	'o4-mini': { input: 1.1, output: 4.4 },
 	// Google
@@ -149,7 +149,9 @@ export class CostTracker {
 		}
 
 		// Unknown model — use default
-		logger.debug(`No pricing for model "${model}", using default ($${DEFAULT_PRICING.input}/$${DEFAULT_PRICING.output} per 1M tokens)`)
+		logger.debug(
+			`No pricing for model "${model}", using default ($${DEFAULT_PRICING.input}/$${DEFAULT_PRICING.output} per 1M tokens)`,
+		)
 		return DEFAULT_PRICING
 	}
 }

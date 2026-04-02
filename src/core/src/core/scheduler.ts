@@ -76,9 +76,15 @@ export class SchedulerStore {
 			// Skip persistence during restore — we're loading existing data, not creating new
 			this.restoring = true
 			for (const s of persisted) {
-				this.add(s.id, s.input, s.cron, () => {
-					this.tickHandler!(s.input)
-				}, s.createdAt)
+				this.add(
+					s.id,
+					s.input,
+					s.cron,
+					() => {
+						this.tickHandler!(s.input)
+					},
+					s.createdAt,
+				)
 			}
 			this.restoring = false
 
@@ -120,7 +126,9 @@ export class SchedulerStore {
 		})
 
 		const next = job.nextRun()
-		logger.info(`Schedule "${id}" created — cron: ${cron} (next: ${next?.toISOString() ?? 'unknown'}): "${input.substring(0, 80)}"`)
+		logger.info(
+			`Schedule "${id}" created — cron: ${cron} (next: ${next?.toISOString() ?? 'unknown'}): "${input.substring(0, 80)}"`,
+		)
 		this.persist()
 	}
 
@@ -186,7 +194,9 @@ export class SchedulerStore {
 					const existing = await fs.readFile(targetPath, 'utf-8')
 					const parsed = JSON.parse(existing) as unknown[]
 					if (parsed.length > 0) {
-						logger.warn(`Refusing to overwrite ${parsed.length} persisted schedule(s) with empty list`)
+						logger.warn(
+							`Refusing to overwrite ${parsed.length} persisted schedule(s) with empty list`,
+						)
 						return
 					}
 				} catch {

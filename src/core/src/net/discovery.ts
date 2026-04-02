@@ -2,16 +2,22 @@
  * VoleNet Discovery — peer registry, capability announcement, health monitoring.
  */
 
-import { createLogger } from '../core/logger.js'
-import type { VoleNetTransport } from './transport.js'
-import { createMessage, verifyMessage, type VoleNetMessage, type VoleNetInstance, type RemoteToolInfo } from './protocol.js'
-import { loadAuthorizedVoles, parsePublicKey } from './keys.js'
 import type { KeyObject } from 'node:crypto'
+import { createLogger } from '../core/logger.js'
+import { loadAuthorizedVoles, parsePublicKey } from './keys.js'
+import {
+	type RemoteToolInfo,
+	type VoleNetInstance,
+	type VoleNetMessage,
+	createMessage,
+	verifyMessage,
+} from './protocol.js'
+import type { VoleNetTransport } from './transport.js'
 
 const logger = createLogger('volenet-discovery')
 
 const HEALTH_INTERVAL_MS = 15_000 // ping peers every 15s
-const PEER_TIMEOUT_MS = 45_000    // mark peer as disconnected after 45s
+const PEER_TIMEOUT_MS = 45_000 // mark peer as disconnected after 45s
 
 export interface DiscoveryConfig {
 	netDir: string
@@ -59,7 +65,9 @@ export class VoleNetDiscovery {
 		// Start health monitoring
 		this.healthTimer = setInterval(() => this.healthCheck(), HEALTH_INTERVAL_MS)
 
-		logger.info(`Discovery started — instance: ${this.config.instanceName} (${this.config.instanceId.substring(0, 8)})`)
+		logger.info(
+			`Discovery started — instance: ${this.config.instanceName} (${this.config.instanceId.substring(0, 8)})`,
+		)
 	}
 
 	/**
@@ -96,7 +104,7 @@ export class VoleNetDiscovery {
 				endpoint: this.config.endpoint,
 				capabilities: this.config.capabilities,
 				role: this.config.role,
-				version: '2.0.0',
+				version: '3.0.0',
 			} satisfies Partial<VoleNetInstance>,
 			this.config.privateKey,
 		)
@@ -114,7 +122,9 @@ export class VoleNetDiscovery {
 				return message.from
 			}
 		} catch (err) {
-			logger.warn(`Discovery failed for ${endpoint}: ${err instanceof Error ? err.message : String(err)}`)
+			logger.warn(
+				`Discovery failed for ${endpoint}: ${err instanceof Error ? err.message : String(err)}`,
+			)
 		}
 
 		return null
@@ -158,7 +168,9 @@ export class VoleNetDiscovery {
 		}
 
 		if (!this.authorizedPeers.has(parsed.instanceId)) {
-			logger.warn(`Unauthorized peer attempted connection: ${info.name} (${parsed.instanceId.substring(0, 8)})`)
+			logger.warn(
+				`Unauthorized peer attempted connection: ${info.name} (${parsed.instanceId.substring(0, 8)})`,
+			)
 			return
 		}
 
@@ -189,7 +201,9 @@ export class VoleNetDiscovery {
 			this.transport.addPeer(parsed.instanceId, instance.endpoint)
 		}
 
-		logger.info(`Peer discovered: ${instance.name} (${instance.id.substring(0, 8)}) — ${instance.capabilities.join(', ')}`)
+		logger.info(
+			`Peer discovered: ${instance.name} (${instance.id.substring(0, 8)}) — ${instance.capabilities.join(', ')}`,
+		)
 
 		// Trigger re-election now that a new peer joined
 		this.onPeerChanged?.()
@@ -205,7 +219,7 @@ export class VoleNetDiscovery {
 				endpoint: this.config.endpoint,
 				capabilities: this.config.capabilities,
 				role: this.config.role,
-				version: '2.0.0',
+				version: '3.0.0',
 			},
 			this.config.privateKey,
 		)
@@ -290,7 +304,9 @@ export class VoleNetDiscovery {
 
 		for (const [id, instance] of this.instances) {
 			if (now - instance.lastSeen > PEER_TIMEOUT_MS) {
-				logger.warn(`Peer timeout: ${instance.name} (${id.substring(0, 8)}) — last seen ${Math.round((now - instance.lastSeen) / 1000)}s ago`)
+				logger.warn(
+					`Peer timeout: ${instance.name} (${id.substring(0, 8)}) — last seen ${Math.round((now - instance.lastSeen) / 1000)}s ago`,
+				)
 				this.instances.delete(id)
 				this.transport.removePeer(id)
 				this.remoteTools.delete(id)

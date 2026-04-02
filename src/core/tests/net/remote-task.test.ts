@@ -1,9 +1,9 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import * as crypto from 'node:crypto'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { VoleNetDiscovery } from '../../src/net/discovery.js'
+import type { VoleNetInstance, VoleNetMessage } from '../../src/net/protocol.js'
 import { RemoteTaskManager } from '../../src/net/remote-task.js'
 import type { VoleNetTransport } from '../../src/net/transport.js'
-import type { VoleNetDiscovery } from '../../src/net/discovery.js'
-import type { VoleNetMessage, VoleNetInstance } from '../../src/net/protocol.js'
 
 function generateTestKeyPair() {
 	return crypto.generateKeyPairSync('ed25519')
@@ -11,14 +11,19 @@ function generateTestKeyPair() {
 
 type MessageHandler = (message: VoleNetMessage, peerId: string) => void
 
-function createMockTransport(): VoleNetTransport & { _handlers: MessageHandler[]; _simulateMessage: (msg: VoleNetMessage) => void } {
+function createMockTransport(): VoleNetTransport & {
+	_handlers: MessageHandler[]
+	_simulateMessage: (msg: VoleNetMessage) => void
+} {
 	const handlers: MessageHandler[] = []
 	return {
 		_handlers: handlers,
 		_simulateMessage: (msg: VoleNetMessage) => {
 			for (const h of handlers) h(msg, msg.from)
 		},
-		onMessage: (handler: MessageHandler) => { handlers.push(handler) },
+		onMessage: (handler: MessageHandler) => {
+			handlers.push(handler)
+		},
 		sendToPeer: vi.fn().mockResolvedValue(true),
 		broadcast: vi.fn().mockResolvedValue(1),
 		addPeer: vi.fn(),
@@ -28,10 +33,16 @@ function createMockTransport(): VoleNetTransport & { _handlers: MessageHandler[]
 		pingPeer: vi.fn().mockResolvedValue(true),
 		start: vi.fn().mockResolvedValue(undefined),
 		stop: vi.fn().mockResolvedValue(undefined),
-	} as unknown as VoleNetTransport & { _handlers: MessageHandler[]; _simulateMessage: (msg: VoleNetMessage) => void }
+	} as unknown as VoleNetTransport & {
+		_handlers: MessageHandler[]
+		_simulateMessage: (msg: VoleNetMessage) => void
+	}
 }
 
-function createMockDiscovery(instances: Partial<VoleNetInstance>[] = [], toolOwner?: { instanceId: string; instance: VoleNetInstance }): VoleNetDiscovery {
+function createMockDiscovery(
+	instances: Partial<VoleNetInstance>[] = [],
+	toolOwner?: { instanceId: string; instance: VoleNetInstance },
+): VoleNetDiscovery {
 	return {
 		getInstances: vi.fn().mockReturnValue(instances),
 		findToolOwner: vi.fn().mockReturnValue(toolOwner ?? null),
@@ -68,12 +79,10 @@ describe('RemoteTaskManager', () => {
 		})
 
 		it('matches exact tool name in routing config', () => {
-			const instances: Partial<VoleNetInstance>[] = [
-				{ id: 'peer-abc', name: 'gpu-worker' },
-			]
+			const instances: Partial<VoleNetInstance>[] = [{ id: 'peer-abc', name: 'gpu-worker' }]
 			discovery = createMockDiscovery(instances)
 			manager = new RemoteTaskManager(transport, discovery, 'local', keyPair.privateKey, {
-				'image_resize': 'gpu-worker',
+				image_resize: 'gpu-worker',
 			})
 
 			const result = manager.resolveToolTarget('image_resize')
@@ -81,9 +90,7 @@ describe('RemoteTaskManager', () => {
 		})
 
 		it('matches glob pattern (prefix*) in routing config', () => {
-			const instances: Partial<VoleNetInstance>[] = [
-				{ id: 'worker-1', name: 'shell-worker' },
-			]
+			const instances: Partial<VoleNetInstance>[] = [{ id: 'worker-1', name: 'shell-worker' }]
 			discovery = createMockDiscovery(instances)
 			manager = new RemoteTaskManager(transport, discovery, 'local', keyPair.privateKey, {
 				'shell_*': 'shell-worker',
@@ -125,12 +132,10 @@ describe('RemoteTaskManager', () => {
 		})
 
 		it('does not match non-prefix patterns as glob', () => {
-			const instances: Partial<VoleNetInstance>[] = [
-				{ id: 'worker-1', name: 'worker' },
-			]
+			const instances: Partial<VoleNetInstance>[] = [{ id: 'worker-1', name: 'worker' }]
 			discovery = createMockDiscovery(instances)
 			manager = new RemoteTaskManager(transport, discovery, 'local', keyPair.privateKey, {
-				'shell_exec': 'worker',
+				shell_exec: 'worker',
 			})
 
 			expect(manager.resolveToolTarget('shell_exec')).toBe('worker-1')

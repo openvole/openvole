@@ -1,9 +1,9 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { resolveSkills, buildActiveSkills } from '../../src/skill/resolver.js'
-import { ToolRegistry } from '../../src/tool/registry.js'
-import { createMessageBus } from '../../src/core/bus.js'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
+import { createMessageBus } from '../../src/core/bus.js'
+import { buildActiveSkills, resolveSkills } from '../../src/skill/resolver.js'
 import type { SkillInstance } from '../../src/skill/types.js'
+import { ToolRegistry } from '../../src/tool/registry.js'
 
 function makeSkill(overrides: Partial<SkillInstance> = {}): SkillInstance {
 	return {
@@ -32,21 +32,27 @@ describe('resolveSkills', () => {
 	})
 
 	it('activates skill when all required tools are present', () => {
-		registry.register('paw-a', [
-			{ name: 'gmail_read', description: 'Read', parameters: z.object({}), execute: vi.fn() },
-			{ name: 'gmail_send', description: 'Send', parameters: z.object({}), execute: vi.fn() },
-		], true)
+		registry.register(
+			'paw-a',
+			[
+				{ name: 'gmail_read', description: 'Read', parameters: z.object({}), execute: vi.fn() },
+				{ name: 'gmail_send', description: 'Send', parameters: z.object({}), execute: vi.fn() },
+			],
+			true,
+		)
 
-		const skills = [makeSkill({
-			definition: {
-				name: 'email',
-				description: 'Email',
-				requiredTools: ['gmail_read', 'gmail_send'],
-				optionalTools: [],
-				instructions: 'Handle email',
-				tags: [],
-			},
-		})]
+		const skills = [
+			makeSkill({
+				definition: {
+					name: 'email',
+					description: 'Email',
+					requiredTools: ['gmail_read', 'gmail_send'],
+					optionalTools: [],
+					instructions: 'Handle email',
+					tags: [],
+				},
+			}),
+		]
 
 		resolveSkills(skills, registry)
 		expect(skills[0].active).toBe(true)
@@ -54,20 +60,24 @@ describe('resolveSkills', () => {
 	})
 
 	it('keeps skill inactive when tools are missing', () => {
-		registry.register('paw-a', [
-			{ name: 'gmail_read', description: 'Read', parameters: z.object({}), execute: vi.fn() },
-		], true)
+		registry.register(
+			'paw-a',
+			[{ name: 'gmail_read', description: 'Read', parameters: z.object({}), execute: vi.fn() }],
+			true,
+		)
 
-		const skills = [makeSkill({
-			definition: {
-				name: 'email',
-				description: 'Email',
-				requiredTools: ['gmail_read', 'gmail_send'],
-				optionalTools: [],
-				instructions: 'Handle email',
-				tags: [],
-			},
-		})]
+		const skills = [
+			makeSkill({
+				definition: {
+					name: 'email',
+					description: 'Email',
+					requiredTools: ['gmail_read', 'gmail_send'],
+					optionalTools: [],
+					instructions: 'Handle email',
+					tags: [],
+				},
+			}),
+		]
 
 		resolveSkills(skills, registry)
 		expect(skills[0].active).toBe(false)
@@ -75,16 +85,18 @@ describe('resolveSkills', () => {
 	})
 
 	it('skill with no required tools is always active', () => {
-		const skills = [makeSkill({
-			definition: {
-				name: 'general',
-				description: 'General',
-				requiredTools: [],
-				optionalTools: [],
-				instructions: 'General stuff',
-				tags: [],
-			},
-		})]
+		const skills = [
+			makeSkill({
+				definition: {
+					name: 'general',
+					description: 'General',
+					requiredTools: [],
+					optionalTools: [],
+					instructions: 'General stuff',
+					tags: [],
+				},
+			}),
+		]
 
 		resolveSkills(skills, registry)
 		expect(skills[0].active).toBe(true)
@@ -108,17 +120,19 @@ describe('resolveSkills', () => {
 		it('marks skill inactive when required env vars are missing', () => {
 			delete process.env.TODOIST_API_KEY
 
-			const skills = [makeSkill({
-				definition: {
-					name: 'todoist',
-					description: 'Todoist',
-					requiredTools: [],
-					optionalTools: [],
-					instructions: 'Todoist sync',
-					tags: [],
-					requires: { env: ['TODOIST_API_KEY'], bins: [], anyBins: [] },
-				},
-			})]
+			const skills = [
+				makeSkill({
+					definition: {
+						name: 'todoist',
+						description: 'Todoist',
+						requiredTools: [],
+						optionalTools: [],
+						instructions: 'Todoist sync',
+						tags: [],
+						requires: { env: ['TODOIST_API_KEY'], bins: [], anyBins: [] },
+					},
+				}),
+			]
 
 			resolveSkills(skills, registry)
 			expect(skills[0].active).toBe(false)
@@ -128,17 +142,19 @@ describe('resolveSkills', () => {
 		it('activates skill when required env vars are set', () => {
 			process.env.TODOIST_API_KEY = 'test-key'
 
-			const skills = [makeSkill({
-				definition: {
-					name: 'todoist',
-					description: 'Todoist',
-					requiredTools: [],
-					optionalTools: [],
-					instructions: 'Todoist sync',
-					tags: [],
-					requires: { env: ['TODOIST_API_KEY'], bins: [], anyBins: [] },
-				},
-			})]
+			const skills = [
+				makeSkill({
+					definition: {
+						name: 'todoist',
+						description: 'Todoist',
+						requiredTools: [],
+						optionalTools: [],
+						instructions: 'Todoist sync',
+						tags: [],
+						requires: { env: ['TODOIST_API_KEY'], bins: [], anyBins: [] },
+					},
+				}),
+			]
 
 			resolveSkills(skills, registry)
 			expect(skills[0].active).toBe(true)
@@ -147,17 +163,19 @@ describe('resolveSkills', () => {
 
 	describe('binary checks', () => {
 		it('marks skill inactive when required binary is missing', () => {
-			const skills = [makeSkill({
-				definition: {
-					name: 'bin-skill',
-					description: 'Needs a binary',
-					requiredTools: [],
-					optionalTools: [],
-					instructions: 'Use a binary',
-					tags: [],
-					requires: { env: [], bins: ['nonexistent_binary_xyz_abc'], anyBins: [] },
-				},
-			})]
+			const skills = [
+				makeSkill({
+					definition: {
+						name: 'bin-skill',
+						description: 'Needs a binary',
+						requiredTools: [],
+						optionalTools: [],
+						instructions: 'Use a binary',
+						tags: [],
+						requires: { env: [], bins: ['nonexistent_binary_xyz_abc'], anyBins: [] },
+					},
+				}),
+			]
 
 			resolveSkills(skills, registry)
 			expect(skills[0].active).toBe(false)
@@ -166,17 +184,19 @@ describe('resolveSkills', () => {
 
 		it('activates skill when required binary exists', () => {
 			// 'node' should be available in any test environment
-			const skills = [makeSkill({
-				definition: {
-					name: 'node-skill',
-					description: 'Needs node',
-					requiredTools: [],
-					optionalTools: [],
-					instructions: 'Use node',
-					tags: [],
-					requires: { env: [], bins: ['node'], anyBins: [] },
-				},
-			})]
+			const skills = [
+				makeSkill({
+					definition: {
+						name: 'node-skill',
+						description: 'Needs node',
+						requiredTools: [],
+						optionalTools: [],
+						instructions: 'Use node',
+						tags: [],
+						requires: { env: [], bins: ['node'], anyBins: [] },
+					},
+				}),
+			]
 
 			resolveSkills(skills, registry)
 			expect(skills[0].active).toBe(true)
@@ -192,9 +212,11 @@ describe('buildActiveSkills', () => {
 	})
 
 	it('returns correct format for active skills', () => {
-		registry.register('paw-a', [
-			{ name: 'tool-1', description: 'T1', parameters: z.object({}), execute: vi.fn() },
-		], true)
+		registry.register(
+			'paw-a',
+			[{ name: 'tool-1', description: 'T1', parameters: z.object({}), execute: vi.fn() }],
+			true,
+		)
 
 		const skills: SkillInstance[] = [
 			makeSkill({
@@ -231,9 +253,7 @@ describe('buildActiveSkills', () => {
 	})
 
 	it('returns empty array when no skills are active', () => {
-		const skills: SkillInstance[] = [
-			makeSkill({ active: false }),
-		]
+		const skills: SkillInstance[] = [makeSkill({ active: false })]
 
 		const result = buildActiveSkills(skills, registry)
 		expect(result).toEqual([])

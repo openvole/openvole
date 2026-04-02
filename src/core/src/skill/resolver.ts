@@ -1,8 +1,8 @@
 import { execFileSync } from 'node:child_process'
-import type { ToolRegistry } from '../tool/registry.js'
-import type { SkillInstance } from './types.js'
 import type { ActiveSkill } from '../context/types.js'
 import { createLogger } from '../core/logger.js'
+import type { ToolRegistry } from '../tool/registry.js'
+import type { SkillInstance } from './types.js'
 
 const logger = createLogger('skill-resolver')
 
@@ -16,10 +16,7 @@ const logger = createLogger('skill-resolver')
  * - All requires.bins are available on PATH
  * - At least one of requires.anyBins is available (if specified)
  */
-export function resolveSkills(
-	skills: SkillInstance[],
-	toolRegistry: ToolRegistry,
-): void {
+export function resolveSkills(skills: SkillInstance[], toolRegistry: ToolRegistry): void {
 	for (const skill of skills) {
 		const missing: string[] = []
 
@@ -64,14 +61,11 @@ export function resolveSkills(
 			const providers = skill.definition.requiredTools
 				.map((t) => toolRegistry.get(t)?.pawName)
 				.filter(Boolean)
-			const providerInfo = providers.length > 0
-				? ` (tools provided by: ${[...new Set(providers)].join(', ')})`
-				: ''
+			const providerInfo =
+				providers.length > 0 ? ` (tools provided by: ${[...new Set(providers)].join(', ')})` : ''
 			logger.info(`Skill "${skill.name}" activated${providerInfo}`)
 		} else if (!skill.active && wasActive) {
-			logger.warn(
-				`Skill "${skill.name}" deactivated (missing: ${missing.join(', ')})`,
-			)
+			logger.warn(`Skill "${skill.name}" deactivated (missing: ${missing.join(', ')})`)
 		}
 	}
 }

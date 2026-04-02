@@ -2,15 +2,15 @@
 
 import 'dotenv/config'
 import * as path from 'node:path'
-import { createEngine } from './index.js'
 import {
 	addPawToConfig,
-	removePawFromConfig,
 	addSkillToConfig,
+	removePawFromConfig,
 	removeSkillFromConfig,
 } from './config/index.js'
-import { readPawManifest, resolvePawPath } from './paw/manifest.js'
 import { createLogger } from './core/logger.js'
+import { createEngine } from './index.js'
+import { readPawManifest, resolvePawPath } from './paw/manifest.js'
 
 const logger = createLogger('cli')
 
@@ -21,7 +21,16 @@ async function main(): Promise<void> {
 	const projectRoot = process.cwd()
 
 	// Allow init and help without a project root
-	if (command !== 'init' && command !== 'help' && command !== '--help' && command !== '-h' && command !== '--version' && command !== '-v' && command !== 'upgrade' && command !== undefined) {
+	if (
+		command !== 'init' &&
+		command !== 'help' &&
+		command !== '--help' &&
+		command !== '-h' &&
+		command !== '--version' &&
+		command !== '-v' &&
+		command !== 'upgrade' &&
+		command !== undefined
+	) {
 		const fsCheck = await import('node:fs/promises')
 		try {
 			await fsCheck.access(path.join(projectRoot, 'vole.config.json'))
@@ -171,7 +180,9 @@ async function startInteractive(projectRoot: string): Promise<void> {
 	try {
 		const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf-8'))
 		version = pkg.version
-	} catch { /* ignore */ }
+	} catch {
+		/* ignore */
+	}
 
 	const toolCount = engine.toolRegistry.list().length
 	const pawCount = engine.pawRegistry.list().length
@@ -190,7 +201,7 @@ async function startInteractive(projectRoot: string): Promise<void> {
 			dashboardUrl = `http://localhost:${envPort}`
 		} else {
 			const listenConfig = engine.config.paws.find((p) =>
-				typeof p === 'string' ? false : (p.name?.includes('dashboard') && p.allow?.listen?.length),
+				typeof p === 'string' ? false : p.name?.includes('dashboard') && p.allow?.listen?.length,
 			)
 			const port = typeof listenConfig !== 'string' && listenConfig?.allow?.listen?.[0]
 			if (port) dashboardUrl = `http://localhost:${port}`
@@ -319,10 +330,7 @@ async function startInteractive(projectRoot: string): Promise<void> {
 	process.on('SIGTERM', gracefulShutdown)
 }
 
-async function runSingle(
-	projectRoot: string,
-	input: string,
-): Promise<void> {
+async function runSingle(projectRoot: string, input: string): Promise<void> {
 	const engine = await createEngine(projectRoot, { headless: true })
 	await engine.start()
 	engine.run(input)
@@ -393,7 +401,7 @@ async function initProject(projectRoot: string): Promise<void> {
 	// Note: BRAIN.md is managed by each Brain Paw in .openvole/paws/<brain-name>/BRAIN.md
 	await fs.writeFile(
 		path.join(projectRoot, '.openvole', 'SOUL.md'),
-		'# Soul\n\nThe agent\'s personality, tone, and identity.\n\n## Identity\n- Name: OpenVole Agent\n- Personality: Helpful, concise, and proactive\n- Tone: Professional but friendly\n',
+		"# Soul\n\nThe agent's personality, tone, and identity.\n\n## Identity\n- Name: OpenVole Agent\n- Personality: Helpful, concise, and proactive\n- Tone: Professional but friendly\n",
 		'utf-8',
 	)
 	await fs.writeFile(
@@ -547,10 +555,7 @@ async function handleUpgrade(projectRoot: string): Promise<void> {
 	}
 }
 
-async function handlePawCommand(
-	args: string[],
-	projectRoot: string,
-): Promise<void> {
+async function handlePawCommand(args: string[], projectRoot: string): Promise<void> {
 	const subcommand = args[0]
 
 	switch (subcommand) {
@@ -591,9 +596,7 @@ async function handlePawCommand(
 			} else {
 				logger.info('PAW                          TOOLS    TYPE')
 				for (const paw of paws) {
-					logger.info(
-						`${paw.name.padEnd(29)}${String(paw.tools).padEnd(9)}${paw.type}`,
-					)
+					logger.info(`${paw.name.padEnd(29)}${String(paw.tools).padEnd(9)}${paw.type}`)
 				}
 			}
 			break
@@ -624,7 +627,12 @@ async function handlePawCommand(
 					: undefined
 				await addPawToConfig(projectRoot, name, defaultAllow)
 				// Create paw data directory
-				const pawDataDir = path.join(projectRoot, '.openvole', 'paws', manifest.name.replace(/^@openvole\//, ''))
+				const pawDataDir = path.join(
+					projectRoot,
+					'.openvole',
+					'paws',
+					manifest.name.replace(/^@openvole\//, ''),
+				)
 				const { mkdir } = await import('node:fs/promises')
 				await mkdir(pawDataDir, { recursive: true })
 				logger.info(`Added ${name}@${manifest.version} to vole.config.json`)
@@ -632,10 +640,14 @@ async function handlePawCommand(
 					logger.info(`  listen ports: ${manifest.permissions.listen.join(', ')}`)
 				}
 				if (manifest.tools.length > 0) {
-					logger.info(`  provides ${manifest.tools.length} tools: ${manifest.tools.map((t) => t.name).join(', ')}`)
+					logger.info(
+						`  provides ${manifest.tools.length} tools: ${manifest.tools.map((t) => t.name).join(', ')}`,
+					)
 				}
 			} else {
-				logger.error(`Installed ${name} but could not read vole-paw.json — add it to vole.config.json manually`)
+				logger.error(
+					`Installed ${name} but could not read vole-paw.json — add it to vole.config.json manually`,
+				)
 			}
 			break
 		}
@@ -660,10 +672,7 @@ async function handlePawCommand(
 	}
 }
 
-async function handleSkillCommand(
-	args: string[],
-	projectRoot: string,
-): Promise<void> {
+async function handleSkillCommand(args: string[], projectRoot: string): Promise<void> {
 	const subcommand = args[0]
 
 	switch (subcommand) {
@@ -701,12 +710,8 @@ async function handleSkillCommand(
 				logger.info('SKILL                          STATUS     MISSING')
 				for (const skill of skills) {
 					const status = skill.active ? 'active' : 'inactive'
-					const missing = skill.missingTools.length > 0
-						? skill.missingTools.join(', ')
-						: '—'
-					logger.info(
-						`${skill.name.padEnd(31)}${status.padEnd(11)}${missing}`,
-					)
+					const missing = skill.missingTools.length > 0 ? skill.missingTools.join(', ') : '—'
+					logger.info(`${skill.name.padEnd(31)}${status.padEnd(11)}${missing}`)
 				}
 			}
 			break
@@ -749,9 +754,10 @@ async function handleSkillCommand(
 
 			// Delete from .openvole/skills/
 			const fsModule = await import('node:fs/promises')
-			const skillPath = name.startsWith('.') || name.startsWith('/')
-				? path.resolve(projectRoot, name)
-				: path.resolve(projectRoot, '.openvole', 'skills', name)
+			const skillPath =
+				name.startsWith('.') || name.startsWith('/')
+					? path.resolve(projectRoot, name)
+					: path.resolve(projectRoot, '.openvole', 'skills', name)
 			try {
 				await fsModule.rm(skillPath, { recursive: true })
 				logger.info(`Deleted ${skillPath}`)
@@ -849,7 +855,9 @@ async function handleSkillCommand(
 				logger.info('To publish, create a PR against https://github.com/openvole/volehub')
 				logger.info(`with your SKILL.md in skills/${prepared.name}/`)
 			} catch (err) {
-				logger.error(`Publish preparation failed: ${err instanceof Error ? err.message : String(err)}`)
+				logger.error(
+					`Publish preparation failed: ${err instanceof Error ? err.message : String(err)}`,
+				)
 			}
 			break
 		}
@@ -876,10 +884,7 @@ async function handleSkillCommand(
 	}
 }
 
-async function handleToolCommand(
-	args: string[],
-	projectRoot: string,
-): Promise<void> {
+async function handleToolCommand(args: string[], projectRoot: string): Promise<void> {
 	const subcommand = args[0]
 
 	switch (subcommand) {
@@ -936,7 +941,10 @@ async function handleToolCommand(
 				const skillRegistry = new SkillRegistry(bus, toolRegistry, projectRoot)
 				const taskQueue = new TaskQueue(bus, 1)
 				const scheduler = new SchedulerStore()
-				const vault = new Vault(path.resolve(projectRoot, '.openvole', 'vault.json'), process.env.VOLE_VAULT_KEY)
+				const vault = new Vault(
+					path.resolve(projectRoot, '.openvole', 'vault.json'),
+					process.env.VOLE_VAULT_KEY,
+				)
 				await vault.init()
 				const coreTools = createCoreTools(scheduler, taskQueue, projectRoot, skillRegistry, vault)
 				toolRegistry.register('__core__', coreTools, true)
@@ -969,9 +977,7 @@ async function handleToolCommand(
 					console.log(`${tools.length} tools:\n`)
 					console.log('TOOL                              PAW                              TYPE')
 					for (const tool of tools) {
-						console.log(
-							`${tool.name.padEnd(34)}${tool.pawName.padEnd(33)}${tool.type}`,
-						)
+						console.log(`${tool.name.padEnd(34)}${tool.pawName.padEnd(33)}${tool.type}`)
 					}
 				}
 			}
@@ -1026,10 +1032,15 @@ async function handleToolCommand(
 				path.resolve(projectRoot, 'vole.config.json'),
 			)
 			const netConfig = config.net
-			if (netConfig?.enabled && (toolName === 'list_instances' || toolName === 'spawn_remote_agent')) {
+			if (
+				netConfig?.enabled &&
+				(toolName === 'list_instances' || toolName === 'spawn_remote_agent')
+			) {
 				try {
 					const port = netConfig.port ?? 9700
-					const resp = await fetch(`http://localhost:${port}/volenet/info`, { signal: AbortSignal.timeout(3000) })
+					const resp = await fetch(`http://localhost:${port}/volenet/info`, {
+						signal: AbortSignal.timeout(3000),
+					})
 					if (resp.ok) {
 						const info = await resp.json()
 						// For list_instances, query the running instance directly
@@ -1071,10 +1082,7 @@ async function handleToolCommand(
 	}
 }
 
-async function handleTaskCommand(
-	args: string[],
-	_projectRoot: string,
-): Promise<void> {
+async function handleTaskCommand(args: string[], _projectRoot: string): Promise<void> {
 	const subcommand = args[0]
 
 	switch (subcommand) {
@@ -1123,7 +1131,10 @@ async function confirm(question: string): Promise<boolean> {
 async function askList(question: string): Promise<string[]> {
 	const answer = await ask(question)
 	if (!answer) return []
-	return answer.split(',').map((s) => s.trim()).filter(Boolean)
+	return answer
+		.split(',')
+		.map((s) => s.trim())
+		.filter(Boolean)
 }
 
 interface ToolSpec {
@@ -1171,8 +1182,12 @@ async function scaffoldPaw(projectRoot: string, name: string): Promise<void> {
 
 	// Permissions
 	logger.info('\nPermissions control what this Paw can access.')
-	const networkDomains = await askList('Network domains (comma-separated, e.g., api.telegram.org): ')
-	const listenPorts = (await askList('Ports to listen on (comma-separated, e.g., 3000): ')).map(Number).filter((n) => !Number.isNaN(n))
+	const networkDomains = await askList(
+		'Network domains (comma-separated, e.g., api.telegram.org): ',
+	)
+	const listenPorts = (await askList('Ports to listen on (comma-separated, e.g., 3000): '))
+		.map(Number)
+		.filter((n) => !Number.isNaN(n))
 	const envVars = await askList('Env variables needed (comma-separated, e.g., TELEGRAM_TOKEN): ')
 
 	logger.info('')
@@ -1275,8 +1290,11 @@ export default definePaw(paw)
 	)
 
 	// src/paw.ts — generate with real tools from the interactive session
-	const toolsCode = tools.length > 0
-		? tools.map((t) => `\t\t{
+	const toolsCode =
+		tools.length > 0
+			? tools
+					.map(
+						(t) => `\t\t{
 \t\t\tname: '${t.name}',
 \t\t\tdescription: '${t.description.replace(/'/g, "\\'")}',
 \t\t\tparameters: z.object({
@@ -1286,8 +1304,10 @@ export default definePaw(paw)
 \t\t\t\t// TODO: implement ${t.name}
 \t\t\t\tthrow new Error('Not implemented')
 \t\t\t},
-\t\t},`).join('\n')
-		: ''
+\t\t},`,
+					)
+					.join('\n')
+			: ''
 
 	// Generate hooks code
 	let hooksCode = ''
@@ -1340,7 +1360,9 @@ ${hooksCode}
 
 	logger.info(`Created paws/${pawName}/`)
 	if (tools.length > 0) {
-		logger.info(`Generated ${tools.length} tool${tools.length > 1 ? 's' : ''}: ${tools.map((t) => t.name).join(', ')}`)
+		logger.info(
+			`Generated ${tools.length} tool${tools.length > 1 ? 's' : ''}: ${tools.map((t) => t.name).join(', ')}`,
+		)
 	}
 	logger.info('')
 	logger.info('Next: implement your tool logic in src/paw.ts, then build:')
@@ -1366,8 +1388,12 @@ async function scaffoldSkill(projectRoot: string, name: string): Promise<void> {
 
 	const description = await ask('Description: ')
 
-	logger.info('\nSkills describe behavior — what the agent should do, using tools provided by Paws.')
-	const requiredTools = await askList('Required tools (comma-separated, e.g., email_search, email_send): ')
+	logger.info(
+		'\nSkills describe behavior — what the agent should do, using tools provided by Paws.',
+	)
+	const requiredTools = await askList(
+		'Required tools (comma-separated, e.g., email_search, email_send): ',
+	)
 	const optionalTools = await askList('Optional tools (comma-separated, or empty): ')
 	const tags = await askList('Tags (comma-separated, e.g., email, productivity): ')
 
@@ -1429,10 +1455,7 @@ ${instructions}
 	}
 }
 
-async function handleClawHubCommand(
-	args: string[],
-	projectRoot: string,
-): Promise<void> {
+async function handleClawHubCommand(args: string[], projectRoot: string): Promise<void> {
 	const subcommand = args[0]
 
 	switch (subcommand) {
@@ -1471,7 +1494,9 @@ async function handleClawHubCommand(
 
 			const localPath = `clawhub/${skillDir}`
 			const { loadSkillFromDirectory } = await import('./skill/loader.js')
-			const definition = await loadSkillFromDirectory(path.resolve(projectRoot, '.openvole', 'skills', 'clawhub', skillDir))
+			const definition = await loadSkillFromDirectory(
+				path.resolve(projectRoot, '.openvole', 'skills', 'clawhub', skillDir),
+			)
 
 			if (definition) {
 				await addSkillToConfig(projectRoot, localPath)
@@ -1485,12 +1510,23 @@ async function handleClawHubCommand(
 			} else {
 				// Check if it's an OpenClaw plugin instead of a skill
 				const fsCheck = await import('node:fs/promises')
-				const pluginJsonPath = path.resolve(projectRoot, '.openvole', 'skills', 'clawhub', skillDir ?? skillName, 'openclaw.plugin.json')
+				const pluginJsonPath = path.resolve(
+					projectRoot,
+					'.openvole',
+					'skills',
+					'clawhub',
+					skillDir ?? skillName,
+					'openclaw.plugin.json',
+				)
 				try {
 					await fsCheck.access(pluginJsonPath)
-					logger.error(`"${skillName}" is an OpenClaw plugin, not a skill. OpenVole does not support OpenClaw plugins — use Paws instead.`)
+					logger.error(
+						`"${skillName}" is an OpenClaw plugin, not a skill. OpenVole does not support OpenClaw plugins — use Paws instead.`,
+					)
 				} catch {
-					logger.warn(`Installed "${skillName}" but could not parse SKILL.md — add to vole.config.json manually`)
+					logger.warn(
+						`Installed "${skillName}" but could not parse SKILL.md — add to vole.config.json manually`,
+					)
 				}
 			}
 			break
@@ -1547,10 +1583,7 @@ async function handleClawHubCommand(
 	}
 }
 
-async function handleNetCommand(
-	args: string[],
-	projectRoot: string,
-): Promise<void> {
+async function handleNetCommand(args: string[], projectRoot: string): Promise<void> {
 	const subcommand = args[0]
 	const netDir = path.resolve(projectRoot, '.openvole', 'net')
 

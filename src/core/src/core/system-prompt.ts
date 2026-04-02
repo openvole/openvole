@@ -32,7 +32,8 @@ export async function loadSystemPromptContent(
 	brainPawName?: string,
 ): Promise<SystemPromptContent> {
 	// Load BRAIN.md
-	let brainPrompt = 'You are an AI agent powered by OpenVole. You accomplish tasks by using tools step by step.'
+	let brainPrompt =
+		'You are an AI agent powered by OpenVole. You accomplish tasks by using tools step by step.'
 
 	if (brainPawName) {
 		const pawDir = brainPawName.replace(/^@openvole\//, '')
@@ -71,7 +72,9 @@ export async function loadSystemPromptContent(
 					content = content.substring(0, MAX_FILE_CHARS) + '\n\n[... truncated]'
 				}
 				if (totalChars + content.length > MAX_TOTAL_CHARS) {
-					logger.warn(`Identity context total cap reached at ${file.name}, skipping remaining files`)
+					logger.warn(
+						`Identity context total cap reached at ${file.name}, skipping remaining files`,
+					)
 					break
 				}
 				identityParts.push(`## ${file.section}\n${content.trim()}`)
@@ -154,7 +157,9 @@ export function buildSystemPrompt(
 			peers: Array<{ name: string; role: string; tools: string[]; hasBrain?: boolean }>
 		}
 		const lines = [`## VoleNet (Distributed Agent Network)`]
-		lines.push(`This instance: **${net.instanceName}** (${net.role}${net.isLeader ? ', leader' : ''})`)
+		lines.push(
+			`This instance: **${net.instanceName}** (${net.role}${net.isLeader ? ', leader' : ''})`,
+		)
 		if (net.peers && net.peers.length > 0) {
 			lines.push('Connected peers:')
 			for (const peer of net.peers) {
@@ -164,9 +169,13 @@ export function buildSystemPrompt(
 			}
 			lines.push('')
 			lines.push('Remote peer tools are available directly — call them like local tools.')
-			lines.push('When multiple peers share the same tool, use `<peerName>/<toolName>` to target a specific peer (e.g. `us-monitor/shell_exec`).')
+			lines.push(
+				'When multiple peers share the same tool, use `<peerName>/<toolName>` to target a specific peer (e.g. `us-monitor/shell_exec`).',
+			)
 			lines.push('Use `discover_tools` with intent to find remote tools from peers.')
-			lines.push('IMPORTANT: `spawn_remote_agent` only works on peers that have a brain. For brainless workers, call their tools directly.')
+			lines.push(
+				'IMPORTANT: `spawn_remote_agent` only works on peers that have a brain. For brainless workers, call their tools directly.',
+			)
 		} else {
 			lines.push('No peers connected.')
 		}

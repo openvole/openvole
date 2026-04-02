@@ -1,8 +1,12 @@
-import { describe, it, expect } from 'vitest'
-import { ContextBudgetManager } from '../../src/core/context-budget.js'
+import { describe, expect, it } from 'vitest'
 import type { AgentMessage } from '../../src/context/types.js'
+import { ContextBudgetManager } from '../../src/core/context-budget.js'
 
-function msg(role: AgentMessage['role'], content: string, extra?: Partial<AgentMessage>): AgentMessage {
+function msg(
+	role: AgentMessage['role'],
+	content: string,
+	extra?: Partial<AgentMessage>,
+): AgentMessage {
 	return { role, content, timestamp: Date.now(), ...extra }
 }
 
@@ -81,10 +85,7 @@ describe('ContextBudgetManager', () => {
 	describe('trimMessages', () => {
 		it('returns messages unchanged when under budget', () => {
 			const bm = new ContextBudgetManager(128000, 4000)
-			const messages = [
-				msg('user', 'hello'),
-				msg('brain', 'hi there'),
-			]
+			const messages = [msg('user', 'hello'), msg('brain', 'hi there')]
 			const result = bm.trimMessages(messages, 10000, 0)
 			expect(result).toHaveLength(2)
 		})
@@ -94,7 +95,10 @@ describe('ContextBudgetManager', () => {
 			const longResult = 'x'.repeat(4000)
 			const messages = [
 				msg('user', 'do something'),
-				msg('tool_result', longResult, { seenAtIteration: 0, toolCall: { name: 'web_fetch', params: {} } }),
+				msg('tool_result', longResult, {
+					seenAtIteration: 0,
+					toolCall: { name: 'web_fetch', params: {} },
+				}),
 				msg('brain', 'done'),
 				msg('user', 'do more'),
 				msg('brain', 'ok'),
@@ -181,8 +185,8 @@ describe('ContextBudgetManager', () => {
 		it('sums message tokens plus overhead', () => {
 			const bm = new ContextBudgetManager(128000)
 			const messages = [
-				msg('user', 'a'.repeat(40)),   // 10 tokens + 4 overhead
-				msg('brain', 'b'.repeat(80)),   // 20 tokens + 4 overhead
+				msg('user', 'a'.repeat(40)), // 10 tokens + 4 overhead
+				msg('brain', 'b'.repeat(80)), // 20 tokens + 4 overhead
 			]
 			expect(bm.estimateMessagesTokens(messages)).toBe(38)
 		})

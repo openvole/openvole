@@ -91,23 +91,23 @@ export type { VoleIO } from './io/types.js'
 
 // === Engine — the main orchestrator ===
 
+import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
+import { type VoleConfig, loadConfig, normalizePawConfig } from './config/index.js'
 import { createMessageBus } from './core/bus.js'
-import { ToolRegistry } from './tool/registry.js'
+import { closeLogger } from './core/logger.js'
+import { runAgentLoop } from './core/loop.js'
+import { RateLimiter } from './core/rate-limiter.js'
+import { SchedulerStore } from './core/scheduler.js'
+import { type SystemPromptContent, loadSystemPromptContent } from './core/system-prompt.js'
+import { TaskQueue } from './core/task.js'
+import { Vault } from './core/vault.js'
+import { createTtyIO } from './io/tty.js'
+import type { VoleIO } from './io/types.js'
 import { PawRegistry } from './paw/registry.js'
 import { SkillRegistry } from './skill/registry.js'
-import { TaskQueue } from './core/task.js'
-import { runAgentLoop } from './core/loop.js'
-import { createTtyIO } from './io/tty.js'
-import { loadConfig, normalizePawConfig, type VoleConfig } from './config/index.js'
-import type { VoleIO } from './io/types.js'
-import * as fs from 'node:fs/promises'
-import { SchedulerStore } from './core/scheduler.js'
 import { createCoreTools } from './tool/core-tools.js'
-import { RateLimiter } from './core/rate-limiter.js'
-import { Vault } from './core/vault.js'
-import { loadSystemPromptContent, type SystemPromptContent } from './core/system-prompt.js'
-import { closeLogger } from './core/logger.js'
+import { ToolRegistry } from './tool/registry.js'
 
 export interface VoleEngine {
 	bus: ReturnType<typeof createMessageBus>
@@ -121,7 +121,11 @@ export interface VoleEngine {
 	/** Start the engine — load Paws and Skills */
 	start(): Promise<void>
 	/** Submit a task for execution */
-	run(input: string, source?: 'user' | 'schedule' | 'heartbeat' | 'paw' | 'agent', sessionId?: string): void
+	run(
+		input: string,
+		source?: 'user' | 'schedule' | 'heartbeat' | 'paw' | 'agent',
+		sessionId?: string,
+	): void
 	/** Graceful shutdown */
 	shutdown(): Promise<void>
 }
@@ -135,8 +139,7 @@ export async function createEngine(
 	projectRoot: string,
 	options?: { io?: VoleIO; configPath?: string; headless?: boolean },
 ): Promise<VoleEngine> {
-	const configPath =
-		options?.configPath ?? path.resolve(projectRoot, 'vole.config.ts')
+	const configPath = options?.configPath ?? path.resolve(projectRoot, 'vole.config.ts')
 	const config = await loadConfig(configPath)
 
 	const bus = createMessageBus()
@@ -145,7 +148,12 @@ export async function createEngine(
 	const skillRegistry = new SkillRegistry(bus, toolRegistry, projectRoot)
 	const io = options?.io ?? createTtyIO()
 	const rateLimiter = new RateLimiter()
-	const taskQueue = new TaskQueue(bus, config.loop.taskConcurrency, rateLimiter, config.loop.rateLimits)
+	const taskQueue = new TaskQueue(
+		bus,
+		config.loop.taskConcurrency,
+		rateLimiter,
+		config.loop.rateLimits,
+	)
 	const scheduler = new SchedulerStore()
 	scheduler.setPersistence(path.resolve(projectRoot, '.openvole', 'schedules.json'))
 	scheduler.setTickHandler((input) => {
@@ -158,7 +166,14 @@ export async function createEngine(
 	await vault.init()
 
 	// Register built-in core tools
-	const coreTools = createCoreTools(scheduler, taskQueue, projectRoot, skillRegistry, vault, toolRegistry)
+	const coreTools = createCoreTools(
+		scheduler,
+		taskQueue,
+		projectRoot,
+		skillRegistry,
+		vault,
+		toolRegistry,
+	)
 	toolRegistry.register('__core__', coreTools, true)
 
 	// Enable Tool Horizon if configured
@@ -236,14 +251,18 @@ export async function createEngine(
 			}
 
 			// In headless mode, skip dashboard and channel paws (telegram, slack, discord, whatsapp)
-			const headlessSkipPatterns = ['paw-dashboard', 'paw-telegram', 'paw-slack', 'paw-discord', 'paw-whatsapp']
+			const headlessSkipPatterns = [
+				'paw-dashboard',
+				'paw-telegram',
+				'paw-slack',
+				'paw-discord',
+				'paw-whatsapp',
+			]
 
 			// Load Paws (Brain first, then others, in-process last)
 			const pawConfigs = config.paws.map(normalizePawConfig)
 			const brainConfig = pawConfigs.find((p) => p.name === config.brain)
-			const subprocessPaws = pawConfigs.filter(
-				(p) => p.name !== config.brain,
-			)
+			const subprocessPaws = pawConfigs.filter((p) => p.name !== config.brain)
 
 			// Load Brain Paw first
 			if (brainConfig) {
@@ -260,7 +279,9 @@ export async function createEngine(
 			}
 
 			// Load system prompt content (BRAIN.md + identity files)
-			const brainManifestName = config.brain ? pawRegistry.resolveManifestName(config.brain) : undefined
+			const brainManifestName = config.brain
+				? pawRegistry.resolveManifestName(config.brain)
+				: undefined
 			promptContent = await loadSystemPromptContent(projectRoot, brainManifestName)
 
 			// Load other Paws in parallel
@@ -311,7 +332,9 @@ export async function createEngine(
 					undefined,
 					config.heartbeat.runOnStart ?? false,
 				)
-				engineLogger.info(`Heartbeat enabled — cron: ${heartbeatCron}${config.heartbeat.runOnStart ? ', running now' : ''}`)
+				engineLogger.info(
+					`Heartbeat enabled — cron: ${heartbeatCron}${config.heartbeat.runOnStart ? ', running now' : ''}`,
+				)
 			}
 
 			// Start VoleNet if configured
@@ -325,7 +348,9 @@ export async function createEngine(
 					;(engine as any).__volenet__ = voleNet
 					engineLogger.info(`VoleNet active — ${voleNet.getInstances().length} peer(s) connected`)
 				} catch (err) {
-					engineLogger.error(`VoleNet failed to start: ${err instanceof Error ? err.message : String(err)}`)
+					engineLogger.error(
+						`VoleNet failed to start: ${err instanceof Error ? err.message : String(err)}`,
+					)
 				}
 			}
 

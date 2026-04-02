@@ -10,16 +10,12 @@
  * Auto-reconnect with exponential backoff on disconnect.
  */
 
+import * as fs from 'node:fs'
 import * as http from 'node:http'
 import * as https from 'node:https'
-import * as fs from 'node:fs'
-import { WebSocketServer, WebSocket } from 'ws'
+import { WebSocket, WebSocketServer } from 'ws'
 import { createLogger } from '../core/logger.js'
-import {
-	serialize,
-	deserialize,
-	type VoleNetMessage,
-} from './protocol.js'
+import { type VoleNetMessage, deserialize, serialize } from './protocol.js'
 
 const logger = createLogger('volenet-transport')
 
@@ -77,7 +73,9 @@ export class VoleNetTransport {
 
 			if (req.url === '/volenet/message' && req.method === 'POST') {
 				let body = ''
-				req.on('data', (chunk: Buffer) => { body += chunk })
+				req.on('data', (chunk: Buffer) => {
+					body += chunk
+				})
 				req.on('end', () => {
 					const message = deserialize(body)
 					if (!message) {
@@ -97,20 +95,22 @@ export class VoleNetTransport {
 			if (req.url === '/volenet/info' && req.method === 'GET') {
 				const peerList = this.getPeers()
 				res.writeHead(200, { 'Content-Type': 'application/json' })
-				res.end(JSON.stringify({
-					ok: true,
-					protocol: 'volenet',
-					version: 1,
-					peers: peerList.map((p) => ({
-						id: p.peerId.substring(0, 8),
-						endpoint: p.endpoint,
-						connected: p.connected,
-						transport: p.transport,
-						lastSeen: p.lastSeen,
-					})),
-					peerCount: peerList.length,
-					websocketConnections: peerList.filter((p) => p.transport === 'websocket').length,
-				}))
+				res.end(
+					JSON.stringify({
+						ok: true,
+						protocol: 'volenet',
+						version: 1,
+						peers: peerList.map((p) => ({
+							id: p.peerId.substring(0, 8),
+							endpoint: p.endpoint,
+							connected: p.connected,
+							transport: p.transport,
+							lastSeen: p.lastSeen,
+						})),
+						peerCount: peerList.length,
+						websocketConnections: peerList.filter((p) => p.transport === 'websocket').length,
+					}),
+				)
 				return
 			}
 
@@ -119,10 +119,13 @@ export class VoleNetTransport {
 		}
 
 		if (this.config.tls) {
-			this.server = https.createServer({
-				cert: fs.readFileSync(this.config.tls.cert),
-				key: fs.readFileSync(this.config.tls.key),
-			}, requestHandler)
+			this.server = https.createServer(
+				{
+					cert: fs.readFileSync(this.config.tls.cert),
+					key: fs.readFileSync(this.config.tls.key),
+				},
+				requestHandler,
+			)
 		} else {
 			this.server = http.createServer(requestHandler)
 		}
@@ -168,7 +171,9 @@ export class VoleNetTransport {
 		await new Promise<void>((resolve, reject) => {
 			this.server!.listen(this.config.port, () => {
 				const scheme = this.config.tls ? 'wss' : 'ws'
-				logger.info(`VoleNet server listening on ${scheme}://0.0.0.0:${this.config.port} (HTTP + WebSocket)`)
+				logger.info(
+					`VoleNet server listening on ${scheme}://0.0.0.0:${this.config.port} (HTTP + WebSocket)`,
+				)
 				resolve()
 			})
 			this.server!.on('error', reject)
@@ -242,7 +247,9 @@ export class VoleNetTransport {
 			peer.lastSeen = Date.now()
 			return response.ok
 		} catch (err) {
-			logger.warn(`Send failed for ${peerId.substring(0, 8)}: ${err instanceof Error ? err.message : String(err)}`)
+			logger.warn(
+				`Send failed for ${peerId.substring(0, 8)}: ${err instanceof Error ? err.message : String(err)}`,
+			)
 			peer.connected = false
 			return false
 		}
@@ -298,9 +305,12 @@ export class VoleNetTransport {
 			endpoint: p.endpoint,
 			connected: p.connected,
 			lastSeen: p.lastSeen,
-			transport: p.ws?.readyState === WebSocket.OPEN ? 'websocket' as const
-				: p.connected ? 'http' as const
-				: 'disconnected' as const,
+			transport:
+				p.ws?.readyState === WebSocket.OPEN
+					? ('websocket' as const)
+					: p.connected
+						? ('http' as const)
+						: ('disconnected' as const),
 		}))
 	}
 

@@ -1,18 +1,18 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import * as fs from 'node:fs/promises'
-import * as path from 'node:path'
-import * as os from 'node:os'
 import * as crypto from 'node:crypto'
+import * as fs from 'node:fs/promises'
+import * as os from 'node:os'
+import * as path from 'node:path'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
 	generateKeyPair,
-	loadKeyPair,
-	sign,
-	verify,
 	generateNonce,
-	parsePublicKey,
-	trustPeer,
-	revokePeer,
 	loadAuthorizedVoles,
+	loadKeyPair,
+	parsePublicKey,
+	revokePeer,
+	sign,
+	trustPeer,
+	verify,
 } from '../../src/net/keys.js'
 
 describe('VoleNet Keys', () => {
@@ -189,7 +189,10 @@ describe('VoleNet Keys', () => {
 	describe('trustPeer() / revokePeer() / loadAuthorizedVoles()', () => {
 		it('trustPeer adds a key to authorized_voles', async () => {
 			await generateKeyPair(netDir, 'self')
-			const peer = await generateKeyPair(await fs.mkdtemp(path.join(os.tmpdir(), 'peer-')), 'peer-1')
+			const peer = await generateKeyPair(
+				await fs.mkdtemp(path.join(os.tmpdir(), 'peer-')),
+				'peer-1',
+			)
 
 			const instanceId = await trustPeer(netDir, peer.publicKeyString)
 			expect(instanceId).toBe(peer.instanceId)
@@ -201,7 +204,10 @@ describe('VoleNet Keys', () => {
 
 		it('trustPeer is idempotent (does not duplicate)', async () => {
 			await generateKeyPair(netDir, 'self')
-			const peer = await generateKeyPair(await fs.mkdtemp(path.join(os.tmpdir(), 'peer-')), 'peer-1')
+			const peer = await generateKeyPair(
+				await fs.mkdtemp(path.join(os.tmpdir(), 'peer-')),
+				'peer-1',
+			)
 
 			await trustPeer(netDir, peer.publicKeyString)
 			await trustPeer(netDir, peer.publicKeyString)
@@ -218,7 +224,10 @@ describe('VoleNet Keys', () => {
 
 		it('revokePeer removes a trusted peer', async () => {
 			await generateKeyPair(netDir, 'self')
-			const peer = await generateKeyPair(await fs.mkdtemp(path.join(os.tmpdir(), 'peer-')), 'peer-1')
+			const peer = await generateKeyPair(
+				await fs.mkdtemp(path.join(os.tmpdir(), 'peer-')),
+				'peer-1',
+			)
 
 			await trustPeer(netDir, peer.publicKeyString)
 			const removed = await revokePeer(netDir, peer.instanceId)
@@ -241,10 +250,17 @@ describe('VoleNet Keys', () => {
 
 		it('loadAuthorizedVoles skips comment lines and blank lines', async () => {
 			await generateKeyPair(netDir, 'self')
-			const peer = await generateKeyPair(await fs.mkdtemp(path.join(os.tmpdir(), 'peer-')), 'peer-1')
+			const peer = await generateKeyPair(
+				await fs.mkdtemp(path.join(os.tmpdir(), 'peer-')),
+				'peer-1',
+			)
 
 			const authorizedPath = path.join(netDir, 'authorized_voles')
-			await fs.writeFile(authorizedPath, `# This is a comment\n\n${peer.publicKeyString}\n\n# Another comment\n`, 'utf-8')
+			await fs.writeFile(
+				authorizedPath,
+				`# This is a comment\n\n${peer.publicKeyString}\n\n# Another comment\n`,
+				'utf-8',
+			)
 
 			const authorized = await loadAuthorizedVoles(netDir)
 			expect(authorized.size).toBe(1)

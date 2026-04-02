@@ -5,11 +5,11 @@
  * Leader sends periodic heartbeat. If 3 heartbeats missed (30s), next-lowest takes over.
  */
 
-import { createLogger } from '../core/logger.js'
-import { createMessage, type VoleNetMessage } from './protocol.js'
-import type { VoleNetTransport } from './transport.js'
-import type { VoleNetDiscovery } from './discovery.js'
 import type { KeyObject } from 'node:crypto'
+import { createLogger } from '../core/logger.js'
+import type { VoleNetDiscovery } from './discovery.js'
+import { type VoleNetMessage, createMessage } from './protocol.js'
+import type { VoleNetTransport } from './transport.js'
 
 const logger = createLogger('volenet-leader')
 
@@ -69,10 +69,7 @@ export class VoleNetLeader {
 	/**
 	 * Start leader election.
 	 */
-	start(
-		onBecomeLeader?: () => void,
-		onLoseLeader?: () => void,
-	): void {
+	start(onBecomeLeader?: () => void, onLoseLeader?: () => void): void {
 		this.onBecomeLeader = onBecomeLeader
 		this.onLoseLeader = onLoseLeader
 
@@ -82,7 +79,9 @@ export class VoleNetLeader {
 		// Start monitoring
 		this.monitorTimer = setInterval(() => this.monitor(), LEADER_HEARTBEAT_INTERVAL_MS)
 
-		logger.info(`Leader election started — current leader: ${this.leaderName ?? 'self'} (${(this.leaderId ?? this.instanceId).substring(0, 8)})`)
+		logger.info(
+			`Leader election started — current leader: ${this.leaderName ?? 'self'} (${(this.leaderId ?? this.instanceId).substring(0, 8)})`,
+		)
 	}
 
 	/**
@@ -212,7 +211,9 @@ export class VoleNetLeader {
 
 			if (this.lastLeaderHeartbeat > 0 && timeSinceHeartbeat > LEADER_HEARTBEAT_INTERVAL_MS * 1.5) {
 				this.missedHeartbeats++
-				logger.warn(`Leader heartbeat missed (${this.missedHeartbeats}/${MAX_MISSED_HEARTBEATS}) — last seen ${Math.round(timeSinceHeartbeat / 1000)}s ago`)
+				logger.warn(
+					`Leader heartbeat missed (${this.missedHeartbeats}/${MAX_MISSED_HEARTBEATS}) — last seen ${Math.round(timeSinceHeartbeat / 1000)}s ago`,
+				)
 
 				if (this.missedHeartbeats >= MAX_MISSED_HEARTBEATS) {
 					logger.warn(`Leader ${this.leaderName} appears down — triggering re-election`)

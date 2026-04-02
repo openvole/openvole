@@ -4,8 +4,8 @@
  */
 
 import * as crypto from 'node:crypto'
-import { sign, verify } from './keys.js'
 import type { KeyObject } from 'node:crypto'
+import { sign, verify } from './keys.js'
 
 export const VOLENET_VERSION = 1
 export const MAX_MESSAGE_AGE_MS = 60_000 // reject messages older than 60s
@@ -37,21 +37,21 @@ export interface VoleNetMessage {
 	version: number
 	id: string
 	type: VoleNetMessageType
-	from: string              // sender instance ID
-	to: string | '*'          // target instance or broadcast
+	from: string // sender instance ID
+	to: string | '*' // target instance or broadcast
 	timestamp: number
-	signature: string         // Ed25519 signature of payload
+	signature: string // Ed25519 signature of payload
 	payload: unknown
 }
 
 export interface VoleNetInstance {
 	id: string
 	name: string
-	publicKey: string         // base64 public key
-	endpoint: string          // https://host:port
-	capabilities: string[]    // ["brain:ollama", "paw-browser", "paw-database"]
+	publicKey: string // base64 public key
+	endpoint: string // https://host:port
+	capabilities: string[] // ["brain:ollama", "paw-browser", "paw-database"]
 	role: 'coordinator' | 'worker' | 'peer'
-	load: number              // 0-1 current task load
+	load: number // 0-1 current task load
 	maxTasks: number
 	lastSeen: number
 	version: string
@@ -164,8 +164,9 @@ function canonicalize(
 	timestamp: number,
 	payload: unknown,
 ): string {
-	const payloadStr = payload !== undefined && payload !== null
-		? JSON.stringify(payload, Object.keys(payload as object).sort())
-		: ''
+	const payloadStr =
+		payload !== undefined && payload !== null
+			? JSON.stringify(payload, Object.keys(payload as object).sort())
+			: ''
 	return `${VOLENET_VERSION}:${type}:${from}:${to}:${timestamp}:${payloadStr}`
 }

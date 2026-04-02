@@ -1,5 +1,46 @@
 # Changelog
 
+## v3.0.0 (2026-04-02)
+
+### VoleNet — Distributed Agent Networking
+- Industry-first peer-to-peer AI agent networking protocol
+- Ed25519 authenticated messaging with replay protection (60s window)
+- WebSocket transport with auto-reconnect (exponential backoff), HTTP POST fallback
+- Peer discovery with health monitoring (15s ping, 45s timeout)
+- Remote tool execution — tools on remote peers appear in the local registry, transparent to the Brain
+- Peer-specific tool naming (`<peerName>/<toolName>`) when multiple peers share the same tool
+- Load-balanced routing — picks least-loaded peer when multiple provide the same tool
+- Tool routing config with glob patterns (`"shell_*": "worker-1"`)
+- Brain sharing — brainless workers delegate thinking to a coordinator's Brain (`brainSource: "remote"`)
+- Leader election — lowest instance ID wins, automatic failover on disconnect (10s heartbeat, 3-miss takeover)
+- Memory sync — write propagation with broadcast, remote search with timeout and result merging
+- Session sync — conversation replication across devices
+- Deduplication via 5-minute TTL cache to prevent echo loops
+- 8 architecture patterns: single-brain distributed-tools, multi-brain independent, load-balanced brains, shared session multi-device, multi-user team, central brain company, autonomous swarm, dev team
+- System prompt shows peers with tools, brain capability, and role
+- `vole net` CLI: init, show-key, trust, revoke, peers, status
+- Core tools: `list_instances`, `spawn_remote_agent`, `get_remote_result`
+- Dashboard VoleNet panel with peer status and remote tool execution feed
+
+### Brain Awareness
+- System prompt now shows `has brain` / `no brain` per peer
+- Brain guided to use direct tool calls for brainless workers instead of `spawn_remote_agent`
+
+### Telegram Improvements
+- `chat_id` now optional on `telegram_send`, `telegram_reply`, `telegram_get_chat`
+- Defaults to first ID from `TELEGRAM_ALLOW_FROM` when omitted
+
+### Documentation
+- Comprehensive configuration reference (all config sections with types, defaults, examples)
+- VoleNet docs page with 8 architecture patterns, diagrams, quick-start guide
+- Updated architecture doc with 6-phase loop, context budget, tool horizon, cost tracking
+- Updated VOLECONTEXT.md with budget manager, VoleNet context flow, tool horizon
+- All docs/presets/CLI updated from paw-ollama to paw-brain as default
+
+### Testing
+- 92 new VoleNet unit tests (protocol, keys, remote-task, sync, leader)
+- Total: 310 tests across 23 test files
+
 ## v2.0.0 (2026-03-30)
 
 ### Vector/Semantic Memory

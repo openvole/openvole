@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 import { createAgentContext } from '../../src/context/types.js'
 import type { AgentContext, AgentMessage } from '../../src/context/types.js'
 
@@ -11,10 +11,7 @@ import type { AgentContext, AgentMessage } from '../../src/context/types.js'
  */
 
 /** Simulate the compact threshold check from loop.ts */
-function shouldCompact(
-	context: AgentContext,
-	compactThreshold: number,
-): boolean {
+function shouldCompact(context: AgentContext, compactThreshold: number): boolean {
 	return compactThreshold > 0 && context.messages.length > compactThreshold
 }
 

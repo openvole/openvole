@@ -1,25 +1,20 @@
+import type { LoopConfig } from '../config/index.js'
 import type { AgentContext } from '../context/types.js'
 import { createAgentContext } from '../context/types.js'
-import type { ToolRegistry } from '../tool/registry.js'
-import type { PawRegistry } from '../paw/registry.js'
-import type { SkillRegistry } from '../skill/registry.js'
 import type { VoleIO } from '../io/types.js'
-import type { LoopConfig } from '../config/index.js'
-import type { RateLimiter } from './rate-limiter.js'
-import type { AgentTask } from './task.js'
-import type { MessageBus } from './bus.js'
+import type { PawRegistry } from '../paw/registry.js'
 import type { AgentPlan, PlannedAction } from '../paw/types.js'
-import {
-	createActionError,
-	failureResult,
-	successResult,
-	type ActionResult,
-} from './errors.js'
+import type { SkillRegistry } from '../skill/registry.js'
 import { buildActiveSkills } from '../skill/resolver.js'
-import { PHASE_ORDER } from './hooks.js'
-import { buildSystemPrompt, type SystemPromptContent } from './system-prompt.js'
+import type { ToolRegistry } from '../tool/registry.js'
+import type { MessageBus } from './bus.js'
 import { ContextBudgetManager } from './context-budget.js'
 import { CostTracker } from './cost-tracker.js'
+import { type ActionResult, createActionError, failureResult, successResult } from './errors.js'
+import { PHASE_ORDER } from './hooks.js'
+import type { RateLimiter } from './rate-limiter.js'
+import { type SystemPromptContent, buildSystemPrompt } from './system-prompt.js'
+import type { AgentTask } from './task.js'
 
 import { createLogger } from './logger.js'
 
@@ -45,11 +40,18 @@ export interface LoopDependencies {
  * Run the agent loop for a single task.
  * Perceive → Think → Act → Observe → loop
  */
-export async function runAgentLoop(
-	task: AgentTask,
-	deps: LoopDependencies,
-): Promise<void> {
-	const { bus, toolRegistry, pawRegistry, skillRegistry, io, config, toolProfiles, rateLimiter, systemPromptContent } = deps
+export async function runAgentLoop(task: AgentTask, deps: LoopDependencies): Promise<void> {
+	const {
+		bus,
+		toolRegistry,
+		pawRegistry,
+		skillRegistry,
+		io,
+		config,
+		toolProfiles,
+		rateLimiter,
+		systemPromptContent,
+	} = deps
 	const rateLimits = config.rateLimits
 	const maxContextTokens = config.maxContextTokens || 128000
 	const responseReserve = config.responseReserve || 4000
@@ -128,13 +130,15 @@ export async function runAgentLoop(
 	// Propagate user message to VoleNet peers (session sync)
 	const voleNetSync = (globalThis as any).__volenet__?.getSync?.()
 	if (voleNetSync && task.sessionId) {
-		voleNetSync.propagateSessionWrite({
-			sessionId: task.sessionId,
-			role: 'user',
-			content: task.input,
-			timestamp: Date.now(),
-			instanceId: (globalThis as any).__volenet__?.getKeyPair?.()?.instanceId ?? 'unknown',
-		}).catch(() => {})
+		voleNetSync
+			.propagateSessionWrite({
+				sessionId: task.sessionId,
+				role: 'user',
+				content: task.input,
+				timestamp: Date.now(),
+				instanceId: (globalThis as any).__volenet__?.getKeyPair?.()?.instanceId ?? 'unknown',
+			})
+			.catch(() => {})
 	}
 
 	// === BOOTSTRAP — runs once at task start ===
@@ -160,8 +164,9 @@ export async function runAgentLoop(
 				name: i.name,
 				role: i.role,
 				tools: toolsByPeer.get(i.name) ?? [],
-				hasBrain: Array.isArray(i.capabilities)
-					&& i.capabilities.some((c: string) => c.includes('paw-brain')),
+				hasBrain:
+					Array.isArray(i.capabilities) &&
+					i.capabilities.some((c: string) => c.includes('paw-brain')),
 			})),
 		}
 	}
@@ -170,11 +175,7 @@ export async function runAgentLoop(
 	let consecutiveNoResponse = 0
 	let idleIterations = 0
 
-	for (
-		context.iteration = 0;
-		idleIterations < effectiveMaxIterations;
-		context.iteration++
-	) {
+	for (context.iteration = 0; idleIterations < effectiveMaxIterations; context.iteration++) {
 		// Check cancellation
 		if (task.status === 'cancelled') {
 			logger.info(`Task ${task.id} cancelled at iteration ${context.iteration}`)
@@ -205,7 +206,9 @@ export async function runAgentLoop(
 		const systemPromptTokens = budgetManager.estimateTokens(enrichedContext.systemPrompt ?? '')
 		const toolTokens = budgetManager.estimateTokens(JSON.stringify(enrichedContext.availableTools))
 		const sessionTokens = budgetManager.estimateTokens(
-			typeof enrichedContext.metadata.sessionHistory === 'string' ? enrichedContext.metadata.sessionHistory : '',
+			typeof enrichedContext.metadata.sessionHistory === 'string'
+				? enrichedContext.metadata.sessionHistory
+				: '',
 		)
 
 		// Block if fixed costs alone exceed budget (no room for messages — LLM call would be wasted)
@@ -222,30 +225,50 @@ export async function runAgentLoop(
 		// --- LOG 1: Before compaction (full breakdown) ---
 		const msgBreakdown = budgetManager.messageBreakdown(enrichedContext.messages)
 		const messageTokens = msgBreakdown.total
-		const budget = budgetManager.calculateBudget(systemPromptTokens, toolTokens, sessionTokens, messageTokens)
+		const budget = budgetManager.calculateBudget(
+			systemPromptTokens,
+			toolTokens,
+			sessionTokens,
+			messageTokens,
+		)
 		logger.info(
 			`BUDGET PRE-COMPACT — systemPrompt: ${systemPromptTokens} | tools: ${toolTokens} | session: ${sessionTokens} | reserve: ${responseReserve} | userMsgs: ${msgBreakdown.user} | brainMsgs: ${msgBreakdown.brain} | toolResults: ${msgBreakdown.toolResult} | errors: ${msgBreakdown.error} | total: ${budget.total}/${maxContextTokens}`,
 		)
 
 		// Token-based compaction trigger (75% of max)
 		if (budgetManager.shouldCompact(budget)) {
-			logger.info(`Context at ${Math.round((budget.total / budget.maxTokens) * 100)}% — running compact`)
+			logger.info(
+				`Context at ${Math.round((budget.total / budget.maxTokens) * 100)}% — running compact`,
+			)
 			const compacted = await pawRegistry.runCompactHooks(enrichedContext)
 			enrichedContext.messages = compacted.messages
 		}
 		// Also support legacy message-count compaction trigger
-		else if (config.compactThreshold > 0 && enrichedContext.messages.length > config.compactThreshold) {
-			logger.info(`Context has ${enrichedContext.messages.length} messages (threshold: ${config.compactThreshold}), running compact`)
+		else if (
+			config.compactThreshold > 0 &&
+			enrichedContext.messages.length > config.compactThreshold
+		) {
+			logger.info(
+				`Context has ${enrichedContext.messages.length} messages (threshold: ${config.compactThreshold}), running compact`,
+			)
 			const compacted = await pawRegistry.runCompactHooks(enrichedContext)
 			enrichedContext.messages = compacted.messages
 		}
 
 		// Priority-based trimming if over budget after compaction
 		const postCompactMsgTokens = budgetManager.estimateMessagesTokens(enrichedContext.messages)
-		const postCompactBudget = budgetManager.calculateBudget(systemPromptTokens, toolTokens, sessionTokens, postCompactMsgTokens)
+		const postCompactBudget = budgetManager.calculateBudget(
+			systemPromptTokens,
+			toolTokens,
+			sessionTokens,
+			postCompactMsgTokens,
+		)
 		if (postCompactBudget.free < 0) {
-			const availableForMessages = maxContextTokens - systemPromptTokens - toolTokens - sessionTokens - responseReserve
-			logger.warn(`Context over budget by ${Math.abs(postCompactBudget.free)} tokens — trimming messages`)
+			const availableForMessages =
+				maxContextTokens - systemPromptTokens - toolTokens - sessionTokens - responseReserve
+			logger.warn(
+				`Context over budget by ${Math.abs(postCompactBudget.free)} tokens — trimming messages`,
+			)
 			enrichedContext.messages = budgetManager.trimMessages(
 				enrichedContext.messages,
 				availableForMessages,
@@ -255,14 +278,17 @@ export async function runAgentLoop(
 
 		// --- LOG 2: After compaction + trimming (final state before LLM) ---
 		const finalBreakdown = budgetManager.messageBreakdown(enrichedContext.messages)
-		const finalTotal = systemPromptTokens + toolTokens + sessionTokens + finalBreakdown.total + responseReserve
+		const finalTotal =
+			systemPromptTokens + toolTokens + sessionTokens + finalBreakdown.total + responseReserve
 		logger.info(
 			`BUDGET FINAL — systemPrompt: ${systemPromptTokens} | tools: ${toolTokens} | session: ${sessionTokens} | reserve: ${responseReserve} | userMsgs: ${finalBreakdown.user} | brainMsgs: ${finalBreakdown.brain} | toolResults: ${finalBreakdown.toolResult} | errors: ${finalBreakdown.error} | total: ${finalTotal}/${maxContextTokens} (${finalTotal > maxContextTokens ? 'OVER' : 'OK'})`,
 		)
 
 		// If still over budget after all trimming, warn but proceed — LLM may truncate or error
 		if (finalTotal > maxContextTokens) {
-			logger.warn(`Context still over budget by ${finalTotal - maxContextTokens} tokens after compaction + trimming. LLM call may fail or truncate.`)
+			logger.warn(
+				`Context still over budget by ${finalTotal - maxContextTokens} tokens after compaction + trimming. LLM call may fail or truncate.`,
+			)
 		}
 
 		// === RATE LIMIT CHECK (before Think) ===
@@ -322,7 +348,9 @@ export async function runAgentLoop(
 		}
 
 		if (plan && plan !== 'BRAIN_ERROR') {
-			logger.info(`Brain plan: done=${plan.done}, actions=${plan.actions.length}, response=${plan.response ? plan.response.substring(0, 100) + '...' : 'none'}`)
+			logger.info(
+				`Brain plan: done=${plan.done}, actions=${plan.actions.length}, response=${plan.response ? plan.response.substring(0, 100) + '...' : 'none'}`,
+			)
 		}
 
 		if (!plan) {
@@ -335,9 +363,7 @@ export async function runAgentLoop(
 		if (plan === 'BRAIN_ERROR') {
 			consecutiveBrainFailures++
 			if (consecutiveBrainFailures >= MAX_BRAIN_FAILURES) {
-				io.notify(
-					`Brain Paw failed ${MAX_BRAIN_FAILURES} consecutive times. Halting task.`,
-				)
+				io.notify(`Brain Paw failed ${MAX_BRAIN_FAILURES} consecutive times. Halting task.`)
 				task.error = `Brain failed ${MAX_BRAIN_FAILURES} consecutive times`
 				return
 			}
@@ -350,11 +376,16 @@ export async function runAgentLoop(
 		// Check if the Brain says we're done
 		if (plan.done) {
 			// Detect if the Brain narrated tool calls instead of executing them
-			if (plan.response && plan.actions.length === 0 && plan.response.startsWith('Calling tools:')) {
+			if (
+				plan.response &&
+				plan.actions.length === 0 &&
+				plan.response.startsWith('Calling tools:')
+			) {
 				logger.warn('Brain narrated tool calls instead of executing them — forcing retry')
 				enrichedContext.messages.push({
 					role: 'error',
-					content: 'You described tool calls as text instead of executing them. Use function calling to invoke tools — do not write tool calls as text. Try again.',
+					content:
+						'You described tool calls as text instead of executing them. Use function calling to invoke tools — do not write tool calls as text. Try again.',
 					timestamp: Date.now(),
 				})
 				plan.done = false
@@ -370,12 +401,15 @@ export async function runAgentLoop(
 						.filter((m) => m.role === 'brain' && m.toolCall)
 						.map((m) => m.toolCall!.name)
 						.filter((name) => name !== 'multiple')
-					const fallback = toolCalls.length > 0
-						? `Done. I used ${[...new Set(toolCalls)].join(', ')} to complete your request.`
-						: 'Done.'
+					const fallback =
+						toolCalls.length > 0
+							? `Done. I used ${[...new Set(toolCalls)].join(', ')} to complete your request.`
+							: 'Done.'
 					task.result = fallback
 					if (task.source === 'user') io.notify(fallback)
-					logger.warn(`Brain returned no response ${consecutiveNoResponse} times — generated fallback from context`)
+					logger.warn(
+						`Brain returned no response ${consecutiveNoResponse} times — generated fallback from context`,
+					)
 					return
 				}
 				logger.warn('Brain completed with no response — forcing retry')
@@ -383,7 +417,8 @@ export async function runAgentLoop(
 					// Only push the hint once — don't spam the context
 					enrichedContext.messages.push({
 						role: 'error',
-						content: 'You completed the task but did not include a response. Always provide a summary of what you did or what happened.',
+						content:
+							'You completed the task but did not include a response. Always provide a summary of what you did or what happened.',
 						timestamp: Date.now(),
 					})
 				}
@@ -402,13 +437,15 @@ export async function runAgentLoop(
 			}
 			// Propagate brain response to VoleNet peers (session sync)
 			if (voleNetSync && task.sessionId && plan.response) {
-				voleNetSync.propagateSessionWrite({
-					sessionId: task.sessionId,
-					role: 'brain',
-					content: plan.response,
-					timestamp: Date.now(),
-					instanceId: (globalThis as any).__volenet__?.getKeyPair?.()?.instanceId ?? 'unknown',
-				}).catch(() => {})
+				voleNetSync
+					.propagateSessionWrite({
+						sessionId: task.sessionId,
+						role: 'brain',
+						content: plan.response,
+						timestamp: Date.now(),
+						instanceId: (globalThis as any).__volenet__?.getKeyPair?.()?.instanceId ?? 'unknown',
+					})
+					.catch(() => {})
 			}
 			logCostSummary()
 			logger.info(`Task ${task.id} completed by Brain at iteration ${context.iteration + 1}`)
@@ -429,13 +466,19 @@ export async function runAgentLoop(
 		logger.debug(`Phase: ${PHASE_ORDER[2]}`)
 		if (plan.actions.length > 0) {
 			// Record the Brain's tool call intent in context so it sees its own reasoning on next iteration
-			const toolCallSummary = plan.actions.map((a) => `${a.tool}(${JSON.stringify(a.params)})`).join(', ')
+			const toolCallSummary = plan.actions
+				.map((a) => `${a.tool}(${JSON.stringify(a.params)})`)
+				.join(', ')
 			enrichedContext.messages.push({
 				role: 'brain',
 				content: plan.response || `Calling tools: ${toolCallSummary}`,
-				toolCall: plan.actions.length === 1
-					? { name: plan.actions[0].tool, params: plan.actions[0].params }
-					: { name: 'multiple', params: plan.actions.map((a) => ({ tool: a.tool, params: a.params })) },
+				toolCall:
+					plan.actions.length === 1
+						? { name: plan.actions[0].tool, params: plan.actions[0].params }
+						: {
+								name: 'multiple',
+								params: plan.actions.map((a) => ({ tool: a.tool, params: a.params })),
+							},
 				timestamp: Date.now(),
 			})
 			// Check tool execution rate limit
@@ -499,7 +542,9 @@ export async function runAgentLoop(
 					return
 				} else if (count >= 10) {
 					// Dampen — strong error message
-					logger.warn(`Stuck loop: ${action.tool} called ${count} times with same params — dampening`)
+					logger.warn(
+						`Stuck loop: ${action.tool} called ${count} times with same params — dampening`,
+					)
 					enrichedContext.messages.push({
 						role: 'error',
 						content: `ERROR: You have called ${action.tool} with identical parameters ${count} times. You MUST try a completely different approach or respond to the user explaining what you tried.`,
@@ -521,9 +566,7 @@ export async function runAgentLoop(
 			// Confirm before acting if configured
 			if (config.confirmBeforeAct) {
 				const toolNames = plan.actions.map((a) => a.tool).join(', ')
-				const confirmed = await io.confirm(
-					`Execute tools: ${toolNames}?`,
-				)
+				const confirmed = await io.confirm(`Execute tools: ${toolNames}?`)
 				if (!confirmed) {
 					enrichedContext.messages.push({
 						role: 'error',
@@ -556,9 +599,8 @@ export async function runAgentLoop(
 			for (const result of results) {
 				// Append to context — truncate large results to prevent context blowup
 				if (result.success) {
-					let content = typeof result.output === 'string'
-						? result.output
-						: JSON.stringify(result.output)
+					let content =
+						typeof result.output === 'string' ? result.output : JSON.stringify(result.output)
 
 					// Extract base64 images for proper image handling by brain paws
 					let imageBase64: string | undefined
@@ -581,7 +623,8 @@ export async function runAgentLoop(
 
 					// Truncate large non-image outputs
 					if (content.length > 10000) {
-						content = content.substring(0, 5000) + '... [truncated, ' + content.length + ' chars total]'
+						content =
+							content.substring(0, 5000) + '... [truncated, ' + content.length + ' chars total]'
 					}
 
 					enrichedContext.messages.push({
@@ -619,7 +662,8 @@ export async function runAgentLoop(
 	logCostSummary()
 
 	if (idleIterations >= effectiveMaxIterations) {
-		const msg = 'Sorry, I was unable to complete this task. Please try again with a simpler request.'
+		const msg =
+			'Sorry, I was unable to complete this task. Please try again with a simpler request.'
 		logger.warn(
 			`Task ${task.id} reached max idle iterations (${effectiveMaxIterations}) after ${context.iteration + 1} total iterations`,
 		)
@@ -652,10 +696,7 @@ async function runPerceive(
 		tools = tools.filter((t) => allowSet.has(t.name) || t.pawName === 'core')
 	}
 	enriched.availableTools = tools
-	enriched.activeSkills = buildActiveSkills(
-		skillRegistry.list(),
-		toolRegistry,
-	)
+	enriched.activeSkills = buildActiveSkills(skillRegistry.list(), toolRegistry)
 
 	// Only run global perceive hooks (Paws without tools — context enrichers)
 	// Paws with tools use lazy perceive, called just before their tool executes
@@ -706,9 +747,7 @@ async function runAct(
 
 	if (execution === 'parallel') {
 		return Promise.all(
-			actions.map((action) =>
-				executeSingleAction(action, toolRegistry, pawRegistry),
-			),
+			actions.map((action) => executeSingleAction(action, toolRegistry, pawRegistry)),
 		)
 	}
 
@@ -742,7 +781,11 @@ async function executeSingleAction(
 	}
 
 	// Check if the owning Paw is healthy (skip for VoleNet remote tools — they handle their own connectivity)
-	if (!tool.inProcess && !tool.pawName.startsWith('__volenet') && !pawRegistry.isHealthy(tool.pawName)) {
+	if (
+		!tool.inProcess &&
+		!tool.pawName.startsWith('__volenet') &&
+		!pawRegistry.isHealthy(tool.pawName)
+	) {
 		return failureResult(
 			action.tool,
 			tool.pawName,
@@ -768,11 +811,7 @@ async function executeSingleAction(
 		// Determine error code
 		const isTimeout = message.toLowerCase().includes('timeout')
 		const isPermission = message.toLowerCase().includes('permission')
-		const code = isTimeout
-			? 'TOOL_TIMEOUT'
-			: isPermission
-				? 'PERMISSION_DENIED'
-				: 'TOOL_EXCEPTION'
+		const code = isTimeout ? 'TOOL_TIMEOUT' : isPermission ? 'PERMISSION_DENIED' : 'TOOL_EXCEPTION'
 
 		return failureResult(
 			action.tool,

@@ -25,10 +25,7 @@ export interface VoleKeyPair {
  * Generate a new Ed25519 keypair.
  * Saves to .openvole/net/vole_key and vole_key.pub
  */
-export async function generateKeyPair(
-	netDir: string,
-	instanceName: string,
-): Promise<VoleKeyPair> {
+export async function generateKeyPair(netDir: string, instanceName: string): Promise<VoleKeyPair> {
 	await fs.mkdir(netDir, { recursive: true })
 
 	const { publicKey, privateKey } = crypto.generateKeyPairSync('ed25519')
@@ -138,10 +135,15 @@ export function parsePublicKey(keyString: string): {
 /**
  * Load trusted peer public keys from authorized_voles file.
  */
-export async function loadAuthorizedVoles(netDir: string): Promise<Map<string, {
-	publicKey: crypto.KeyObject
-	name: string
-}>> {
+export async function loadAuthorizedVoles(netDir: string): Promise<
+	Map<
+		string,
+		{
+			publicKey: crypto.KeyObject
+			name: string
+		}
+	>
+> {
 	const authorizedPath = path.join(netDir, 'authorized_voles')
 	const trusted = new Map<string, { publicKey: crypto.KeyObject; name: string }>()
 

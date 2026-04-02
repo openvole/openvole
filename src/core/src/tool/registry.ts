@@ -1,7 +1,7 @@
-import type { ToolDefinition, ToolRegistryEntry } from './types.js'
 import type { ToolSummary } from '../context/types.js'
 import type { MessageBus } from '../core/bus.js'
 import { createLogger } from '../core/logger.js'
+import type { ToolDefinition, ToolRegistryEntry } from './types.js'
 
 const logger = createLogger('tool-registry')
 
@@ -10,16 +10,28 @@ function zodToJsonSchema(schema: unknown): Record<string, unknown> | undefined {
 	if (!schema || typeof schema !== 'object') return undefined
 
 	try {
-		const zodSchema = schema as { _def?: { shape?: () => Record<string, unknown> }; shape?: Record<string, unknown> }
-		const shape = typeof zodSchema._def?.shape === 'function' ? zodSchema._def.shape() : zodSchema.shape
+		const zodSchema = schema as {
+			_def?: { shape?: () => Record<string, unknown> }
+			shape?: Record<string, unknown>
+		}
+		const shape =
+			typeof zodSchema._def?.shape === 'function' ? zodSchema._def.shape() : zodSchema.shape
 		if (!shape || typeof shape !== 'object') return undefined
 
 		const properties: Record<string, unknown> = {}
 		const required: string[] = []
 
 		for (const [key, val] of Object.entries(shape)) {
-			const field = val as { _def?: { typeName?: string; description?: string; innerType?: { _def?: { typeName?: string; values?: string[] } }; values?: string[] } }
-			const isOptional = field?._def?.typeName === 'ZodOptional' || field?._def?.typeName === 'ZodDefault'
+			const field = val as {
+				_def?: {
+					typeName?: string
+					description?: string
+					innerType?: { _def?: { typeName?: string; values?: string[] } }
+					values?: string[]
+				}
+			}
+			const isOptional =
+				field?._def?.typeName === 'ZodOptional' || field?._def?.typeName === 'ZodDefault'
 			const inner = isOptional ? field?._def?.innerType?._def : field?._def
 			const typeName = inner?.typeName
 
@@ -103,8 +115,14 @@ export class ToolRegistry {
 	}
 
 	/** Search all tools by intent using BM25 over descriptions */
-	searchTools(query: string, limit = 10): Array<{ name: string; description: string; pawName: string; score: number }> {
-		const queryTokens = query.toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length > 1)
+	searchTools(
+		query: string,
+		limit = 10,
+	): Array<{ name: string; description: string; pawName: string; score: number }> {
+		const queryTokens = query
+			.toLowerCase()
+			.split(/[^a-z0-9]+/)
+			.filter((t) => t.length > 1)
 		if (queryTokens.length === 0) return []
 
 		const results: Array<{ name: string; description: string; pawName: string; score: number }> = []
@@ -113,7 +131,12 @@ export class ToolRegistry {
 		// Build document frequency
 		const df = new Map<string, number>()
 		for (const entry of this.tools.values()) {
-			const tokens = new Set(`${entry.name} ${entry.description}`.toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length > 1))
+			const tokens = new Set(
+				`${entry.name} ${entry.description}`
+					.toLowerCase()
+					.split(/[^a-z0-9]+/)
+					.filter((t) => t.length > 1),
+			)
 			for (const token of tokens) {
 				df.set(token, (df.get(token) ?? 0) + 1)
 			}
@@ -136,12 +159,17 @@ export class ToolRegistry {
 				if (termFreq === 0) continue
 				const docFreq = df.get(term) ?? 0
 				const idf = Math.log(1 + (N - docFreq + 0.5) / (docFreq + 0.5))
-				const tfNorm = (termFreq * 2.5) / (termFreq + 1.5 * (1 - 0.75 + 0.75 * dl / avgDl))
+				const tfNorm = (termFreq * 2.5) / (termFreq + 1.5 * (1 - 0.75 + (0.75 * dl) / avgDl))
 				score += idf * tfNorm
 			}
 
 			if (score > 0) {
-				results.push({ name: entry.name, description: entry.description, pawName: entry.pawName, score })
+				results.push({
+					name: entry.name,
+					description: entry.description,
+					pawName: entry.pawName,
+					score,
+				})
 			}
 		}
 

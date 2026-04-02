@@ -1,9 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import * as fs from 'node:fs/promises'
 import { mkdirSync, writeFileSync } from 'node:fs'
+import * as fs from 'node:fs/promises'
 import * as os from 'node:os'
 import * as path from 'node:path'
-import { resolvePawPath, readPawManifest } from '../../src/paw/manifest.js'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { readPawManifest, resolvePawPath } from '../../src/paw/manifest.js'
 
 describe('resolvePawPath', () => {
 	let tmpDir: string
@@ -64,9 +64,7 @@ describe('readPawManifest', () => {
 				description: 'A test paw',
 				entry: 'index.js',
 				brain: false,
-				tools: [
-					{ name: 'tool-1', description: 'First tool' },
-				],
+				tools: [{ name: 'tool-1', description: 'First tool' }],
 			}),
 			'utf-8',
 		)

@@ -1,9 +1,9 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import * as crypto from 'node:crypto'
-import { VoleNetSync, type MemorySyncEntry, type SessionSyncEntry } from '../../src/net/sync.js'
-import type { VoleNetTransport } from '../../src/net/transport.js'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { VoleNetDiscovery } from '../../src/net/discovery.js'
-import type { VoleNetMessage, VoleNetInstance } from '../../src/net/protocol.js'
+import type { VoleNetInstance, VoleNetMessage } from '../../src/net/protocol.js'
+import { type MemorySyncEntry, type SessionSyncEntry, VoleNetSync } from '../../src/net/sync.js'
+import type { VoleNetTransport } from '../../src/net/transport.js'
 
 function generateTestKeyPair() {
 	return crypto.generateKeyPairSync('ed25519')
@@ -11,14 +11,19 @@ function generateTestKeyPair() {
 
 type MessageHandler = (message: VoleNetMessage, peerId: string) => void
 
-function createMockTransport(): VoleNetTransport & { _handlers: MessageHandler[]; _simulateMessage: (msg: VoleNetMessage) => void } {
+function createMockTransport(): VoleNetTransport & {
+	_handlers: MessageHandler[]
+	_simulateMessage: (msg: VoleNetMessage) => void
+} {
 	const handlers: MessageHandler[] = []
 	return {
 		_handlers: handlers,
 		_simulateMessage: (msg: VoleNetMessage) => {
 			for (const h of handlers) h(msg, msg.from)
 		},
-		onMessage: (handler: MessageHandler) => { handlers.push(handler) },
+		onMessage: (handler: MessageHandler) => {
+			handlers.push(handler)
+		},
 		sendToPeer: vi.fn().mockResolvedValue(true),
 		broadcast: vi.fn().mockResolvedValue(1),
 		addPeer: vi.fn(),
@@ -28,7 +33,10 @@ function createMockTransport(): VoleNetTransport & { _handlers: MessageHandler[]
 		pingPeer: vi.fn().mockResolvedValue(true),
 		start: vi.fn().mockResolvedValue(undefined),
 		stop: vi.fn().mockResolvedValue(undefined),
-	} as unknown as VoleNetTransport & { _handlers: MessageHandler[]; _simulateMessage: (msg: VoleNetMessage) => void }
+	} as unknown as VoleNetTransport & {
+		_handlers: MessageHandler[]
+		_simulateMessage: (msg: VoleNetMessage) => void
+	}
 }
 
 function createMockDiscovery(instances: Partial<VoleNetInstance>[] = []): VoleNetDiscovery {
@@ -55,14 +63,10 @@ describe('VoleNetSync', () => {
 		keyPair = generateTestKeyPair()
 		transport = createMockTransport()
 		discovery = createMockDiscovery()
-		sync = new VoleNetSync(
-			transport,
-			discovery,
-			'instance-1',
-			'test-vole',
-			keyPair.privateKey,
-			{ memory: true, session: true },
-		)
+		sync = new VoleNetSync(transport, discovery, 'instance-1', 'test-vole', keyPair.privateKey, {
+			memory: true,
+			session: true,
+		})
 	})
 
 	afterEach(() => {
@@ -131,14 +135,10 @@ describe('VoleNetSync', () => {
 		})
 
 		it('does not propagate when memory sync is disabled', async () => {
-			sync = new VoleNetSync(
-				transport,
-				discovery,
-				'instance-1',
-				'test-vole',
-				keyPair.privateKey,
-				{ memory: false, session: true },
-			)
+			sync = new VoleNetSync(transport, discovery, 'instance-1', 'test-vole', keyPair.privateKey, {
+				memory: false,
+				session: true,
+			})
 
 			await sync.propagateMemoryWrite({
 				file: 'notes.md',
@@ -214,14 +214,10 @@ describe('VoleNetSync', () => {
 		})
 
 		it('does not propagate when session sync is disabled', async () => {
-			sync = new VoleNetSync(
-				transport,
-				discovery,
-				'instance-1',
-				'test-vole',
-				keyPair.privateKey,
-				{ memory: true, session: false },
-			)
+			sync = new VoleNetSync(transport, discovery, 'instance-1', 'test-vole', keyPair.privateKey, {
+				memory: true,
+				session: false,
+			})
 
 			await sync.propagateSessionWrite({
 				sessionId: 'session-1',
@@ -303,21 +299,43 @@ describe('VoleNetSync', () => {
 			sync.setMemoryWriteHandler(handler)
 
 			const entry1: MemorySyncEntry = {
-				file: 'fail.md', source: 'peer', content: 'will fail',
-				mode: 'overwrite', timestamp: 1000, instanceId: 'remote-1', version: 1,
+				file: 'fail.md',
+				source: 'peer',
+				content: 'will fail',
+				mode: 'overwrite',
+				timestamp: 1000,
+				instanceId: 'remote-1',
+				version: 1,
 			}
 			const entry2: MemorySyncEntry = {
-				file: 'ok.md', source: 'peer', content: 'will succeed',
-				mode: 'overwrite', timestamp: 2000, instanceId: 'remote-1', version: 1,
+				file: 'ok.md',
+				source: 'peer',
+				content: 'will succeed',
+				mode: 'overwrite',
+				timestamp: 2000,
+				instanceId: 'remote-1',
+				version: 1,
 			}
 
 			transport._simulateMessage({
-				version: 1, id: 'msg-1', type: 'memory:sync',
-				from: 'remote-1', to: '*', timestamp: Date.now(), signature: '', payload: entry1,
+				version: 1,
+				id: 'msg-1',
+				type: 'memory:sync',
+				from: 'remote-1',
+				to: '*',
+				timestamp: Date.now(),
+				signature: '',
+				payload: entry1,
 			})
 			transport._simulateMessage({
-				version: 1, id: 'msg-2', type: 'memory:sync',
-				from: 'remote-1', to: '*', timestamp: Date.now(), signature: '', payload: entry2,
+				version: 1,
+				id: 'msg-2',
+				type: 'memory:sync',
+				from: 'remote-1',
+				to: '*',
+				timestamp: Date.now(),
+				signature: '',
+				payload: entry2,
 			})
 
 			await vi.advanceTimersByTimeAsync(0)
@@ -330,13 +348,24 @@ describe('VoleNetSync', () => {
 		it('silently ignores memory:sync when no handler is set', async () => {
 			// Don't set any handler — should not throw
 			const entry: MemorySyncEntry = {
-				file: 'notes.md', source: 'peer', content: 'orphan',
-				mode: 'overwrite', timestamp: Date.now(), instanceId: 'remote-1', version: 1,
+				file: 'notes.md',
+				source: 'peer',
+				content: 'orphan',
+				mode: 'overwrite',
+				timestamp: Date.now(),
+				instanceId: 'remote-1',
+				version: 1,
 			}
 
 			transport._simulateMessage({
-				version: 1, id: 'msg-1', type: 'memory:sync',
-				from: 'remote-1', to: '*', timestamp: Date.now(), signature: '', payload: entry,
+				version: 1,
+				id: 'msg-1',
+				type: 'memory:sync',
+				from: 'remote-1',
+				to: '*',
+				timestamp: Date.now(),
+				signature: '',
+				payload: entry,
 			})
 
 			await vi.advanceTimersByTimeAsync(0)
@@ -348,8 +377,13 @@ describe('VoleNetSync', () => {
 			sync.setMemoryWriteHandler(handler)
 
 			transport._simulateMessage({
-				version: 1, id: 'msg-1', type: 'memory:sync',
-				from: 'remote-1', to: '*', timestamp: Date.now(), signature: '',
+				version: 1,
+				id: 'msg-1',
+				type: 'memory:sync',
+				from: 'remote-1',
+				to: '*',
+				timestamp: Date.now(),
+				signature: '',
 				payload: { content: 'no file field' },
 			})
 
@@ -362,8 +396,13 @@ describe('VoleNetSync', () => {
 			sync.setMemoryWriteHandler(handler)
 
 			transport._simulateMessage({
-				version: 1, id: 'msg-1', type: 'memory:sync',
-				from: 'remote-1', to: '*', timestamp: Date.now(), signature: '',
+				version: 1,
+				id: 'msg-1',
+				type: 'memory:sync',
+				from: 'remote-1',
+				to: '*',
+				timestamp: Date.now(),
+				signature: '',
 				payload: { file: 'notes.md' },
 			})
 
@@ -405,21 +444,39 @@ describe('VoleNetSync', () => {
 			sync.setSessionWriteHandler(handler)
 
 			const entry1: SessionSyncEntry = {
-				sessionId: 's1', role: 'user', content: 'fail',
-				timestamp: 1000, instanceId: 'remote-1',
+				sessionId: 's1',
+				role: 'user',
+				content: 'fail',
+				timestamp: 1000,
+				instanceId: 'remote-1',
 			}
 			const entry2: SessionSyncEntry = {
-				sessionId: 's2', role: 'user', content: 'ok',
-				timestamp: 2000, instanceId: 'remote-1',
+				sessionId: 's2',
+				role: 'user',
+				content: 'ok',
+				timestamp: 2000,
+				instanceId: 'remote-1',
 			}
 
 			transport._simulateMessage({
-				version: 1, id: 'msg-1', type: 'session:sync',
-				from: 'remote-1', to: '*', timestamp: Date.now(), signature: '', payload: entry1,
+				version: 1,
+				id: 'msg-1',
+				type: 'session:sync',
+				from: 'remote-1',
+				to: '*',
+				timestamp: Date.now(),
+				signature: '',
+				payload: entry1,
 			})
 			transport._simulateMessage({
-				version: 1, id: 'msg-2', type: 'session:sync',
-				from: 'remote-1', to: '*', timestamp: Date.now(), signature: '', payload: entry2,
+				version: 1,
+				id: 'msg-2',
+				type: 'session:sync',
+				from: 'remote-1',
+				to: '*',
+				timestamp: Date.now(),
+				signature: '',
+				payload: entry2,
 			})
 
 			await vi.advanceTimersByTimeAsync(0)
@@ -428,9 +485,20 @@ describe('VoleNetSync', () => {
 
 		it('silently ignores session:sync when no handler is set', async () => {
 			transport._simulateMessage({
-				version: 1, id: 'msg-1', type: 'session:sync',
-				from: 'remote-1', to: '*', timestamp: Date.now(), signature: '',
-				payload: { sessionId: 's1', role: 'user', content: 'orphan', timestamp: Date.now(), instanceId: 'remote-1' },
+				version: 1,
+				id: 'msg-1',
+				type: 'session:sync',
+				from: 'remote-1',
+				to: '*',
+				timestamp: Date.now(),
+				signature: '',
+				payload: {
+					sessionId: 's1',
+					role: 'user',
+					content: 'orphan',
+					timestamp: Date.now(),
+					instanceId: 'remote-1',
+				},
 			})
 
 			await vi.advanceTimersByTimeAsync(0)
@@ -442,8 +510,13 @@ describe('VoleNetSync', () => {
 			sync.setSessionWriteHandler(handler)
 
 			transport._simulateMessage({
-				version: 1, id: 'msg-1', type: 'session:sync',
-				from: 'remote-1', to: '*', timestamp: Date.now(), signature: '',
+				version: 1,
+				id: 'msg-1',
+				type: 'session:sync',
+				from: 'remote-1',
+				to: '*',
+				timestamp: Date.now(),
+				signature: '',
 				payload: { role: 'user', content: 'no session id' },
 			})
 
@@ -467,8 +540,13 @@ describe('VoleNetSync', () => {
 
 		it('allows dedup entries to work after propagate then dispose', async () => {
 			const entry: MemorySyncEntry = {
-				file: 'notes.md', source: 'user', content: 'hello',
-				mode: 'overwrite', timestamp: 1000, instanceId: 'instance-1', version: 1,
+				file: 'notes.md',
+				source: 'user',
+				content: 'hello',
+				mode: 'overwrite',
+				timestamp: 1000,
+				instanceId: 'instance-1',
+				version: 1,
 			}
 
 			await sync.propagateMemoryWrite(entry)
@@ -479,8 +557,12 @@ describe('VoleNetSync', () => {
 
 			// Create a fresh sync instance — the same entry should propagate again
 			const sync2 = new VoleNetSync(
-				transport, discovery, 'instance-1', 'test-vole',
-				keyPair.privateKey, { memory: true, session: true },
+				transport,
+				discovery,
+				'instance-1',
+				'test-vole',
+				keyPair.privateKey,
+				{ memory: true, session: true },
 			)
 			await sync2.propagateMemoryWrite(entry)
 			expect(transport.broadcast).toHaveBeenCalledTimes(2)

@@ -1,12 +1,12 @@
-import type { MessageBus } from '../core/bus.js'
-import type { ToolRegistry } from '../tool/registry.js'
-import type { PawConfig, PawInstance } from './types.js'
-import { readPawManifest, resolvePawPath } from './manifest.js'
-import { loadInProcessPaw, loadSubprocessPaw, shutdownPaw } from './loader.js'
-import { validatePermissions } from './sandbox.js'
-import type { IpcTransport } from '../core/ipc.js'
 import type { AgentContext } from '../context/types.js'
+import type { MessageBus } from '../core/bus.js'
 import type { ActionResult } from '../core/errors.js'
+import type { IpcTransport } from '../core/ipc.js'
+import type { ToolRegistry } from '../tool/registry.js'
+import { loadInProcessPaw, loadSubprocessPaw, shutdownPaw } from './loader.js'
+import { readPawManifest, resolvePawPath } from './manifest.js'
+import { validatePermissions } from './sandbox.js'
+import type { PawConfig, PawInstance } from './types.js'
 import type { AgentPlan } from './types.js'
 
 import { createLogger } from '../core/logger.js'
@@ -24,12 +24,21 @@ export interface PerceiveHookEntry {
 
 /** Interface for queryable registries (avoids circular imports) */
 export interface QueryableSkillRegistry {
-	list(): Array<{ name: string; active: boolean; missingTools: string[]; definition: { description: string } }>
+	list(): Array<{
+		name: string
+		active: boolean
+		missingTools: string[]
+		definition: { description: string }
+	}>
 }
 
 export interface QueryableTaskQueue {
 	list(): Array<{ id: string; source: string; input: string; status: string; createdAt: number }>
-	enqueue(input: string, source?: 'user' | 'schedule' | 'paw', options?: { sessionId?: string; metadata?: Record<string, unknown> }): { id: string }
+	enqueue(
+		input: string,
+		source?: 'user' | 'schedule' | 'paw',
+		options?: { sessionId?: string; metadata?: Record<string, unknown> },
+	): { id: string }
 }
 
 export interface QueryableScheduler {
@@ -68,7 +77,11 @@ export class PawRegistry {
 	}
 
 	/** Inject queryable registries (called after construction to avoid circular deps) */
-	setQuerySources(skills: QueryableSkillRegistry, tasks: QueryableTaskQueue, scheduler?: QueryableScheduler): void {
+	setQuerySources(
+		skills: QueryableSkillRegistry,
+		tasks: QueryableTaskQueue,
+		scheduler?: QueryableScheduler,
+	): void {
 		this.skillRegistry = skills
 		this.taskQueue = tasks
 		this.scheduler = scheduler
@@ -110,9 +123,16 @@ export class PawRegistry {
 				instance = await loadInProcessPaw(pawPath, manifest, config)
 				this.registerInProcessTools(instance)
 			} else {
-				const result = await loadSubprocessPaw(pawPath, manifest, config, this.projectRoot, this.security, (crashedPaw) => {
-					this.bus.emit('paw:crashed', { pawName: crashedPaw })
-				})
+				const result = await loadSubprocessPaw(
+					pawPath,
+					manifest,
+					config,
+					this.projectRoot,
+					this.security,
+					(crashedPaw) => {
+						this.bus.emit('paw:crashed', { pawName: crashedPaw })
+					},
+				)
 				instance = result.instance
 				this.transports.set(pawName, result.transport)
 				this.setupTransportHandlers(pawName, result.transport)
@@ -356,7 +376,9 @@ export class PawRegistry {
 						ctx = (await transport.request('compact', ctx)) as AgentContext
 					}
 				}
-				logger.info(`Compact hook from "${pawName}" reduced messages from ${context.messages.length} to ${ctx.messages.length}`)
+				logger.info(
+					`Compact hook from "${pawName}" reduced messages from ${context.messages.length} to ${ctx.messages.length}`,
+				)
 			} catch (err) {
 				logger.error(`Compact hook error from "${pawName}": ${err}`)
 			}
@@ -389,11 +411,7 @@ export class PawRegistry {
 	}
 
 	/** Execute a tool on a subprocess Paw */
-	async executeRemoteTool(
-		pawName: string,
-		toolName: string,
-		params: unknown,
-	): Promise<unknown> {
+	async executeRemoteTool(pawName: string, toolName: string, params: unknown): Promise<unknown> {
 		const transport = this.transports.get(pawName)
 		if (!transport) {
 			throw new Error(`No transport for Paw "${pawName}"`)
@@ -402,10 +420,7 @@ export class PawRegistry {
 		return transport.request('execute_tool', { toolName, params })
 	}
 
-	private async callPerceive(
-		pawName: string,
-		context: AgentContext,
-	): Promise<AgentContext> {
+	private async callPerceive(pawName: string, context: AgentContext): Promise<AgentContext> {
 		const instance = this.paws.get(pawName)!
 
 		if (instance.inProcess && instance.definition?.hooks?.onPerceive) {
@@ -420,10 +435,7 @@ export class PawRegistry {
 		return context
 	}
 
-	private async callObserve(
-		pawName: string,
-		result: ActionResult,
-	): Promise<void> {
+	private async callObserve(pawName: string, result: ActionResult): Promise<void> {
 		const instance = this.paws.get(pawName)!
 
 		if (instance.inProcess && instance.definition?.hooks?.onObserve) {
@@ -439,18 +451,11 @@ export class PawRegistry {
 
 	private registerInProcessTools(instance: PawInstance): void {
 		if (instance.definition?.tools) {
-			this.toolRegistry.register(
-				instance.name,
-				instance.definition.tools,
-				true,
-			)
+			this.toolRegistry.register(instance.name, instance.definition.tools, true)
 		}
 	}
 
-	private setupTransportHandlers(
-		pawName: string,
-		transport: IpcTransport,
-	): void {
+	private setupTransportHandlers(pawName: string, transport: IpcTransport): void {
 		// Handle Paw → Core: log
 		transport.onRequest('log', async (params) => {
 			const { level, message } = params as { level: string; message: string }
@@ -531,11 +536,7 @@ export class PawRegistry {
 	}
 
 	/** Forward bus events to a Paw that subscribed */
-	private setupBusForwarding(
-		pawName: string,
-		events: string[],
-		transport: IpcTransport,
-	): void {
+	private setupBusForwarding(pawName: string, events: string[], transport: IpcTransport): void {
 		for (const eventName of events) {
 			// Use the bus wildcard or specific events
 			this.bus.on(eventName as keyof import('../core/bus.js').BusEvents, (data) => {
@@ -567,27 +568,33 @@ export class PawRegistry {
 					toolCount: this.toolRegistry.toolsForPaw(p.name).length,
 				}))
 			case 'skills':
-				return this.skillRegistry?.list().map((s) => ({
-					name: s.name,
-					active: s.active,
-					missingTools: s.missingTools,
-					description: s.definition.description,
-				})) ?? []
+				return (
+					this.skillRegistry?.list().map((s) => ({
+						name: s.name,
+						active: s.active,
+						missingTools: s.missingTools,
+						description: s.definition.description,
+					})) ?? []
+				)
 			case 'tasks':
-				return this.taskQueue?.list().map((t) => {
-					const task = t as Record<string, unknown>
-					return {
-						id: t.id,
-						source: t.source,
-						input: t.input,
-						status: t.status,
-						createdAt: t.createdAt,
-						startedAt: task.startedAt,
-						completedAt: task.completedAt,
-						priority: task.priority,
-						metadata: task.metadata ? { cost: (task.metadata as Record<string, unknown>).cost } : undefined,
-					}
-				}) ?? []
+				return (
+					this.taskQueue?.list().map((t) => {
+						const task = t as Record<string, unknown>
+						return {
+							id: t.id,
+							source: t.source,
+							input: t.input,
+							status: t.status,
+							createdAt: t.createdAt,
+							startedAt: task.startedAt,
+							completedAt: task.completedAt,
+							priority: task.priority,
+							metadata: task.metadata
+								? { cost: (task.metadata as Record<string, unknown>).cost }
+								: undefined,
+						}
+					}) ?? []
+				)
 			case 'schedules':
 				return this.scheduler?.list() ?? []
 			case 'volenet': {
@@ -620,10 +627,7 @@ export class PawRegistry {
 		}
 	}
 
-	private async waitForRegistration(
-		pawName: string,
-		transport: IpcTransport,
-	): Promise<void> {
+	private async waitForRegistration(pawName: string, transport: IpcTransport): Promise<void> {
 		return new Promise<void>((resolve, reject) => {
 			const timeout = setTimeout(() => {
 				reject(new Error(`Paw "${pawName}" did not register within 10 seconds`))

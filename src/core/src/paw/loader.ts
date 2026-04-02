@@ -1,11 +1,11 @@
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
-import { execa, type ResultPromise } from 'execa'
-import type { PawConfig, PawDefinition, PawInstance, PawManifest } from './types.js'
-import { createTransport, type IpcTransport } from '../core/ipc.js'
-import { buildSandboxEnv, buildPermissionFlags, computeEffectivePermissions } from './sandbox.js'
+import { type ResultPromise, execa } from 'execa'
 import type { SecurityConfig } from '../config/index.js'
+import { type IpcTransport, createTransport } from '../core/ipc.js'
 import { createLogger } from '../core/logger.js'
+import { buildPermissionFlags, buildSandboxEnv, computeEffectivePermissions } from './sandbox.js'
+import type { PawConfig, PawDefinition, PawInstance, PawManifest } from './types.js'
 
 const logger = createLogger('paw-loader')
 
@@ -58,7 +58,12 @@ export async function loadSubprocessPaw(
 
 	// Pre-create paw data directory so sandboxed paw can write to it
 	if (projectRoot) {
-		const pawDataDir = path.resolve(projectRoot, '.openvole', 'paws', manifest.name.replace(/^@openvole\//, ''))
+		const pawDataDir = path.resolve(
+			projectRoot,
+			'.openvole',
+			'paws',
+			manifest.name.replace(/^@openvole\//, ''),
+		)
 		await fs.mkdir(pawDataDir, { recursive: true })
 	}
 
@@ -90,7 +95,10 @@ export async function loadSubprocessPaw(
 		logger.warn(`[${manifest.name}] ${data.toString().trimEnd()}`)
 	})
 
-	const ipcTransport = createTransport(transport, child as unknown as import('node:child_process').ChildProcess)
+	const ipcTransport = createTransport(
+		transport,
+		child as unknown as import('node:child_process').ChildProcess,
+	)
 
 	const instance: PawInstance = {
 		name: manifest.name,
@@ -107,20 +115,20 @@ export async function loadSubprocessPaw(
 	}
 
 	// Handle subprocess exit
-	;(child as ResultPromise).then?.((result) => {
-		if (instance.healthy) {
-			instance.healthy = false
-			logger.error(
-				`Paw "${manifest.name}" exited unexpectedly (code: ${result.exitCode})`,
-			)
-			onCrash?.(manifest.name)
-		}
-	}).catch?.(() => {
-		if (instance.healthy) {
-			instance.healthy = false
-			onCrash?.(manifest.name)
-		}
-	})
+	;(child as ResultPromise)
+		.then?.((result) => {
+			if (instance.healthy) {
+				instance.healthy = false
+				logger.error(`Paw "${manifest.name}" exited unexpectedly (code: ${result.exitCode})`)
+				onCrash?.(manifest.name)
+			}
+		})
+		.catch?.(() => {
+			if (instance.healthy) {
+				instance.healthy = false
+				onCrash?.(manifest.name)
+			}
+		})
 
 	return { instance, transport: ipcTransport }
 }

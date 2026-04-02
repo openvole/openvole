@@ -4,11 +4,11 @@
  */
 
 import * as crypto from 'node:crypto'
-import { createLogger } from '../core/logger.js'
-import { createMessage, type VoleNetMessage } from './protocol.js'
-import type { VoleNetTransport } from './transport.js'
-import type { VoleNetDiscovery } from './discovery.js'
 import type { KeyObject } from 'node:crypto'
+import { createLogger } from '../core/logger.js'
+import type { VoleNetDiscovery } from './discovery.js'
+import { type VoleNetMessage, createMessage } from './protocol.js'
+import type { VoleNetTransport } from './transport.js'
 
 const logger = createLogger('volenet-remote')
 
@@ -49,16 +49,22 @@ export class RemoteTaskManager {
 	private discovery: VoleNetDiscovery
 	private instanceId: string
 	private privateKey: KeyObject
-	private pendingTasks = new Map<string, {
-		resolve: (result: RemoteTaskResult) => void
-		reject: (error: Error) => void
-		timer: ReturnType<typeof setTimeout>
-	}>()
-	private pendingToolCalls = new Map<string, {
-		resolve: (result: RemoteToolCallResult) => void
-		reject: (error: Error) => void
-		timer: ReturnType<typeof setTimeout>
-	}>()
+	private pendingTasks = new Map<
+		string,
+		{
+			resolve: (result: RemoteTaskResult) => void
+			reject: (error: Error) => void
+			timer: ReturnType<typeof setTimeout>
+		}
+	>()
+	private pendingToolCalls = new Map<
+		string,
+		{
+			resolve: (result: RemoteToolCallResult) => void
+			reject: (error: Error) => void
+			timer: ReturnType<typeof setTimeout>
+		}
+	>()
 	private routing: Record<string, string>
 
 	constructor(
@@ -104,7 +110,9 @@ export class RemoteTaskManager {
 			return { taskId, status: 'failed', error: 'Failed to reach peer' }
 		}
 
-		logger.info(`Delegated task ${taskId.substring(0, 8)} to ${targetInstanceId.substring(0, 8)}: "${request.input.substring(0, 80)}"`)
+		logger.info(
+			`Delegated task ${taskId.substring(0, 8)} to ${targetInstanceId.substring(0, 8)}: "${request.input.substring(0, 80)}"`,
+		)
 
 		// Wait for result
 		return new Promise((resolve, reject) => {
@@ -147,7 +155,11 @@ export class RemoteTaskManager {
 		return new Promise((resolve) => {
 			const timer = setTimeout(() => {
 				this.pendingToolCalls.delete(callId)
-				resolve({ callId, success: false, error: `Remote tool call timed out after ${timeoutMs}ms` })
+				resolve({
+					callId,
+					success: false,
+					error: `Remote tool call timed out after ${timeoutMs}ms`,
+				})
 			}, timeoutMs)
 
 			this.pendingToolCalls.set(callId, { resolve, reject: () => {}, timer })
@@ -219,12 +231,17 @@ export class RemoteTaskManager {
 			clearTimeout(pending.timer)
 			this.pendingToolCalls.delete(result.callId)
 			if (result.success) {
-				const preview = typeof result.output === 'string'
-					? result.output.substring(0, 200)
-					: JSON.stringify(result.output).substring(0, 200)
-				logger.info(`Remote tool result received from ${message.from.substring(0, 8)}: success — ${preview}`)
+				const preview =
+					typeof result.output === 'string'
+						? result.output.substring(0, 200)
+						: JSON.stringify(result.output).substring(0, 200)
+				logger.info(
+					`Remote tool result received from ${message.from.substring(0, 8)}: success — ${preview}`,
+				)
 			} else {
-				logger.warn(`Remote tool result received from ${message.from.substring(0, 8)}: failed — ${result.error}`)
+				logger.warn(
+					`Remote tool result received from ${message.from.substring(0, 8)}: failed — ${result.error}`,
+				)
 			}
 			pending.resolve(result)
 		}

@@ -13,9 +13,9 @@
  *   5. Extract to .openvole/skills/volehub/<name>/
  */
 
+import * as crypto from 'node:crypto'
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
-import * as crypto from 'node:crypto'
 import { createLogger } from '../core/logger.js'
 
 const logger = createLogger('volehub')
@@ -58,7 +58,7 @@ export class VoleHubClient {
 			throw new Error(`Failed to fetch VoleHub index: ${response.status} ${response.statusText}`)
 		}
 
-		return await response.json() as VoleHubIndex
+		return (await response.json()) as VoleHubIndex
 	}
 
 	/** Search skills by query (text match on name, description, tags) */
@@ -95,8 +95,7 @@ export class VoleHubClient {
 		await fs.mkdir(skillDir, { recursive: true })
 
 		// Download SKILL.md
-		const skillMdUrl = skill.downloadUrl
-			?? `${this.registryUrl}/skills/${skill.name}/SKILL.md`
+		const skillMdUrl = skill.downloadUrl ?? `${this.registryUrl}/skills/${skill.name}/SKILL.md`
 
 		logger.info(`Downloading ${skill.name}@${skill.version} from ${skillMdUrl}`)
 
@@ -156,11 +155,13 @@ export class VoleHubClient {
 	}
 
 	/** List installed VoleHub skills */
-	async listInstalled(projectRoot: string): Promise<Array<{
-		name: string
-		version: string
-		installedAt: string
-	}>> {
+	async listInstalled(projectRoot: string): Promise<
+		Array<{
+			name: string
+			version: string
+			installedAt: string
+		}>
+	> {
 		const volehubDir = path.resolve(projectRoot, '.openvole', 'skills', 'volehub')
 		try {
 			const entries = await fs.readdir(volehubDir, { withFileTypes: true })
@@ -193,9 +194,7 @@ export class VoleHubClient {
 	 * Reads SKILL.md, generates hash, builds manifest.
 	 * Returns the data needed to create a PR against openvole/volehub.
 	 */
-	async preparePublish(
-		skillPath: string,
-	): Promise<{
+	async preparePublish(skillPath: string): Promise<{
 		name: string
 		version: string
 		description: string

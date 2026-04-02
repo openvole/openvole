@@ -1,6 +1,6 @@
+import * as crypto from 'node:crypto'
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
-import * as crypto from 'node:crypto'
 import { createLogger } from './logger.js'
 
 const logger = createLogger('vault')
@@ -41,7 +41,12 @@ export class Vault {
 		}
 	}
 
-	async store(key: string, value: string, source: string = 'brain', meta?: Record<string, string>): Promise<boolean> {
+	async store(
+		key: string,
+		value: string,
+		source = 'brain',
+		meta?: Record<string, string>,
+	): Promise<boolean> {
 		if (this.entries.has(key)) {
 			return false // write-once
 		}
@@ -63,8 +68,15 @@ export class Vault {
 		return this.decrypt(entry.value)
 	}
 
-	async list(): Promise<Array<{ key: string; source: string; createdAt: number; meta?: Record<string, string> }>> {
-		const result: Array<{ key: string; source: string; createdAt: number; meta?: Record<string, string> }> = []
+	async list(): Promise<
+		Array<{ key: string; source: string; createdAt: number; meta?: Record<string, string> }>
+	> {
+		const result: Array<{
+			key: string
+			source: string
+			createdAt: number
+			meta?: Record<string, string>
+		}> = []
 		for (const [key, entry] of this.entries) {
 			result.push({ key, source: entry.source, createdAt: entry.createdAt, meta: entry.meta })
 		}

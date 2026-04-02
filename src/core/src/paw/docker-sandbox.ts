@@ -8,8 +8,8 @@
  * Config: security.docker.enabled = true in vole.config.json
  */
 
-import * as path from 'node:path'
 import * as fs from 'node:fs/promises'
+import * as path from 'node:path'
 import { createLogger } from '../core/logger.js'
 // Permissions passed as plain object — no import needed from sandbox.ts
 
@@ -90,12 +90,14 @@ export class DockerSandboxManager {
 
 		const image = this.config.image ?? 'node:20-slim'
 		const memory = this.parseMemoryLimit(this.config.memory ?? '512m')
-		const cpus = parseFloat(this.config.cpus ?? '1.0')
+		const cpus = Number.parseFloat(this.config.cpus ?? '1.0')
 		const networkMode = this.config.network ?? 'none'
 
 		// Prepare mounts
 		const pawDataDir = path.resolve(
-			this.projectRoot, '.openvole', 'paws',
+			this.projectRoot,
+			'.openvole',
+			'paws',
 			pawName.replace(/^@openvole\//, ''),
 		)
 		await fs.mkdir(pawDataDir, { recursive: true })
@@ -127,7 +129,9 @@ export class DockerSandboxManager {
 		// Add container-specific env
 		containerEnv.push(`VOLE_PAW_DATA_DIR=/data`)
 
-		logger.info(`Creating Docker container for "${pawName}" (image: ${image}, network: ${networkMode})`)
+		logger.info(
+			`Creating Docker container for "${pawName}" (image: ${image}, network: ${networkMode})`,
+		)
 
 		const container = await this.docker.createContainer({
 			Image: image,
@@ -229,13 +233,17 @@ export class DockerSandboxManager {
 	private parseMemoryLimit(limit: string): number {
 		const match = limit.match(/^(\d+)([kmg]?)$/i)
 		if (!match) return 512 * 1024 * 1024 // default 512MB
-		const value = parseInt(match[1], 10)
+		const value = Number.parseInt(match[1], 10)
 		const unit = (match[2] || 'm').toLowerCase()
 		switch (unit) {
-			case 'k': return value * 1024
-			case 'm': return value * 1024 * 1024
-			case 'g': return value * 1024 * 1024 * 1024
-			default: return value * 1024 * 1024
+			case 'k':
+				return value * 1024
+			case 'm':
+				return value * 1024 * 1024
+			case 'g':
+				return value * 1024 * 1024 * 1024
+			default:
+				return value * 1024 * 1024
 		}
 	}
 }

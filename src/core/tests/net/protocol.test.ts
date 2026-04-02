@@ -1,16 +1,14 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
 import * as crypto from 'node:crypto'
+import { beforeEach, describe, expect, it } from 'vitest'
 import {
-	createMessage,
-	verifyMessage,
-	serialize,
-	deserialize,
-	VOLENET_VERSION,
 	MAX_MESSAGE_AGE_MS,
-	type VoleNetMessage,
+	VOLENET_VERSION,
 	type VoleNetMessageType,
+	createMessage,
+	deserialize,
+	serialize,
+	verifyMessage,
 } from '../../src/net/protocol.js'
-import { sign, verify } from '../../src/net/keys.js'
 
 function generateTestKeyPair() {
 	return crypto.generateKeyPairSync('ed25519')
@@ -25,7 +23,13 @@ describe('VoleNet Protocol', () => {
 
 	describe('createMessage()', () => {
 		it('creates a message with all required fields', () => {
-			const msg = createMessage('ping', 'sender-id', 'target-id', { foo: 'bar' }, keyPair.privateKey)
+			const msg = createMessage(
+				'ping',
+				'sender-id',
+				'target-id',
+				{ foo: 'bar' },
+				keyPair.privateKey,
+			)
 
 			expect(msg.version).toBe(VOLENET_VERSION)
 			expect(msg.id).toBeTruthy()
@@ -65,13 +69,27 @@ describe('VoleNet Protocol', () => {
 
 		it('supports all message types', () => {
 			const types: VoleNetMessageType[] = [
-				'ping', 'pong', 'discover', 'discover:response',
-				'auth:challenge', 'auth:response', 'auth:result',
-				'task:delegate', 'task:result', 'task:status',
-				'memory:sync', 'memory:search', 'memory:results',
-				'session:sync', 'tool:list', 'tool:list:response',
-				'tool:call', 'tool:result', 'leader:heartbeat',
-				'leader:claim', 'leader:ack',
+				'ping',
+				'pong',
+				'discover',
+				'discover:response',
+				'auth:challenge',
+				'auth:response',
+				'auth:result',
+				'task:delegate',
+				'task:result',
+				'task:status',
+				'memory:sync',
+				'memory:search',
+				'memory:results',
+				'session:sync',
+				'tool:list',
+				'tool:list:response',
+				'tool:call',
+				'tool:result',
+				'leader:heartbeat',
+				'leader:claim',
+				'leader:ack',
 			]
 
 			for (const type of types) {
@@ -150,7 +168,13 @@ describe('VoleNet Protocol', () => {
 
 	describe('serialize() / deserialize()', () => {
 		it('round-trips a message', () => {
-			const msg = createMessage('task:delegate', 'from', 'to', { input: 'hello' }, keyPair.privateKey)
+			const msg = createMessage(
+				'task:delegate',
+				'from',
+				'to',
+				{ input: 'hello' },
+				keyPair.privateKey,
+			)
 			const serialized = serialize(msg)
 			const deserialized = deserialize(serialized)
 
@@ -182,7 +206,16 @@ describe('VoleNet Protocol', () => {
 		})
 
 		it('deserialize accepts message with all required fields', () => {
-			const minimal = { version: 1, type: 'ping', from: 'x', id: 'abc', to: '*', timestamp: 1, signature: '', payload: null }
+			const minimal = {
+				version: 1,
+				type: 'ping',
+				from: 'x',
+				id: 'abc',
+				to: '*',
+				timestamp: 1,
+				signature: '',
+				payload: null,
+			}
 			expect(deserialize(JSON.stringify(minimal))).not.toBeNull()
 		})
 	})

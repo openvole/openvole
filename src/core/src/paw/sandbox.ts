@@ -1,9 +1,9 @@
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
-import type { EffectivePermissions, PawConfig, PawManifest } from './types.js'
 import type { SecurityConfig } from '../config/index.js'
 import { createLogger } from '../core/logger.js'
+import type { EffectivePermissions, PawConfig, PawManifest } from './types.js'
 
 const logger = createLogger('paw-sandbox')
 
@@ -48,7 +48,6 @@ function intersectStrings(a: string[], b: string[]): string[] {
 	return a.filter((item) => setB.has(item))
 }
 
-
 /**
  * Build the environment variables for a sandboxed Paw subprocess.
  * Only passes through env vars that are in the effective permissions.
@@ -85,10 +84,7 @@ export function buildSandboxEnv(
  * Validate that a Paw's manifest permissions are reasonable.
  * Returns warnings (non-blocking) for review.
  */
-export function validatePermissions(
-	manifest: PawManifest,
-	config: PawConfig,
-): string[] {
+export function validatePermissions(manifest: PawManifest, config: PawConfig): string[] {
 	const warnings: string[] = []
 	const effective = computeEffectivePermissions(manifest, config)
 	const requested = manifest.permissions ?? {}
@@ -119,16 +115,12 @@ export function validatePermissions(
 
 	for (const envVar of requested.env ?? []) {
 		if (!effective.env.includes(envVar)) {
-			warnings.push(
-				`Env var "${envVar}" requested by ${manifest.name} but not granted in config`,
-			)
+			warnings.push(`Env var "${envVar}" requested by ${manifest.name} but not granted in config`)
 		}
 	}
 
 	if ((requested.childProcess ?? false) && !effective.childProcess) {
-		warnings.push(
-			`Child process access requested by ${manifest.name} but not granted in config`,
-		)
+		warnings.push(`Child process access requested by ${manifest.name} but not granted in config`)
 	}
 
 	if (warnings.length > 0) {
@@ -155,7 +147,6 @@ export function buildPermissionFlags(
 	// Sandboxing is enabled by default — opt-out via security.sandboxFilesystem: false
 	if (security?.sandboxFilesystem === false) return []
 
-
 	const openvoleDir = path.resolve(projectRoot, '.openvole')
 	const pawDataDir = path.resolve(openvoleDir, 'paws', pawName.replace(/^@openvole\//, ''))
 
@@ -181,11 +172,7 @@ export function buildPermissionFlags(
 	])
 
 	// Write access: paw's own data dir, OS temp dir, granted paths
-	const writePaths = new Set<string>([
-		pawDataDir,
-		tmpDir,
-		tmpDirRaw,
-	])
+	const writePaths = new Set<string>([pawDataDir, tmpDir, tmpDirRaw])
 
 	// Add filesystem permissions from config
 	for (const fsPath of permissions.filesystem) {

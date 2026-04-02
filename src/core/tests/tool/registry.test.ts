@@ -1,8 +1,8 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
-import { ToolRegistry } from '../../src/tool/registry.js'
 import { createMessageBus } from '../../src/core/bus.js'
 import type { MessageBus } from '../../src/core/bus.js'
+import { ToolRegistry } from '../../src/tool/registry.js'
 import type { ToolDefinition } from '../../src/tool/types.js'
 
 function makeTool(name: string, description = `Tool ${name}`): ToolDefinition {

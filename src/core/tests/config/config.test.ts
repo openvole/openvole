@@ -1,8 +1,8 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import * as fs from 'node:fs/promises'
 import * as os from 'node:os'
 import * as path from 'node:path'
-import { defineConfig, normalizePawConfig, loadConfig } from '../../src/config/index.js'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { defineConfig, loadConfig, normalizePawConfig } from '../../src/config/index.js'
 
 describe('defineConfig', () => {
 	it('applies defaults for empty config', () => {
@@ -97,11 +97,7 @@ describe('loadConfig', () => {
 			paws: ['paw-a'],
 			loop: { maxIterations: 25 },
 		}
-		await fs.writeFile(
-			path.join(tmpDir, 'vole.config.json'),
-			JSON.stringify(configData),
-			'utf-8',
-		)
+		await fs.writeFile(path.join(tmpDir, 'vole.config.json'), JSON.stringify(configData), 'utf-8')
 
 		const config = await loadConfig(path.join(tmpDir, 'vole.config.ts'))
 		expect(config.brain).toBe('test-brain')
@@ -120,11 +116,7 @@ describe('loadConfig', () => {
 
 	it('loads only from vole.config.json (no lock file merge)', async () => {
 		const configData = { paws: ['existing-paw'], skills: ['my-skill'] }
-		await fs.writeFile(
-			path.join(tmpDir, 'vole.config.json'),
-			JSON.stringify(configData),
-			'utf-8',
-		)
+		await fs.writeFile(path.join(tmpDir, 'vole.config.json'), JSON.stringify(configData), 'utf-8')
 
 		const config = await loadConfig(path.join(tmpDir, 'vole.config.ts'))
 		const pawNames = config.paws.map((p) => (typeof p === 'string' ? p : p.name))

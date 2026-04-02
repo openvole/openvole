@@ -8,11 +8,11 @@
  * Consistency model: eventual (async propagation, no blocking).
  */
 
-import { createLogger } from '../core/logger.js'
-import { createMessage, type VoleNetMessage } from './protocol.js'
-import type { VoleNetTransport } from './transport.js'
-import type { VoleNetDiscovery } from './discovery.js'
 import type { KeyObject } from 'node:crypto'
+import { createLogger } from '../core/logger.js'
+import type { VoleNetDiscovery } from './discovery.js'
+import { type VoleNetMessage, createMessage } from './protocol.js'
+import type { VoleNetTransport } from './transport.js'
 
 const logger = createLogger('volenet-sync')
 
@@ -79,12 +79,15 @@ export class VoleNetSync {
 	private onSessionWrite?: (entry: SessionSyncEntry) => Promise<void>
 
 	// Pending remote search requests
-	private pendingSearches = new Map<string, {
-		results: MemorySearchResult[]
-		timer: ReturnType<typeof setTimeout>
-		resolve: (results: MemorySearchResult[]) => void
-		expectedPeers: number
-	}>()
+	private pendingSearches = new Map<
+		string,
+		{
+			results: MemorySearchResult[]
+			timer: ReturnType<typeof setTimeout>
+			resolve: (results: MemorySearchResult[]) => void
+			expectedPeers: number
+		}
+	>()
 
 	// Dedup: track recently synced writes to avoid echo loops
 	private recentSyncs = new Set<string>()
@@ -122,7 +125,9 @@ export class VoleNetSync {
 	 * Register callback for handling remote memory search requests.
 	 * The callback should search the local store and return results.
 	 */
-	setMemorySearchHandler(handler: (request: MemorySearchRequest) => Promise<MemorySearchResult['results']>): void {
+	setMemorySearchHandler(
+		handler: (request: MemorySearchRequest) => Promise<MemorySearchResult['results']>,
+	): void {
 		this.onMemorySearch = handler
 	}
 
@@ -147,13 +152,7 @@ export class VoleNetSync {
 		// Clean old entries (keep last 5 minutes)
 		setTimeout(() => this.recentSyncs.delete(syncKey), 300_000)
 
-		const message = createMessage(
-			'memory:sync',
-			this.instanceId,
-			'*',
-			entry,
-			this.privateKey,
-		)
+		const message = createMessage('memory:sync', this.instanceId, '*', entry, this.privateKey)
 
 		const sent = await this.transport.broadcast(message)
 		if (sent > 0) {
@@ -221,13 +220,7 @@ export class VoleNetSync {
 		this.recentSyncs.add(syncKey)
 		setTimeout(() => this.recentSyncs.delete(syncKey), 300_000)
 
-		const message = createMessage(
-			'session:sync',
-			this.instanceId,
-			'*',
-			entry,
-			this.privateKey,
-		)
+		const message = createMessage('session:sync', this.instanceId, '*', entry, this.privateKey)
 
 		await this.transport.broadcast(message)
 	}
@@ -271,7 +264,9 @@ export class VoleNetSync {
 			try {
 				await this.onMemoryWrite(entry)
 			} catch (err) {
-				logger.warn(`Failed to apply memory sync: ${err instanceof Error ? err.message : String(err)}`)
+				logger.warn(
+					`Failed to apply memory sync: ${err instanceof Error ? err.message : String(err)}`,
+				)
 			}
 		}
 	}
@@ -301,7 +296,9 @@ export class VoleNetSync {
 			)
 			await this.transport.sendToPeer(message.from, response)
 		} catch (err) {
-			logger.warn(`Failed to handle memory search: ${err instanceof Error ? err.message : String(err)}`)
+			logger.warn(
+				`Failed to handle memory search: ${err instanceof Error ? err.message : String(err)}`,
+			)
 		}
 	}
 
@@ -343,7 +340,9 @@ export class VoleNetSync {
 			try {
 				await this.onSessionWrite(entry)
 			} catch (err) {
-				logger.warn(`Failed to apply session sync: ${err instanceof Error ? err.message : String(err)}`)
+				logger.warn(
+					`Failed to apply session sync: ${err instanceof Error ? err.message : String(err)}`,
+				)
 			}
 		}
 	}

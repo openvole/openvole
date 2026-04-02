@@ -1,15 +1,13 @@
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 import { parse as parseYaml } from 'yaml'
-import type { SkillDefinition } from './types.js'
 import { createLogger } from '../core/logger.js'
+import type { SkillDefinition } from './types.js'
 
 const logger = createLogger('skill-loader')
 
 /** Parse a SKILL.md file into a SkillDefinition */
-export async function loadSkillFromDirectory(
-	skillDir: string,
-): Promise<SkillDefinition | null> {
+export async function loadSkillFromDirectory(skillDir: string): Promise<SkillDefinition | null> {
 	const skillMdPath = path.join(skillDir, 'SKILL.md')
 
 	try {
@@ -26,10 +24,7 @@ export async function loadSkillFromDirectory(
 }
 
 /** Parse SKILL.md content (YAML frontmatter + markdown body) */
-function parseSkillMd(
-	content: string,
-	filePath: string,
-): SkillDefinition | null {
+function parseSkillMd(content: string, filePath: string): SkillDefinition | null {
 	const { frontmatter, body } = extractFrontmatter(content)
 
 	if (!frontmatter) {
@@ -67,11 +62,12 @@ function parseSkillMd(
 	return {
 		name: meta.name as string,
 		description: meta.description as string,
-		version: typeof meta.version === 'string'
-			? meta.version
-			: typeof meta.version === 'number'
-				? String(meta.version)
-				: undefined,
+		version:
+			typeof meta.version === 'string'
+				? meta.version
+				: typeof meta.version === 'number'
+					? String(meta.version)
+					: undefined,
 		requiredTools: toStringArray(meta.requiredTools),
 		optionalTools: toStringArray(meta.optionalTools),
 		instructions,
