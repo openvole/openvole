@@ -160,6 +160,8 @@ export async function runAgentLoop(
 				name: i.name,
 				role: i.role,
 				tools: toolsByPeer.get(i.name) ?? [],
+				hasBrain: Array.isArray(i.capabilities)
+					&& i.capabilities.some((c: string) => c.includes('paw-brain')),
 			})),
 		}
 	}

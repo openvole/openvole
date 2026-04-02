@@ -151,7 +151,7 @@ export function buildSystemPrompt(
 			instanceName: string
 			role: string
 			isLeader: boolean
-			peers: Array<{ name: string; role: string; tools: string[] }>
+			peers: Array<{ name: string; role: string; tools: string[]; hasBrain?: boolean }>
 		}
 		const lines = [`## VoleNet (Distributed Agent Network)`]
 		lines.push(`This instance: **${net.instanceName}** (${net.role}${net.isLeader ? ', leader' : ''})`)
@@ -159,11 +159,14 @@ export function buildSystemPrompt(
 			lines.push('Connected peers:')
 			for (const peer of net.peers) {
 				const toolList = peer.tools.length > 0 ? peer.tools.join(', ') : 'no tools shared'
-				lines.push(`- **${peer.name}** (${peer.role}) — ${toolList}`)
+				const brainTag = peer.hasBrain ? ', has brain' : ', no brain'
+				lines.push(`- **${peer.name}** (${peer.role}${brainTag}) — ${toolList}`)
 			}
 			lines.push('')
+			lines.push('Remote peer tools are available directly — call them like local tools.')
+			lines.push('When multiple peers share the same tool, use `<peerName>/<toolName>` to target a specific peer (e.g. `us-monitor/shell_exec`).')
 			lines.push('Use `discover_tools` with intent to find remote tools from peers.')
-			lines.push('Use `spawn_remote_agent` to delegate a full task to a specific peer instance.')
+			lines.push('IMPORTANT: `spawn_remote_agent` only works on peers that have a brain. For brainless workers, call their tools directly.')
 		} else {
 			lines.push('No peers connected.')
 		}

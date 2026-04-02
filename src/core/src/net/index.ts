@@ -246,37 +246,98 @@ export class VoleNetManager {
 				const discovery = this.discovery!
 				const toolProviders = this.toolProviders!
 
-				// Create wrapper tool definitions — route to best available peer at call time
-				const remoteToolDefs = tools
-					.filter((t) => !this.toolRegistry!.get(t.name)) // don't override local tools
-					.map((t) => ({
-						name: t.name,
-						description: `[remote: ${peerName}] ${t.description}`,
-						parameters: { parse: () => {} } as any,
-						async execute(params: unknown) {
-							// Pick best peer: least loaded among all providers of this tool
-							const providers = toolProviders.get(t.name) ?? [sourceInstanceId]
-							let targetId = providers[0]
+				// Create wrapper tool definitions — handle duplicates with peer-specific names
+				const remoteToolDefs: Array<{
+					name: string
+					description: string
+					parameters: any
+					execute: (params: unknown) => Promise<unknown>
+				}> = []
 
-							if (providers.length > 1) {
-								const instances = discovery.getInstances()
-								let bestLoad = Infinity
-								for (const pid of providers) {
-									const inst = instances.find((i) => i.id === pid)
-									if (inst && inst.load < bestLoad) {
-										bestLoad = inst.load
-										targetId = pid
+				for (const t of tools) {
+					const existingTool = this.toolRegistry!.get(t.name)
+					const isLocalTool = existingTool && !existingTool.pawName.startsWith('__volenet')
+
+					if (isLocalTool) {
+						// Don't override local tools — skip
+						continue
+					}
+
+					if (existingTool) {
+						// Another peer already registered this tool name — we have a conflict.
+						// Rename the existing tool to <existingPeerName>/<toolName>
+						// and register the new one as <peerName>/<toolName>.
+						const existingPeerName = existingTool.pawName
+							.replace('__volenet:', '')
+							.replace('__', '')
+						const existingPeerInstance = this.discovery?.getInstances()
+							.find((i) => i.name === existingPeerName)
+						const existingPeerId = existingPeerInstance?.id ?? sourceInstanceId
+
+						// Only rename existing if it hasn't been renamed yet (still plain name)
+						if (!existingTool.name.includes('/')) {
+							const renamedExisting = {
+								name: `${existingPeerName}/${t.name}`,
+								description: existingTool.description,
+								parameters: { parse: () => {} } as any,
+								async execute(params: unknown) {
+									const result = await remoteTaskMgr.executeRemoteTool(
+										existingPeerId, t.name, params,
+									)
+									if (result.success) return result.output
+									throw new Error(result.error ?? 'Remote tool execution failed')
+								},
+							}
+							this.toolRegistry!.register(existingTool.pawName, [renamedExisting], false)
+							logger.info(`Renamed remote tool ${t.name} → ${renamedExisting.name} (conflict resolution)`)
+						}
+
+						// Register new peer's tool as <peerName>/<toolName>
+						const prefixedName = `${peerName}/${t.name}`
+						remoteToolDefs.push({
+							name: prefixedName,
+							description: `[remote: ${peerName}] ${t.description}`,
+							parameters: { parse: () => {} } as any,
+							async execute(params: unknown) {
+								const result = await remoteTaskMgr.executeRemoteTool(
+									sourceInstanceId, t.name, params,
+								)
+								if (result.success) return result.output
+								throw new Error(result.error ?? 'Remote tool execution failed')
+							},
+						})
+					} else {
+						// First registration — use plain name, load-balanced
+						remoteToolDefs.push({
+							name: t.name,
+							description: `[remote: ${peerName}] ${t.description}`,
+							parameters: { parse: () => {} } as any,
+							async execute(params: unknown) {
+								// Pick best peer: least loaded among all providers of this tool
+								const providers = toolProviders.get(t.name) ?? [sourceInstanceId]
+								let targetId = providers[0]
+
+								if (providers.length > 1) {
+									const instances = discovery.getInstances()
+									let bestLoad = Infinity
+									for (const pid of providers) {
+										const inst = instances.find((i) => i.id === pid)
+										if (inst && inst.load < bestLoad) {
+											bestLoad = inst.load
+											targetId = pid
+										}
 									}
 								}
-							}
 
-							const result = await remoteTaskMgr.executeRemoteTool(
-								targetId, t.name, params,
-							)
-							if (result.success) return result.output
-							throw new Error(result.error ?? 'Remote tool execution failed')
-						},
-					}))
+								const result = await remoteTaskMgr.executeRemoteTool(
+									targetId, t.name, params,
+								)
+								if (result.success) return result.output
+								throw new Error(result.error ?? 'Remote tool execution failed')
+							},
+						})
+					}
+				}
 
 				if (remoteToolDefs.length > 0) {
 					this.toolRegistry!.register(pawLabel, remoteToolDefs, false)
