@@ -42,6 +42,12 @@ export default defineConfig({
         ],
       },
       {
+        text: 'VoleNet',
+        items: [
+          { text: 'Distributed Networking', link: '/volenet' },
+        ],
+      },
+      {
         text: 'CLI',
         items: [
           { text: 'Commands', link: '/cli' },
