@@ -176,6 +176,16 @@ export class PawRegistry {
 			return true
 		} catch (err) {
 			logger.error(`Failed to load Paw "${pawName}": ${err}`)
+			// Register as unhealthy so it appears on the dashboard
+			this.paws.set(pawName, {
+				name: pawName,
+				manifest,
+				config,
+				healthy: false,
+				inProcess: manifest.inProcess ?? false,
+				transport: manifest.inProcess ? 'in-process' : 'ipc',
+			} as PawInstance)
+			this.bus.emit('paw:crashed', { pawName })
 			return false
 		}
 	}
