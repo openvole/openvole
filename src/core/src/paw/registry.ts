@@ -239,9 +239,28 @@ export class PawRegistry {
 		return this.configToManifest.get(configName) ?? configName
 	}
 
-	/** Set the Brain Paw name (accepts config path or manifest name) */
+	/** Set the Brain Paw name (accepts config path, manifest name, or package name) */
 	setBrain(name: string): void {
-		this.brainPawName = this.configToManifest.get(name) ?? name
+		// Direct config path match
+		const fromConfig = this.configToManifest.get(name)
+		if (fromConfig) {
+			this.brainPawName = fromConfig
+			return
+		}
+		// Check if it matches a manifest name directly (already loaded paw)
+		if (this.paws.has(name)) {
+			this.brainPawName = name
+			return
+		}
+		// Check if any loaded paw's manifest name matches (e.g. "@openvole/paw-brain")
+		for (const [, manifestName] of this.configToManifest) {
+			if (manifestName === name) {
+				this.brainPawName = manifestName
+				return
+			}
+		}
+		// Fallback — use as-is
+		this.brainPawName = name
 	}
 
 	/** Get the Brain Paw name */
