@@ -409,7 +409,7 @@ async function initProject(projectRoot: string): Promise<void> {
 	// Create .env template
 	await fs.writeFile(
 		path.join(projectRoot, '.env'),
-		'# OpenVole Environment\nVOLE_LOG_LEVEL=info\n',
+		'# OpenVole Environment\nVOLE_LOG_FILE=.openvole/logs/vole.log\nVOLE_LOG_LEVEL=info\n',
 		'utf-8',
 	)
 
@@ -624,8 +624,29 @@ async function handlePawCommand(args: string[], projectRoot: string): Promise<vo
 					'paws',
 					manifest.name.replace(/^@openvole\//, ''),
 				)
-				const { mkdir } = await import('node:fs/promises')
-				await mkdir(pawDataDir, { recursive: true })
+				const fsModule = await import('node:fs/promises')
+				await fsModule.mkdir(pawDataDir, { recursive: true })
+
+				// Scaffold BRAIN.md for brain paws
+				const pkgBrainPath = path.join(projectRoot, 'node_modules', name, 'BRAIN.md')
+				try {
+					const brainContent = await fsModule.readFile(pkgBrainPath, 'utf-8')
+					if (brainContent.trim()) {
+						const localBrainPath = path.join(pawDataDir, 'BRAIN.md')
+						try {
+							await fsModule.access(localBrainPath)
+							await fsModule.rename(localBrainPath, path.join(pawDataDir, 'BRAIN.md.old'))
+							logger.info(`  Backed up ${manifest.name}/BRAIN.md → BRAIN.md.old`)
+						} catch {
+							// No existing BRAIN.md
+						}
+						await fsModule.writeFile(localBrainPath, brainContent, 'utf-8')
+						logger.info(`  Scaffolded ${manifest.name}/BRAIN.md`)
+					}
+				} catch {
+					// No BRAIN.md in package — not a brain paw
+				}
+
 				logger.info(`Added ${name}@${manifest.version} to vole.config.json`)
 				if (manifest.permissions?.listen?.length) {
 					logger.info(`  listen ports: ${manifest.permissions.listen.join(', ')}`)
