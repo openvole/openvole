@@ -605,20 +605,10 @@ export class PawRegistry {
 			return { ok: true }
 		})
 
-		// Handle Paw → Core: restart engine (spawn new process before exiting)
+		// Handle Paw → Core: restart engine
 		transport.onRequest('restart_engine', async () => {
 			logger.info(`Engine restart requested by paw "${pawName}"`)
-			setTimeout(async () => {
-				const { spawn } = await import('node:child_process')
-				const child = spawn(process.argv[0], process.argv.slice(1), {
-					cwd: process.cwd(),
-					stdio: 'inherit',
-					detached: true,
-					env: process.env,
-				})
-				child.unref()
-				process.exit(0)
-			}, 500)
+			this.bus.emit('engine:restart' as any, {})
 			return { ok: true, message: 'Restarting...' }
 		})
 	}

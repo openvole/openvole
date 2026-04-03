@@ -27,6 +27,7 @@ export type BusEvents = {
 		error?: string
 	}
 	'rate:limited': { bucket: string; source?: string }
+	'engine:restart': Record<string, never>
 }
 
 export type MessageBus = Emitter<BusEvents>

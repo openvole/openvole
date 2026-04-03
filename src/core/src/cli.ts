@@ -171,8 +171,17 @@ async function startInteractive(projectRoot: string): Promise<void> {
 	const { setNotifySuppressed } = await import('./io/tty.js')
 	setNotifySuppressed(true)
 
-	const engine = await createEngine(projectRoot)
+	let engine = await createEngine(projectRoot)
 	await engine.start()
+
+	// Handle engine restart requests (from dashboard)
+	engine.bus.on('engine:restart', async () => {
+		logger.info('Engine restarting...')
+		await engine.shutdown()
+		engine = await createEngine(projectRoot)
+		await engine.start()
+		logger.info('Engine restarted successfully')
+	})
 
 	// Welcome screen
 	const { readFile } = await import('node:fs/promises')
