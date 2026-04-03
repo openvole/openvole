@@ -375,20 +375,11 @@ async function initProject(projectRoot: string): Promise<void> {
 	}
 	await fs.writeFile(configPath, JSON.stringify(config, null, 2) + '\n', 'utf-8')
 
-	// Create .openvole directory structure
+	// Create .openvole directory structure (paw dirs are created by `vole paw add`)
 	await fs.mkdir(path.join(projectRoot, '.openvole', 'skills'), { recursive: true })
 	await fs.mkdir(path.join(projectRoot, '.openvole', 'skills', 'clawhub'), { recursive: true })
 	await fs.mkdir(path.join(projectRoot, '.openvole', 'workspace'), { recursive: true })
-	await fs.mkdir(path.join(projectRoot, '.openvole', 'paws', 'paw-memory'), { recursive: true })
-	await fs.mkdir(path.join(projectRoot, '.openvole', 'paws', 'paw-session'), { recursive: true })
-	await fs.mkdir(path.join(projectRoot, '.openvole', 'paws', 'paw-mcp'), { recursive: true })
-
-	// Create default MEMORY.md
-	await fs.writeFile(
-		path.join(projectRoot, '.openvole', 'paws', 'paw-memory', 'MEMORY.md'),
-		'# Memory\n\nLong-term memory for the agent. Store important facts, user preferences, and decisions here.\n',
-		'utf-8',
-	)
+	await fs.mkdir(path.join(projectRoot, '.openvole', 'paws'), { recursive: true })
 
 	// Create HEARTBEAT.md inside .openvole
 	await fs.writeFile(

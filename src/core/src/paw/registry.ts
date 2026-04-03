@@ -1,4 +1,7 @@
+import * as fs from 'node:fs/promises'
+import * as path from 'node:path'
 import type { AgentContext } from '../context/types.js'
+import { readConfigFile, writeConfigFile } from '../config/index.js'
 import type { MessageBus } from '../core/bus.js'
 import type { ActionResult } from '../core/errors.js'
 import type { IpcTransport } from '../core/ipc.js'
@@ -532,6 +535,82 @@ export class PawRegistry {
 			const task = this.taskQueue.enqueue(input, source ?? 'paw', { sessionId, metadata })
 			logger.info(`Paw "${pawName}" created task ${task.id}: "${input.substring(0, 50)}"`)
 			return { taskId: task.id }
+		})
+
+		// Handle Paw → Core: read vole.config.json
+		transport.onRequest('read_config', async () => {
+			return readConfigFile(this.projectRoot)
+		})
+
+		// Handle Paw → Core: write vole.config.json
+		transport.onRequest('write_config', async (params) => {
+			const { config } = params as { config: Record<string, unknown> }
+			if (!config || typeof config !== 'object') {
+				return { error: 'Invalid config object' }
+			}
+			await writeConfigFile(this.projectRoot, config)
+			logger.info(`Config updated by paw "${pawName}"`)
+			return { ok: true }
+		})
+
+		// Handle Paw → Core: read identity files
+		transport.onRequest('read_identity', async () => {
+			const openvoleDir = path.join(this.projectRoot, '.openvole')
+			const files: Record<string, string> = {}
+
+			const identityFiles = ['SOUL.md', 'USER.md', 'AGENT.md', 'HEARTBEAT.md']
+			for (const file of identityFiles) {
+				try {
+					files[file] = await fs.readFile(path.join(openvoleDir, file), 'utf-8')
+				} catch {
+					files[file] = ''
+				}
+			}
+
+			// BRAIN.md lives under the brain paw's data directory
+			const brainPaw = this.brainPawName?.replace('@openvole/', '') ?? 'paw-brain'
+			try {
+				files['BRAIN.md'] = await fs.readFile(
+					path.join(openvoleDir, 'paws', brainPaw, 'BRAIN.md'),
+					'utf-8',
+				)
+			} catch {
+				files['BRAIN.md'] = ''
+			}
+
+			return files
+		})
+
+		// Handle Paw → Core: write a single identity file
+		transport.onRequest('write_identity', async (params) => {
+			const { filename, content } = params as { filename: string; content: string }
+			const allowed = ['SOUL.md', 'USER.md', 'AGENT.md', 'HEARTBEAT.md', 'BRAIN.md']
+			if (!allowed.includes(filename)) {
+				return { error: `Invalid identity file: ${filename}` }
+			}
+
+			const openvoleDir = path.join(this.projectRoot, '.openvole')
+			let filePath: string
+
+			if (filename === 'BRAIN.md') {
+				const brainPaw = this.brainPawName?.replace('@openvole/', '') ?? 'paw-brain'
+				filePath = path.join(openvoleDir, 'paws', brainPaw, 'BRAIN.md')
+			} else {
+				filePath = path.join(openvoleDir, filename)
+			}
+
+			await fs.mkdir(path.dirname(filePath), { recursive: true })
+			await fs.writeFile(filePath, content, 'utf-8')
+			logger.info(`Identity file "${filename}" updated by paw "${pawName}"`)
+			return { ok: true }
+		})
+
+		// Handle Paw → Core: restart engine
+		transport.onRequest('restart_engine', async () => {
+			logger.info(`Engine restart requested by paw "${pawName}"`)
+			// Give time for the response to reach the paw before exiting
+			setTimeout(() => process.exit(0), 500)
+			return { ok: true, message: 'Restarting...' }
 		})
 	}
 
