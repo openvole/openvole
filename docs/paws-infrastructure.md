@@ -69,7 +69,7 @@ No LLM needed — pure extraction. Fast and free.
 
 ### paw-dashboard
 
-Real-time web UI showing paws, tools, skills, tasks, schedules, and live events.
+Real-time web **control panel** — monitor *and operate* the agent from your browser: paws (with health), tools, skills, tasks, schedules, and live events, plus editing config and identity files and restarting the engine.
 
 ```bash
 npx vole paw add @openvole/paw-dashboard
@@ -91,4 +91,9 @@ Configuration:
 }
 ```
 
-The dashboard connects to the engine's message bus and displays real-time state updates — no polling.
+The dashboard connects to the engine's message bus and streams state updates over WebSocket — no polling. As of 3.1.0 it's a full control panel, not just a viewer:
+
+- **Config editor** — edit `vole.config.json` across 8 sections (brain, heartbeat, loop, security/Docker, paws, tool profiles, agents, net)
+- **Identity editor** — edit `SOUL.md`, `USER.md`, `AGENT.md`, `HEARTBEAT.md`, and `BRAIN.md`
+- **One-click restart** — apply config/identity changes in-process, no terminal needed
+- **Live event log** — task lifecycle, paw/tool registration, crashes, rate limits, VoleNet executions

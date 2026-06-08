@@ -1,5 +1,32 @@
 # Changelog
 
+## v3.1.0 (2026-06-08)
+
+### Dashboard Control Panel
+- paw-dashboard upgraded from read-only monitoring to a full control panel
+- Config editor — edit `vole.config.json` from the browser across 8 sections (brain, heartbeat, loop, security/Docker sandbox, paws, tool profiles, agents, net)
+- Identity editor — edit `SOUL.md`, `USER.md`, `AGENT.md`, `HEARTBEAT.md`, and `BRAIN.md` in the browser
+- One-click engine restart to apply config/identity changes without the terminal
+- Live event log for task lifecycle, paw/tool registration, crashes, rate limits, and VoleNet executions
+- Engine IPC handlers backing the panel: `read_config`, `write_config`, `read_identity`, `write_identity`, `restart_engine`
+- In-process engine restart (no detached child process), triggered via the `engine:restart` bus event
+- Crashed paws now surface as unhealthy on the dashboard instead of disappearing silently
+
+### Brain
+- **Behavior change**: paw-brain no longer silently defaults to Ollama. If no provider is configured (`BRAIN_PROVIDER`, a provider API key, or `OLLAMA_HOST`/`OLLAMA_MODEL`), it now exits with a clear error
+- paw-brain self-scaffolds `BRAIN.md` on first load if missing
+
+### Security
+- Bumped `ws` to `^8.20.1` in core and paw-dashboard (resolves moderate DoS advisory)
+
+### Quality of life
+- Cleaner `vole init` — no pre-created paw directories or placeholder files
+- `vole paw add` scaffolds `BRAIN.md` when adding a brain paw
+- Suppressed spurious ENOENT warning when `schedules.json` doesn't exist yet
+
+### Package versions
+- `openvole` 3.1.0 · `@openvole/paw-dashboard` 3.1.0 · `@openvole/paw-brain` 2.1.0
+
 ## v3.0.0 (2026-04-02)
 
 ### VoleNet — Distributed Agent Networking

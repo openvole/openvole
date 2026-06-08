@@ -45,6 +45,8 @@ Set the active brain in `vole.config.json`:
 
 Generic env vars (`BRAIN_API_KEY`, `BRAIN_MODEL`) work across all providers. Provider-specific env vars (e.g. `GEMINI_API_KEY`) take precedence over generic ones.
 
+**A provider must be configured.** If none is set — no `BRAIN_PROVIDER`, no provider API key, and no `OLLAMA_HOST`/`OLLAMA_MODEL` — paw-brain exits with a clear error instead of silently defaulting to Ollama (changed in 2.1.0).
+
 ## BRAIN.md
 
 The Brain Paw scaffolds a `BRAIN.md` file in its local config directory on first run:

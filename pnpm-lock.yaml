@@ -38,8 +38,8 @@ importers:
         specifier: ^3.0.1
         version: 3.0.1
       ws:
-        specifier: ^8.18.0
-        version: 8.20.0
+        specifier: ^8.20.1
+        version: 8.21.0
       yaml:
         specifier: '>=2.8.3'
         version: 2.8.3
@@ -1612,8 +1612,8 @@ packages:
   wrappy@1.0.2:
     resolution: {integrity: sha512-l4Sp/DRseor9wL6EvV2+TuQn63dMkPjZ/sp9XkghTEbV9KlPS1xUsZ3u7/IQO4wxtcFB4bgpQPRcR3QCvezPcQ==}
 
-  ws@8.20.0:
-    resolution: {integrity: sha512-sAt8BhgNbzCtgGbt2OxmpuryO63ZoDk/sqaB/znQm94T4fCEsy/yV+7CdC1kJhOU9lboAEU7R3kquuycDoibVA==}
+  ws@8.21.0:
+    resolution: {integrity: sha512-Vsp28b7DRcimFQvrqu2Wek3z1iYxDCWqHYB8Qsnk/S4RfaCQzPGPyBNuVjJV3cd6UiKtUtp6sNM77gWvzcCH+g==}
     engines: {node: '>=10.0.0'}
     peerDependencies:
       bufferutil: ^4.0.1
@@ -3222,7 +3222,7 @@ snapshots:
   wrappy@1.0.2:
     optional: true
 
-  ws@8.20.0: {}
+  ws@8.21.0: {}
 
   y18n@5.0.8:
     optional: true
