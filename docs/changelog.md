@@ -15,6 +15,7 @@
 ### Brain
 - **Behavior change**: paw-brain no longer silently defaults to Ollama. If no provider is configured (`BRAIN_PROVIDER`, a provider API key, or `OLLAMA_HOST`/`OLLAMA_MODEL`), it now exits with a clear error
 - paw-brain self-scaffolds `BRAIN.md` on first load if missing
+- Fixed the fallback path crashing with a `ReferenceError` when the primary provider errored and `BRAIN_FALLBACK` was set (vars were scoped to the `try` block)
 
 ### Security
 - Bumped `ws` to `^8.20.1` in core and paw-dashboard (resolves moderate DoS advisory)
