@@ -2,6 +2,7 @@
 
 import 'dotenv/config'
 import * as path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import {
 	addPawToConfig,
 	addSkillToConfig,
@@ -29,6 +30,8 @@ async function main(): Promise<void> {
 		command !== '--version' &&
 		command !== '-v' &&
 		command !== 'upgrade' &&
+		command !== 'space' &&
+		command !== '__run-space' &&
 		command !== undefined
 	) {
 		const fsCheck = await import('node:fs/promises')
@@ -83,6 +86,20 @@ async function main(): Promise<void> {
 		case 'net':
 			await handleNetCommand(args.slice(1), projectRoot)
 			break
+
+		case 'space':
+			await handleSpaceCommand(args.slice(1))
+			break
+
+		case '__run-space': {
+			const spacePath = args[1]
+			if (!spacePath) {
+				logger.error('Usage: vole __run-space <dir>')
+				process.exit(1)
+			}
+			await runSpaceDaemon(path.resolve(spacePath))
+			break
+		}
 
 		case 'upgrade':
 			await handleUpgrade(projectRoot)
@@ -153,6 +170,15 @@ VoleNet (distributed networking):
   vole net revoke <id>                   Remove trust for a peer
   vole net peers                         List trusted peers
   vole net status                        Network status overview
+
+Space management:
+  vole space create <name>               Scaffold a new space (agent container)
+  vole space list                        List spaces and running status
+  vole space start <name>                Start a space's engine (lazy, own process)
+  vole space stop <name> | --all         Stop a space (or all spaces)
+  vole space status [name]               Show live status (pid, port)
+  vole space switch <name>               Set the active space
+  vole space remove <name> [--purge]     Remove a space (--purge deletes files)
 
 Task management:
   vole task list                         Show task queue
@@ -358,79 +384,15 @@ async function runSingle(projectRoot: string, input: string): Promise<void> {
 }
 
 async function initProject(projectRoot: string): Promise<void> {
-	const fs = await import('node:fs/promises')
-
-	const configPath = path.resolve(projectRoot, 'vole.config.json')
+	const { scaffoldProject } = await import('./space/scaffold.js')
 	try {
-		await fs.access(configPath)
-		logger.error('vole.config.json already exists')
-		return
-	} catch {
-		// File doesn't exist, proceed
-	}
-
-	const config = {
-		paws: [],
-		skills: [],
-		loop: {
-			maxIterations: 10,
-			confirmBeforeAct: true,
-			taskConcurrency: 1,
-		},
-		heartbeat: {
-			enabled: false,
-			intervalMinutes: 30,
-		},
-	}
-	await fs.writeFile(configPath, JSON.stringify(config, null, 2) + '\n', 'utf-8')
-
-	// Create .openvole directory structure (paw dirs are created by `vole paw add`)
-	await fs.mkdir(path.join(projectRoot, '.openvole', 'skills'), { recursive: true })
-	await fs.mkdir(path.join(projectRoot, '.openvole', 'skills', 'clawhub'), { recursive: true })
-	await fs.mkdir(path.join(projectRoot, '.openvole', 'workspace'), { recursive: true })
-	await fs.mkdir(path.join(projectRoot, '.openvole', 'paws'), { recursive: true })
-
-	// Create HEARTBEAT.md inside .openvole
-	await fs.writeFile(
-		path.join(projectRoot, '.openvole', 'HEARTBEAT.md'),
-		'# Heartbeat\n\n## Jobs\n\n<!-- Add recurring jobs here -->\n',
-		'utf-8',
-	)
-
-	// Create identity files
-	// Note: BRAIN.md is managed by each Brain Paw in .openvole/paws/<brain-name>/BRAIN.md
-	await fs.writeFile(
-		path.join(projectRoot, '.openvole', 'SOUL.md'),
-		"# Soul\n\nThe agent's personality, tone, and identity.\n\n## Identity\n- Name: OpenVole Agent\n- Personality: Helpful, concise, and proactive\n- Tone: Professional but friendly\n",
-		'utf-8',
-	)
-	await fs.writeFile(
-		path.join(projectRoot, '.openvole', 'USER.md'),
-		'# User\n\nInformation about the user.\n\n## Profile\n- Name:\n- Timezone:\n- Language: English\n',
-		'utf-8',
-	)
-	await fs.writeFile(
-		path.join(projectRoot, '.openvole', 'AGENT.md'),
-		'# Agent\n\nOperating rules and behavioral guidelines.\n\n## Rules\n- Always be helpful and direct\n- Ask for clarification when a request is ambiguous\n- Save important findings to memory for future reference\n- Store credentials in the vault, never in workspace or memory\n- When reading API docs or instructions, save them to workspace immediately\n',
-		'utf-8',
-	)
-
-	// Create .env template
-	await fs.writeFile(
-		path.join(projectRoot, '.env'),
-		'# OpenVole Environment\nVOLE_LOG_FILE=.openvole/logs/vole.log\nVOLE_LOG_LEVEL=info\n',
-		'utf-8',
-	)
-
-	// Create .gitignore
-	try {
-		await fs.access(path.join(projectRoot, '.gitignore'))
-	} catch {
-		await fs.writeFile(
-			path.join(projectRoot, '.gitignore'),
-			'node_modules/\n.env\n.openvole/\n.DS_Store\n',
-			'utf-8',
-		)
+		await scaffoldProject(projectRoot)
+	} catch (err) {
+		if (err instanceof Error && err.message.includes('already exists')) {
+			logger.error('vole.config.json already exists')
+			return
+		}
+		throw err
 	}
 
 	logger.info('Created vole.config.json')
@@ -1704,6 +1666,156 @@ async function handleNetCommand(args: string[], projectRoot: string): Promise<vo
 			logger.info('Available: init, show-key, trust, revoke, peers, status')
 			process.exit(1)
 	}
+}
+
+async function handleSpaceCommand(args: string[]): Promise<void> {
+	const { setLoggerSilent } = await import('./core/logger.js')
+	setLoggerSilent(false) // user-facing command — show logger output on the console
+	const { SpaceManager } = await import('./space/manager.js')
+	const mgr = new SpaceManager()
+	const subcommand = args[0]
+
+	switch (subcommand) {
+		case 'create': {
+			const rest = args.slice(1)
+			let customPath: string | undefined
+			const nameParts: string[] = []
+			for (let i = 0; i < rest.length; i++) {
+				if (rest[i] === '--path') {
+					customPath = rest[i + 1]
+					i++
+					continue
+				}
+				nameParts.push(rest[i])
+			}
+			const name = nameParts.join(' ')
+			if (!name) {
+				logger.error('Usage: vole space create <name> [--path <dir>]')
+				process.exit(1)
+			}
+			const entry = await mgr.create(name, customPath ? { path: customPath } : undefined)
+			logger.info(`Created space "${entry.id}"`)
+			logger.info(`  path: ${entry.path}`)
+			logger.info(`  dashboard port: ${entry.dashboardPort}`)
+			logger.info('')
+			logger.info(`Equip it with paws, then: vole space start ${entry.id}`)
+			break
+		}
+
+		case 'list':
+		case 'status': {
+			const target = subcommand === 'status' ? args[1] : undefined
+			const spaces = await mgr.status(target)
+			if (spaces.length === 0) {
+				logger.info('No spaces. Create one with "vole space create <name>".')
+				break
+			}
+			const reg = await mgr.readRegistry()
+			for (const s of spaces) {
+				const active = reg.activeId === s.id ? '*' : ' '
+				const state = s.state === 'running' ? `running (pid ${s.pid})` : 'stopped'
+				logger.info(
+					`${active} ${s.id.padEnd(16)} ${state.padEnd(22)} :${s.dashboardPort}  ${s.path}`,
+				)
+			}
+			break
+		}
+
+		case 'start': {
+			const id = args[1]
+			if (!id) {
+				logger.error('Usage: vole space start <name>')
+				process.exit(1)
+			}
+			const cliPath = fileURLToPath(import.meta.url)
+			const { pid, reused } = await mgr.start(id, { cliPath })
+			logger.info(
+				reused
+					? `Space "${id}" already running (pid ${pid})`
+					: `Started space "${id}" (pid ${pid})`,
+			)
+			break
+		}
+
+		case 'stop': {
+			if (args[1] === '--all') {
+				const n = await mgr.stopAll()
+				logger.info(`Stopped ${n} space(s)`)
+				break
+			}
+			const id = args[1]
+			if (!id) {
+				logger.error('Usage: vole space stop <name> | --all')
+				process.exit(1)
+			}
+			const stopped = await mgr.stop(id)
+			logger.info(stopped ? `Stopped space "${id}"` : `Space "${id}" was not running`)
+			break
+		}
+
+		case 'switch': {
+			const id = args[1]
+			if (!id) {
+				logger.error('Usage: vole space switch <name>')
+				process.exit(1)
+			}
+			const entry = await mgr.switchTo(id)
+			logger.info(`Active space: "${entry.id}"`)
+			break
+		}
+
+		case 'remove': {
+			const id = args.slice(1).find((a) => !a.startsWith('--'))
+			if (!id) {
+				logger.error('Usage: vole space remove <name> [--purge]')
+				process.exit(1)
+			}
+			const purge = args.includes('--purge')
+			await mgr.remove(id, { purge })
+			logger.info(`Removed space "${id}"${purge ? ' (files deleted)' : ''}`)
+			break
+		}
+
+		default:
+			logger.error(`Unknown space command: ${subcommand}`)
+			logger.info('Available: create, list, start, stop, status, switch, remove')
+			process.exit(1)
+	}
+}
+
+/** Daemon entry — runs a single space's engine in this (subprocess) process until SIGTERM. */
+async function runSpaceDaemon(projectRoot: string): Promise<void> {
+	let engine = await createEngine(projectRoot)
+
+	const wireRestart = (eng: typeof engine): void => {
+		eng.bus.on('engine:restart', async () => {
+			logger.info('Engine restarting...')
+			await eng.shutdown()
+			engine = await createEngine(projectRoot)
+			wireRestart(engine)
+			await engine.start()
+			logger.info('Engine restarted successfully')
+		})
+	}
+	wireRestart(engine)
+	await engine.start()
+
+	// Keep the event loop alive even if the space has no listening paws yet
+	// (a pending promise alone would let Node exit once the loop drains).
+	const keepAlive = setInterval(() => {}, 1 << 30)
+
+	const shutdown = (): void => {
+		clearInterval(keepAlive)
+		engine
+			.shutdown()
+			.then(() => process.exit(0))
+			.catch(() => process.exit(1))
+	}
+	process.on('SIGINT', shutdown)
+	process.on('SIGTERM', shutdown)
+
+	// Park until a shutdown signal arrives (the handlers above call process.exit).
+	await new Promise<void>(() => {})
 }
 
 main().catch((err) => {

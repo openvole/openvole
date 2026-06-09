@@ -685,7 +685,7 @@ export function createCoreTools(
 			parameters: z.object({
 				task_id: z.string().describe('Remote task ID from spawn_remote_agent'),
 			}),
-			async execute(params) {
+			async execute(_params) {
 				// Remote results are returned inline by spawn_remote_agent (it waits)
 				// This tool exists for future async delegation
 				return {
