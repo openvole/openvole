@@ -57,6 +57,8 @@ export class ControlPlane {
 			listSpaces: () => this.listSpaces(),
 			startSpace: (id) => this.startSpace(id),
 			stopSpace: (id) => this.stopSpace(id),
+			createSpace: (name) => this.createSpace(name),
+			removeSpace: (id) => this.removeSpace(id),
 			fetchState: (id) => this.callSpace(id, 'state'),
 			readConfig: (id) => this.callSpace(id, 'read_config'),
 			writeConfig: (config, id) => this.callSpace(id, 'write_config', { config }),
@@ -119,6 +121,19 @@ export class ControlPlane {
 		setTimeout(() => {
 			if (!proc.killed) proc.kill('SIGKILL')
 		}, STOP_GRACE_MS)
+		this.broadcastSpaces()
+		return { ok: true }
+	}
+
+	async createSpace(name: string): Promise<{ ok: true }> {
+		await this.manager.create(name)
+		this.broadcastSpaces()
+		return { ok: true }
+	}
+
+	async removeSpace(id: string): Promise<{ ok: true }> {
+		await this.stopSpace(id)
+		await this.manager.remove(id, { purge: false })
 		this.broadcastSpaces()
 		return { ok: true }
 	}

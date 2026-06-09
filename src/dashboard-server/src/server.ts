@@ -26,6 +26,8 @@ export interface SpaceSummary {
 export interface DashboardCallbacks {
 	/** Multi-space (control plane). Omitted by the single-engine paw. */
 	listSpaces?: () => Promise<SpaceSummary[]>
+	createSpace?: (name: string) => Promise<unknown>
+	removeSpace?: (spaceId: string) => Promise<unknown>
 	startSpace?: (spaceId: string) => Promise<unknown>
 	stopSpace?: (spaceId: string) => Promise<unknown>
 	/** Per-space; spaceId is undefined in single-engine mode. */
@@ -134,6 +136,16 @@ export function createDashboardServer(
 					const p = cmd.params as { spaceId?: string }
 					selected.set(ws, p?.spaceId)
 					respond(await callbacks.fetchState(p?.spaceId))
+					break
+				}
+				case 'create_space': {
+					const p = cmd.params as { name: string }
+					respond(await callbacks.createSpace?.(p?.name))
+					break
+				}
+				case 'remove_space': {
+					const p = cmd.params as { spaceId: string }
+					respond(await callbacks.removeSpace?.(p?.spaceId))
 					break
 				}
 				case 'start_space': {

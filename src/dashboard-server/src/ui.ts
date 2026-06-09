@@ -652,10 +652,13 @@ export function getDashboardHtml(wsPort: number): string {
     </a>
   </div>
   <div class="header-right">
-    <div class="space-switcher" id="space-switcher" style="display:none;align-items:center;gap:8px;margin-right:12px">
+    <div class="space-switcher" id="space-switcher" style="display:flex;align-items:center;gap:8px;margin-right:12px">
+      <span style="opacity:0.7">Space:</span>
       <select id="space-select" onchange="selectSpace(this.value)"></select>
       <button class="btn-restart" id="btn-space-start" title="Start space" onclick="spaceAction('start_space')">Start</button>
       <button class="btn-restart" id="btn-space-stop" title="Stop space" onclick="spaceAction('stop_space')">Stop</button>
+      <button class="btn-restart" id="btn-space-new" title="Create a new space" onclick="createSpacePrompt()">+ New</button>
+      <button class="btn-restart" id="btn-space-remove" title="Remove this space" onclick="removeSpacePrompt()">Remove</button>
     </div>
     <div class="stats">
       <span><span class="stat-val" id="stat-paws">0</span> paws</span>
@@ -1009,10 +1012,14 @@ var currentSpaceId = null;
 var lastSpaces = [];
 function renderSpaces(spaces) {
   lastSpaces = spaces || [];
-  var bar = document.getElementById('space-switcher');
   var sel = document.getElementById('space-select');
-  if (lastSpaces.length === 0) { bar.style.display = 'none'; return; }
-  bar.style.display = 'flex';
+  document.getElementById('space-switcher').style.display = 'flex';
+  if (lastSpaces.length === 0) {
+    sel.innerHTML = '<option value="">no spaces yet — click + New</option>';
+    currentSpaceId = null;
+    updateSpaceButtons();
+    return;
+  }
   sel.innerHTML = lastSpaces.map(function(s) {
     return '<option value="' + esc(s.id) + '">' + esc(s.name) + ' — ' + esc(s.state) + '</option>';
   }).join('');
@@ -1025,11 +1032,36 @@ function renderSpaces(spaces) {
 }
 function updateSpaceButtons() {
   var s = lastSpaces.filter(function(x) { return x.id === currentSpaceId; })[0];
+  var has = !!s;
   var isRunning = s && s.state === 'running';
-  document.getElementById('btn-space-start').style.display = isRunning ? 'none' : '';
-  document.getElementById('btn-space-stop').style.display = isRunning ? '' : 'none';
+  document.getElementById('btn-space-start').style.display = (has && !isRunning) ? '' : 'none';
+  document.getElementById('btn-space-stop').style.display = (has && isRunning) ? '' : 'none';
+  document.getElementById('btn-space-remove').style.display = has ? '' : 'none';
+}
+function createSpacePrompt() {
+  var name = prompt('New space name:');
+  if (!name) return;
+  sendCommand('create_space', { name: name }).then(function() {
+    return sendCommand('list_spaces');
+  }).then(function(spaces) {
+    renderSpaces(spaces);
+    showToast('Created space "' + name + '"', 'success');
+  }).catch(function(e) { showToast(e.message, 'error'); });
+}
+function removeSpacePrompt() {
+  if (!currentSpaceId) return;
+  if (!confirm('Remove space "' + currentSpaceId + '"? (its files are kept on disk)')) return;
+  var id = currentSpaceId;
+  sendCommand('remove_space', { spaceId: id }).then(function() {
+    currentSpaceId = null;
+    return sendCommand('list_spaces');
+  }).then(function(spaces) {
+    renderSpaces(spaces);
+    showToast('Removed space "' + id + '"', 'success');
+  }).catch(function(e) { showToast(e.message, 'error'); });
 }
 function selectSpace(id) {
+  if (!id) { currentSpaceId = null; updateSpaceButtons(); return; }
   currentSpaceId = id;
   updateSpaceButtons();
   sendCommand('select_space', { spaceId: id }).then(function(state) {
@@ -1596,5 +1628,5 @@ function esc(s) {
 }
 </script>
 </body>
-</html>`;
+</html>`
 }
