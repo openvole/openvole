@@ -900,6 +900,8 @@ export function getDashboardHtml(wsPort: number): string {
           <div class="form-field">
             <div class="form-help">Array of paw configurations. Each entry is a string or { name, allow: { network, listen, filesystem, env, childProcess } }</div>
             <textarea class="form-textarea" id="cfg-paws" rows="8" placeholder='["@openvole/paw-brain"]'>[]</textarea>
+            <button class="btn-restart" type="button" id="btn-browse-paws" onclick="browsePaws()" style="margin-top:8px">Browse official paws</button>
+            <div id="paw-catalog" style="margin-top:8px"></div>
           </div>
         </div>
       </div>
@@ -1147,6 +1149,53 @@ function toggleSection(headerEl) {
 /* ── Config Page ── */
 var cachedConfig = null;
 
+var lastCatalog = [];
+function browsePaws() {
+  var cat = document.getElementById('paw-catalog');
+  cat.innerHTML = '<div style="opacity:0.7">Loading official paws…</div>';
+  sendCommand('list_available_paws').then(function(paws) {
+    renderPawCatalog(paws || []);
+  }).catch(function(e) {
+    cat.innerHTML = '<div style="color:var(--red)">Could not load paws: ' + esc(e.message) + '</div>';
+  });
+}
+function currentConfiguredPaws() {
+  try {
+    return JSON.parse(document.getElementById('cfg-paws').value || '[]').map(function(p) {
+      return typeof p === 'string' ? p : (p && p.name);
+    });
+  } catch (e) { return []; }
+}
+function renderPawCatalog(paws) {
+  lastCatalog = paws;
+  var cat = document.getElementById('paw-catalog');
+  if (!paws.length) { cat.innerHTML = '<div style="opacity:0.7">No official paws found.</div>'; return; }
+  var have = currentConfiguredPaws();
+  cat.innerHTML = paws.map(function(p) {
+    var added = have.indexOf(p.name) >= 0;
+    return '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)">'
+      + '<div><div style="font-weight:600">' + esc(p.name) + ' <span style="opacity:0.6;font-weight:400">' + esc(p.version || '') + '</span></div>'
+      + '<div style="opacity:0.7;font-size:0.85em">' + esc(p.description || '') + '</div></div>'
+      + '<button class="btn-restart" type="button" data-paw="' + esc(p.name) + '"' + (added ? ' disabled' : '') + '>' + (added ? 'Added' : 'Add') + '</button>'
+      + '</div>';
+  }).join('');
+  var btns = cat.querySelectorAll('button[data-paw]');
+  for (var i = 0; i < btns.length; i++) {
+    btns[i].addEventListener('click', function() { addPawToConfig(this.getAttribute('data-paw')); });
+  }
+}
+function addPawToConfig(name) {
+  var ta = document.getElementById('cfg-paws');
+  var arr;
+  try { arr = JSON.parse(ta.value || '[]'); } catch (e) { arr = []; }
+  if (!Array.isArray(arr)) arr = [];
+  var have = arr.map(function(p) { return typeof p === 'string' ? p : (p && p.name); });
+  if (have.indexOf(name) >= 0) { showToast(name + ' already added', 'success'); return; }
+  arr.push(name);
+  ta.value = JSON.stringify(arr, null, 2);
+  showToast('Added ' + name + ' — Save Config, then Restart the space', 'success');
+  renderPawCatalog(lastCatalog);
+}
 function loadConfig() {
   sendCommand('read_config').then(function(data) {
     cachedConfig = data || {};

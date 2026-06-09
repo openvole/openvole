@@ -45,6 +45,9 @@ export class ControlPlane {
 	private readonly cliPath: string
 	private readonly port: number
 	private server: DashboardServer | undefined
+	private availablePawsCache:
+		| Array<{ name: string; version: string; description: string }>
+		| undefined
 
 	constructor(opts: ControlPlaneOptions) {
 		this.cliPath = opts.cliPath
@@ -66,6 +69,7 @@ export class ControlPlane {
 			writeIdentity: (filename, content, id) =>
 				this.callSpace(id, 'write_identity', { filename, content }),
 			restartEngine: (id) => this.callSpace(id, 'restart'),
+			listAvailablePaws: () => this.listAvailablePaws(),
 		})
 		logger.info(`Control plane listening on http://localhost:${this.port}`)
 	}
@@ -136,6 +140,31 @@ export class ControlPlane {
 		await this.manager.remove(id, { purge: false })
 		this.broadcastSpaces()
 		return { ok: true }
+	}
+
+	/** Official @openvole/paw-* packages from the npm registry (cached for the process). */
+	async listAvailablePaws(): Promise<
+		Array<{ name: string; version: string; description: string }>
+	> {
+		if (this.availablePawsCache) return this.availablePawsCache
+		const url = `https://registry.npmjs.org/-/v1/search?text=${encodeURIComponent('@openvole/paw')}&size=250`
+		const res = await fetch(url)
+		if (!res.ok) throw new Error(`npm registry returned ${res.status}`)
+		const data = (await res.json()) as {
+			objects?: Array<{ package?: { name?: string; version?: string; description?: string } }>
+		}
+		const paws = (data.objects ?? [])
+			.map((o) => o.package)
+			.filter(
+				(p): p is { name: string; version?: string; description?: string } =>
+					typeof p?.name === 'string' &&
+					p.name.startsWith('@openvole/paw-') &&
+					p.name !== '@openvole/paw-sdk',
+			)
+			.map((p) => ({ name: p.name, version: p.version ?? '', description: p.description ?? '' }))
+			.sort((a, b) => a.name.localeCompare(b.name))
+		this.availablePawsCache = paws
+		return paws
 	}
 
 	private callSpace(
