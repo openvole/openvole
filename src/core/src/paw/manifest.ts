@@ -31,6 +31,7 @@ const pawManifestSchema = z.object({
 			listen: z.array(z.number().int().positive()).optional().default([]),
 			filesystem: z.array(z.string()).optional().default([]),
 			env: z.array(z.string()).optional().default([]),
+			childProcess: z.boolean().optional().default(false),
 		})
 		.optional()
 		.default({}),
