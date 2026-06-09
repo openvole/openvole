@@ -313,10 +313,40 @@ export function getDashboardHtml(wsPort: number): string {
     flex: 1;
     overflow-y: auto;
     padding: 24px;
-    max-width: 800px;
+    max-width: 920px;
     width: 100%;
     margin: 0 auto;
+    display: flex;
+    gap: 20px;
+    align-items: flex-start;
   }
+  .config-nav {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    flex: 0 0 168px;
+    position: sticky;
+    top: 0;
+  }
+  .config-nav-item {
+    text-align: left;
+    padding: 8px 12px;
+    border-radius: 6px;
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--text-dim);
+    font-size: 13px;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+  }
+  .config-nav-item:hover { background: var(--surface-hover); color: var(--text); }
+  .config-nav-item.active {
+    background: var(--surface);
+    border-color: var(--border);
+    color: var(--text);
+    font-weight: 600;
+  }
+  .config-content { flex: 1; min-width: 0; }
   .config-page::-webkit-scrollbar { width: 6px; }
   .config-page::-webkit-scrollbar-track { background: var(--bg); }
   .config-page::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
@@ -327,13 +357,17 @@ export function getDashboardHtml(wsPort: number): string {
     margin-bottom: 12px;
     background: var(--surface);
     overflow: hidden;
+    display: none;
+  }
+  .config-section.active-section {
+    display: block;
   }
   .config-section-header {
     padding: 10px 16px;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    cursor: pointer;
+    cursor: default;
     user-select: none;
     background: var(--surface);
     transition: background 0.15s;
@@ -358,9 +392,7 @@ export function getDashboardHtml(wsPort: number): string {
     text-decoration: underline;
   }
   .config-section-arrow {
-    color: var(--text-dim);
-    font-size: 12px;
-    transition: transform 0.2s;
+    display: none;
   }
   .config-section.collapsed .config-section-arrow {
     transform: rotate(-90deg);
@@ -755,6 +787,9 @@ export function getDashboardHtml(wsPort: number): string {
 
   <div id="tab-config" class="tab-content" style="display:none">
     <div class="config-page" id="config-page">
+      <nav class="config-nav" id="config-nav"></nav>
+      <div class="config-content" id="config-content">
+      <div class="config-sections" id="config-sections">
 
       <div class="config-section">
         <div class="config-section-header" onclick="toggleSection(this)">
@@ -945,8 +980,10 @@ export function getDashboardHtml(wsPort: number): string {
         </div>
       </div>
 
+      </div>
       <div class="config-save-row">
         <button class="btn-primary" id="btn-save-config" onclick="saveConfig()">Save Config</button>
+      </div>
       </div>
 
     </div>
@@ -1132,18 +1169,42 @@ function switchTab(tabName) {
   document.getElementById('tab-config').style.display = tabName === 'config' ? '' : 'none';
   document.getElementById('tab-identity').style.display = tabName === 'identity' ? '' : 'none';
 
-  if (tabName === 'config' && !configLoaded) {
-    loadConfig();
+  if (tabName === 'config') {
+    if (!configNavReady) { initConfigNav(); configNavReady = true; }
+    if (!configLoaded) loadConfig();
   }
   if (tabName === 'identity' && !identityLoaded) {
     loadIdentity();
   }
 }
 
-/* ── Collapsible Sections ── */
-function toggleSection(headerEl) {
-  var section = headerEl.parentElement;
-  section.classList.toggle('collapsed');
+/* ── Config sections as vertical tabs ── */
+function toggleSection() { /* sections are vertical tabs now; the left nav controls visibility */ }
+var configNavReady = false;
+function initConfigNav() {
+  var sections = document.querySelectorAll('#config-sections .config-section');
+  var nav = document.getElementById('config-nav');
+  if (!nav) return;
+  nav.innerHTML = '';
+  for (var i = 0; i < sections.length; i++) {
+    (function(idx, sec) {
+      var h3 = sec.querySelector('h3');
+      var title = (h3 && h3.childNodes[0]) ? h3.childNodes[0].textContent.trim() : ('Section ' + (idx + 1));
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'config-nav-item' + (idx === 0 ? ' active' : '');
+      btn.textContent = title;
+      btn.addEventListener('click', function() { switchConfigSection(idx); });
+      nav.appendChild(btn);
+      sec.classList.toggle('active-section', idx === 0);
+    })(i, sections[i]);
+  }
+}
+function switchConfigSection(i) {
+  var sections = document.querySelectorAll('#config-sections .config-section');
+  var items = document.querySelectorAll('#config-nav .config-nav-item');
+  for (var a = 0; a < sections.length; a++) sections[a].classList.toggle('active-section', a === i);
+  for (var b = 0; b < items.length; b++) items[b].classList.toggle('active', b === i);
 }
 
 /* ── Config Page ── */
