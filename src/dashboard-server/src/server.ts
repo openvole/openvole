@@ -31,6 +31,7 @@ export interface DashboardCallbacks {
 	startSpace?: (spaceId: string) => Promise<unknown>
 	stopSpace?: (spaceId: string) => Promise<unknown>
 	listAvailablePaws?: () => Promise<unknown>
+	installPaw?: (name: string, spaceId?: string) => Promise<unknown>
 	/** Per-space; spaceId is undefined in single-engine mode. */
 	fetchState: (spaceId?: string) => Promise<unknown>
 	readConfig: (spaceId?: string) => Promise<unknown>
@@ -136,6 +137,11 @@ export function createDashboardServer(
 				case 'list_available_paws':
 					respond((await callbacks.listAvailablePaws?.()) ?? [])
 					break
+				case 'install_paw': {
+					const p = cmd.params as { name: string }
+					respond(await callbacks.installPaw?.(p?.name, sel()))
+					break
+				}
 				case 'select_space': {
 					const p = cmd.params as { spaceId?: string }
 					selected.set(ws, p?.spaceId)

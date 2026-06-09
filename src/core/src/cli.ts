@@ -4,14 +4,12 @@ import 'dotenv/config'
 import * as path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
-	addPawToConfig,
 	addSkillToConfig,
 	removePawFromConfig,
 	removeSkillFromConfig,
 } from './config/index.js'
 import { createLogger } from './core/logger.js'
 import { createEngine } from './index.js'
-import { readPawManifest, resolvePawPath } from './paw/manifest.js'
 
 const logger = createLogger('cli')
 
@@ -578,66 +576,14 @@ async function handlePawCommand(args: string[], projectRoot: string): Promise<vo
 				process.exit(1)
 			}
 			logger.info(`Installing ${name}...`)
-			const { execa: execaFn } = await import('execa')
-			await execaFn('npm', ['install', name], { cwd: projectRoot, stdio: 'inherit' })
-
-			// Read manifest and auto-register in lock file
-			const pawPath = resolvePawPath(name, projectRoot)
-			const manifest = await readPawManifest(pawPath)
-			if (manifest) {
-				const defaultAllow = manifest.permissions
-					? {
-							network: manifest.permissions.network,
-							listen: manifest.permissions.listen,
-							filesystem: manifest.permissions.filesystem,
-							env: manifest.permissions.env,
-							childProcess: manifest.permissions.childProcess,
-						}
-					: undefined
-				await addPawToConfig(projectRoot, name, defaultAllow)
-				// Create paw data directory
-				const pawDataDir = path.join(
-					projectRoot,
-					'.openvole',
-					'paws',
-					manifest.name.replace(/^@openvole\//, ''),
-				)
-				const fsModule = await import('node:fs/promises')
-				await fsModule.mkdir(pawDataDir, { recursive: true })
-
-				// Scaffold BRAIN.md for brain paws
-				const pkgBrainPath = path.join(projectRoot, 'node_modules', name, 'BRAIN.md')
-				try {
-					const brainContent = await fsModule.readFile(pkgBrainPath, 'utf-8')
-					if (brainContent.trim()) {
-						const localBrainPath = path.join(pawDataDir, 'BRAIN.md')
-						try {
-							await fsModule.access(localBrainPath)
-							await fsModule.rename(localBrainPath, path.join(pawDataDir, 'BRAIN.md.old'))
-							logger.info(`  Backed up ${manifest.name}/BRAIN.md → BRAIN.md.old`)
-						} catch {
-							// No existing BRAIN.md
-						}
-						await fsModule.writeFile(localBrainPath, brainContent, 'utf-8')
-						logger.info(`  Scaffolded ${manifest.name}/BRAIN.md`)
-					}
-				} catch {
-					// No BRAIN.md in package — not a brain paw
-				}
-
-				logger.info(`Added ${name}@${manifest.version} to vole.config.json`)
-				if (manifest.permissions?.listen?.length) {
-					logger.info(`  listen ports: ${manifest.permissions.listen.join(', ')}`)
-				}
-				if (manifest.tools.length > 0) {
-					logger.info(
-						`  provides ${manifest.tools.length} tools: ${manifest.tools.map((t) => t.name).join(', ')}`,
-					)
-				}
-			} else {
-				logger.error(
-					`Installed ${name} but could not read vole-paw.json — add it to vole.config.json manually`,
-				)
+			const { installPaw } = await import('./paw/install.js')
+			const info = await installPaw(projectRoot, name)
+			logger.info(`Added ${info.name}@${info.version} to vole.config.json`)
+			if (info.listen.length > 0) {
+				logger.info(`  listen ports: ${info.listen.join(', ')}`)
+			}
+			if (info.tools.length > 0) {
+				logger.info(`  provides ${info.tools.length} tools: ${info.tools.join(', ')}`)
 			}
 			break
 		}

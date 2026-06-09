@@ -997,13 +997,13 @@ const MAX_EVENTS = 500;
 const pendingCommands = new Map();
 let cmdIdCounter = 0;
 
-function sendCommand(type, params) {
+function sendCommand(type, params, timeoutMs) {
   return new Promise(function(resolve, reject) {
     const id = 'cmd-' + (++cmdIdCounter) + '-' + Math.random().toString(36).substring(2, 8);
     const timeout = setTimeout(function() {
       pendingCommands.delete(id);
       reject(new Error('Command timed out: ' + type));
-    }, 10000);
+    }, timeoutMs || 10000);
     pendingCommands.set(id, { resolve: resolve, reject: reject, timeout: timeout });
     ws.send(JSON.stringify({ type: type, id: id, params: params || {} }));
   });
@@ -1181,20 +1181,22 @@ function renderPawCatalog(paws) {
   }).join('');
   var btns = cat.querySelectorAll('button[data-paw]');
   for (var i = 0; i < btns.length; i++) {
-    btns[i].addEventListener('click', function() { addPawToConfig(this.getAttribute('data-paw')); });
+    btns[i].addEventListener('click', function() { installPawIntoSpace(this.getAttribute('data-paw'), this); });
   }
 }
-function addPawToConfig(name) {
-  var ta = document.getElementById('cfg-paws');
-  var arr;
-  try { arr = JSON.parse(ta.value || '[]'); } catch (e) { arr = []; }
-  if (!Array.isArray(arr)) arr = [];
-  var have = arr.map(function(p) { return typeof p === 'string' ? p : (p && p.name); });
-  if (have.indexOf(name) >= 0) { showToast(name + ' already added', 'success'); return; }
-  arr.push(name);
-  ta.value = JSON.stringify(arr, null, 2);
-  showToast('Added ' + name + ' — Save Config, then Restart the space', 'success');
-  renderPawCatalog(lastCatalog);
+function installPawIntoSpace(name, btn) {
+  if (!currentSpaceId) { showToast('Select a running space first', 'error'); return; }
+  if (btn) { btn.disabled = true; btn.textContent = 'Installing…'; }
+  showToast('Installing ' + name + '… (npm install can take a moment)', 'success');
+  sendCommand('install_paw', { name: name }, 180000).then(function(info) {
+    var v = info && info.version ? '@' + info.version : '';
+    showToast('Installed ' + name + v + ' — Restart the space to load it', 'success');
+    if (btn) { btn.textContent = 'Added'; btn.disabled = true; }
+    loadConfig(); // reload Config tab so the new { name, allow } shows
+  }).catch(function(e) {
+    showToast('Install failed: ' + e.message, 'error');
+    if (btn) { btn.textContent = 'Add'; btn.disabled = false; }
+  });
 }
 function loadConfig() {
   sendCommand('read_config').then(function(data) {

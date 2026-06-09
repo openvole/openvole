@@ -70,6 +70,7 @@ export class ControlPlane {
 				this.callSpace(id, 'write_identity', { filename, content }),
 			restartEngine: (id) => this.callSpace(id, 'restart'),
 			listAvailablePaws: () => this.listAvailablePaws(),
+			installPaw: (name, id) => this.installPawInSpace(id, name),
 		})
 		logger.info(`Control plane listening on http://localhost:${this.port}`)
 	}
@@ -165,6 +166,16 @@ export class ControlPlane {
 			.sort((a, b) => a.name.localeCompare(b.name))
 		this.availablePawsCache = paws
 		return paws
+	}
+
+	/** Install a paw from npm into a space (npm install + register with default permissions). */
+	async installPawInSpace(spaceId: string | undefined, name: string): Promise<unknown> {
+		if (!spaceId) throw new Error('No space selected')
+		const reg = await this.manager.readRegistry()
+		const entry = reg.spaces.find((s) => s.id === spaceId || s.name === spaceId)
+		if (!entry) throw new Error(`Space not found: ${spaceId}`)
+		const { installPaw } = await import('../paw/install.js')
+		return installPaw(entry.path, name)
 	}
 
 	private callSpace(
