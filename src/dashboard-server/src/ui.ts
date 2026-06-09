@@ -979,14 +979,55 @@ export function getDashboardHtml(wsPort: number): string {
             </div>
           </div>
           <div class="form-field">
-            <label class="form-label">security.allowedPaths</label>
-            <div class="form-help">Additional filesystem paths paws can access.</div>
-            <textarea class="form-textarea" id="cfg-security-allowedPaths" rows="4" placeholder='["./data", "/tmp"]'>[]</textarea>
+            <label class="form-label">security.allowedPaths (global)</label>
+            <div class="form-help">Extra paths ALL paws may read/write. Prefer per-paw paths below.</div>
+            <div id="sec-global-paths"></div>
+            <button class="btn-restart" type="button" onclick="addPathRow(document.getElementById('sec-global-paths'), '')" style="margin-top:6px">+ Add path</button>
+          </div>
+          <div class="form-field">
+            <label class="form-label">Per-paw filesystem paths</label>
+            <div class="form-help">Each paw's allow.filesystem — extra paths only that paw may read/write. Saved into the Paws config.</div>
+            <div id="sec-paw-paths"></div>
           </div>
           <div class="form-field">
             <label class="form-label">Docker Sandbox</label>
-            <div class="form-help">Optional container-level isolation. Keys: enabled, image, memory, cpus, scope (session/shared), network (none/bridge/host), allowedDomains.</div>
-            <textarea class="form-textarea" id="cfg-security-docker" rows="6" placeholder='{"enabled": false, "image": "node:20-slim", "memory": "512m"}'>{}</textarea>
+            <div class="form-help">Optional container-level isolation. Note: not yet enforced by the engine — stored for future use.</div>
+            <div class="form-checkbox-row">
+              <input type="checkbox" class="form-checkbox" id="cfg-docker-enabled">
+              <label class="form-checkbox-label" for="cfg-docker-enabled">docker.enabled</label>
+            </div>
+          </div>
+          <div class="form-field">
+            <label class="form-label">docker.image</label>
+            <input type="text" class="form-input" id="cfg-docker-image" placeholder="node:20-slim">
+          </div>
+          <div class="form-field">
+            <label class="form-label">docker.memory</label>
+            <input type="text" class="form-input" id="cfg-docker-memory" placeholder="512m">
+          </div>
+          <div class="form-field">
+            <label class="form-label">docker.cpus</label>
+            <input type="text" class="form-input" id="cfg-docker-cpus" placeholder="1.0">
+          </div>
+          <div class="form-field">
+            <label class="form-label">docker.scope</label>
+            <select class="form-select" id="cfg-docker-scope">
+              <option value="session" selected>session</option>
+              <option value="shared">shared</option>
+            </select>
+          </div>
+          <div class="form-field">
+            <label class="form-label">docker.network</label>
+            <select class="form-select" id="cfg-docker-network">
+              <option value="none" selected>none</option>
+              <option value="bridge">bridge</option>
+              <option value="host">host</option>
+            </select>
+          </div>
+          <div class="form-field">
+            <label class="form-label">docker.allowedDomains</label>
+            <div class="form-help">Comma-separated outbound domains when network=bridge.</div>
+            <input type="text" class="form-input" id="cfg-docker-domains" placeholder="api.example.com, registry.npmjs.org">
           </div>
         </div>
       </div>
@@ -1421,10 +1462,11 @@ function populateConfig(cfg) {
 
   var sec = cfg.security || {};
   document.getElementById('cfg-security-sandboxFilesystem').checked = sec.sandboxFilesystem != null ? sec.sandboxFilesystem : true;
-  document.getElementById('cfg-security-allowedPaths').value = JSON.stringify(sec.allowedPaths || [], null, 2);
-  document.getElementById('cfg-security-docker').value = JSON.stringify(sec.docker || {}, null, 2);
+  populateGlobalPaths(sec.allowedPaths || []);
+  populateDocker(sec.docker || {});
 
   document.getElementById('cfg-paws').value = JSON.stringify(cfg.paws || [], null, 2);
+  populatePawPaths(cfg.paws || []);
   document.getElementById('cfg-toolProfiles').value = JSON.stringify(cfg.toolProfiles || {}, null, 2);
   document.getElementById('cfg-agents').value = JSON.stringify(cfg.agents || {}, null, 2);
   document.getElementById('cfg-net').value = JSON.stringify(cfg.net || {}, null, 2);
@@ -1474,6 +1516,101 @@ function readRateLimitsFromForm() {
   return rl;
 }
 
+/* ── Security: path rows + per-paw filesystem + docker fields ── */
+function addPathRow(container, value) {
+  var row = document.createElement('div');
+  row.className = 'path-row';
+  row.style.cssText = 'display:flex;gap:8px;margin-top:6px;align-items:center';
+  row.innerHTML = '<input type="text" class="form-input" style="flex:1" placeholder="./data or /abs/path" value="' + esc(String(value || '')) + '">'
+    + '<button class="space-btn space-btn-danger" type="button" title="Remove">&times;</button>';
+  row.querySelector('button').addEventListener('click', function() { row.remove(); });
+  container.appendChild(row);
+}
+function readPathRows(container) {
+  var out = [];
+  var inputs = container.querySelectorAll('.path-row input');
+  for (var i = 0; i < inputs.length; i++) {
+    var v = inputs[i].value.trim();
+    if (v) out.push(v);
+  }
+  return out;
+}
+function populateGlobalPaths(paths) {
+  var c = document.getElementById('sec-global-paths');
+  c.innerHTML = '';
+  for (var i = 0; i < (paths || []).length; i++) addPathRow(c, paths[i]);
+}
+function populatePawPaths(paws) {
+  var wrap = document.getElementById('sec-paw-paths');
+  wrap.innerHTML = '';
+  paws = Array.isArray(paws) ? paws : [];
+  if (paws.length === 0) {
+    wrap.innerHTML = '<div class="form-help">No paws configured yet — add paws first.</div>';
+    return;
+  }
+  for (var i = 0; i < paws.length; i++) {
+    var p = paws[i];
+    var name = typeof p === 'string' ? p : ((p && p.name) || '');
+    if (!name) continue;
+    var fsPaths = (p && p.allow && p.allow.filesystem) || [];
+    var block = document.createElement('div');
+    block.className = 'pp-paw-block';
+    block.setAttribute('data-paw', name);
+    block.style.cssText = 'border:1px solid var(--border);border-radius:6px;padding:10px;margin-top:8px';
+    var title = document.createElement('div');
+    title.textContent = name;
+    title.style.cssText = 'font-weight:600;font-size:12px';
+    var rows = document.createElement('div');
+    rows.className = 'pp-paths';
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn-restart';
+    btn.textContent = '+ Add path';
+    btn.style.marginTop = '6px';
+    (function(rowsEl) {
+      btn.addEventListener('click', function() { addPathRow(rowsEl, ''); });
+    })(rows);
+    block.appendChild(title);
+    block.appendChild(rows);
+    block.appendChild(btn);
+    wrap.appendChild(block);
+    for (var j = 0; j < fsPaths.length; j++) addPathRow(rows, fsPaths[j]);
+  }
+}
+function populateDocker(d) {
+  d = d || {};
+  document.getElementById('cfg-docker-enabled').checked = !!d.enabled;
+  document.getElementById('cfg-docker-image').value = d.image || '';
+  document.getElementById('cfg-docker-memory').value = d.memory || '';
+  document.getElementById('cfg-docker-cpus').value = d.cpus || '';
+  document.getElementById('cfg-docker-scope').value = d.scope || 'session';
+  document.getElementById('cfg-docker-network').value = d.network || 'none';
+  document.getElementById('cfg-docker-domains').value = (d.allowedDomains || []).join(', ');
+}
+function readDockerFromForm() {
+  var d = {};
+  // Preserve any keys this form doesn't know about (forward compat).
+  var prev = (cachedConfig && cachedConfig.security && cachedConfig.security.docker) || {};
+  for (var k in prev) {
+    if (['enabled', 'image', 'memory', 'cpus', 'scope', 'network', 'allowedDomains'].indexOf(k) < 0) d[k] = prev[k];
+  }
+  if (document.getElementById('cfg-docker-enabled').checked) d.enabled = true;
+  var image = document.getElementById('cfg-docker-image').value.trim();
+  if (image) d.image = image;
+  var memory = document.getElementById('cfg-docker-memory').value.trim();
+  if (memory) d.memory = memory;
+  var cpus = document.getElementById('cfg-docker-cpus').value.trim();
+  if (cpus) d.cpus = cpus;
+  var scope = document.getElementById('cfg-docker-scope').value;
+  if (scope !== 'session') d.scope = scope;
+  var network = document.getElementById('cfg-docker-network').value;
+  if (network !== 'none') d.network = network;
+  var domains = document.getElementById('cfg-docker-domains').value
+    .split(',').map(function(s) { return s.trim(); }).filter(Boolean);
+  if (domains.length > 0) d.allowedDomains = domains;
+  return d;
+}
+
 function readConfigFromForm() {
   var cfg = {};
 
@@ -1507,22 +1644,37 @@ function readConfigFromForm() {
 
   cfg.security = {};
   cfg.security.sandboxFilesystem = document.getElementById('cfg-security-sandboxFilesystem').checked;
-  try {
-    cfg.security.allowedPaths = JSON.parse(document.getElementById('cfg-security-allowedPaths').value);
-  } catch (e) {
-    throw new Error('Invalid JSON in security.allowedPaths');
-  }
-  try {
-    var docker = JSON.parse(document.getElementById('cfg-security-docker').value);
-    if (docker && Object.keys(docker).length > 0) cfg.security.docker = docker;
-  } catch (e) {
-    throw new Error('Invalid JSON in Docker Sandbox');
-  }
+  var globalPaths = readPathRows(document.getElementById('sec-global-paths'));
+  if (globalPaths.length > 0) cfg.security.allowedPaths = globalPaths;
+  var docker = readDockerFromForm();
+  if (Object.keys(docker).length > 0) cfg.security.docker = docker;
 
   try {
     cfg.paws = JSON.parse(document.getElementById('cfg-paws').value);
   } catch (e) {
     throw new Error('Invalid JSON in Paws');
+  }
+
+  // Overlay per-paw filesystem paths (Security section) onto the paws config, matched by name.
+  if (Array.isArray(cfg.paws)) {
+    var blocks = document.querySelectorAll('#sec-paw-paths .pp-paw-block');
+    for (var bi = 0; bi < blocks.length; bi++) {
+      var pawName = blocks[bi].getAttribute('data-paw');
+      var pawPaths = readPathRows(blocks[bi].querySelector('.pp-paths'));
+      for (var pi = 0; pi < cfg.paws.length; pi++) {
+        var entry = cfg.paws[pi];
+        var n = typeof entry === 'string' ? entry : (entry && entry.name);
+        if (n !== pawName) continue;
+        if (pawPaths.length > 0) {
+          if (typeof entry === 'string') { entry = { name: entry }; cfg.paws[pi] = entry; }
+          entry.allow = entry.allow || {};
+          entry.allow.filesystem = pawPaths;
+        } else if (entry && typeof entry === 'object' && entry.allow && entry.allow.filesystem) {
+          delete entry.allow.filesystem;
+        }
+        break;
+      }
+    }
   }
 
   try {
