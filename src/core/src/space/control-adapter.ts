@@ -149,6 +149,7 @@ export function installControlAdapter(engine: VoleEngine, projectRoot: string): 
 	})
 
 	bindBus(engine)
+	send({ ready: true })
 	return {
 		rebind: (eng: VoleEngine): void => {
 			current = eng

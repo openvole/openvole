@@ -10,8 +10,6 @@ export interface SpaceEntry {
 	path: string
 	/** ISO timestamp of creation. */
 	createdAt: string
-	/** Dashboard port assigned to this space (injected as VOLE_DASHBOARD_PORT on start). */
-	dashboardPort?: number
 }
 
 /** The global spaces registry — persisted at ~/.openvole/spaces.json. */

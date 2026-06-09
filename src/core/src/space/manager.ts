@@ -5,8 +5,6 @@ import { execa } from 'execa'
 import { scaffoldProject } from './scaffold.js'
 import type { SpaceEntry, SpaceRegistry, SpaceRuntime, SpaceStatus } from './types.js'
 
-/** Base port for per-space dashboards (each space gets a unique one). */
-const DASHBOARD_PORT_BASE = 3100
 /** How long to wait for a graceful SIGTERM exit before SIGKILL (ms). */
 const STOP_GRACE_MS = 5000
 
@@ -104,18 +102,11 @@ export class SpaceManager {
 		await fs.mkdir(dir, { recursive: true })
 		await scaffoldProject(dir)
 
-		const usedPorts = new Set(
-			reg.spaces.map((s) => s.dashboardPort).filter((p): p is number => typeof p === 'number'),
-		)
-		let port = DASHBOARD_PORT_BASE
-		while (usedPorts.has(port)) port++
-
 		const entry: SpaceEntry = {
 			id,
 			name,
 			path: dir,
 			createdAt: new Date().toISOString(),
-			dashboardPort: port,
 		}
 		reg.spaces.push(entry)
 		if (!reg.activeId) reg.activeId = id
@@ -154,14 +145,11 @@ export class SpaceManager {
 		const existing = await this.livePid(entry.path)
 		if (existing) return { pid: existing, reused: true }
 
-		const env: Record<string, string | undefined> = { ...process.env }
-		if (entry.dashboardPort) env.VOLE_DASHBOARD_PORT = String(entry.dashboardPort)
-
 		// Detached so the engine outlives this short-lived CLI invocation; the engine logs
 		// to the space's own VOLE_LOG_FILE (.openvole/logs/vole.log).
 		const child = execa('node', [opts.cliPath, '__run-space', entry.path], {
 			cwd: entry.path,
-			env,
+			env: { ...process.env },
 			stdio: 'ignore',
 			detached: true,
 			cleanup: false,

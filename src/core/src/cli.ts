@@ -32,6 +32,7 @@ async function main(): Promise<void> {
 		command !== 'upgrade' &&
 		command !== 'space' &&
 		command !== '__run-space' &&
+		command !== 'serve' &&
 		command !== undefined
 	) {
 		const fsCheck = await import('node:fs/promises')
@@ -85,6 +86,10 @@ async function main(): Promise<void> {
 
 		case 'net':
 			await handleNetCommand(args.slice(1), projectRoot)
+			break
+
+		case 'serve':
+			await runServe()
 			break
 
 		case 'space':
@@ -172,6 +177,7 @@ VoleNet (distributed networking):
   vole net status                        Network status overview
 
 Space management:
+  vole serve                             Start the control-plane dashboard (manage all spaces)
   vole space create <name>               Scaffold a new space (agent container)
   vole space list                        List spaces and running status
   vole space start <name>                Start a space's engine (lazy, own process)
@@ -1696,7 +1702,6 @@ async function handleSpaceCommand(args: string[]): Promise<void> {
 			const entry = await mgr.create(name, customPath ? { path: customPath } : undefined)
 			logger.info(`Created space "${entry.id}"`)
 			logger.info(`  path: ${entry.path}`)
-			logger.info(`  dashboard port: ${entry.dashboardPort}`)
 			logger.info('')
 			logger.info(`Equip it with paws, then: vole space start ${entry.id}`)
 			break
@@ -1714,9 +1719,7 @@ async function handleSpaceCommand(args: string[]): Promise<void> {
 			for (const s of spaces) {
 				const active = reg.activeId === s.id ? '*' : ' '
 				const state = s.state === 'running' ? `running (pid ${s.pid})` : 'stopped'
-				logger.info(
-					`${active} ${s.id.padEnd(16)} ${state.padEnd(22)} :${s.dashboardPort}  ${s.path}`,
-				)
+				logger.info(`${active} ${s.id.padEnd(16)} ${state.padEnd(22)} ${s.path}`)
 			}
 			break
 		}
@@ -1781,6 +1784,25 @@ async function handleSpaceCommand(args: string[]): Promise<void> {
 			logger.info('Available: create, list, start, stop, status, switch, remove')
 			process.exit(1)
 	}
+}
+
+/** Persistent control-plane process — one web server managing all spaces (`vole serve`). */
+async function runServe(): Promise<void> {
+	const { setLoggerSilent } = await import('./core/logger.js')
+	setLoggerSilent(false)
+	const { ControlPlane } = await import('./space/control-plane.js')
+	const port = Number(process.env.VOLE_DASHBOARD_PORT) || 3000
+	const cp = new ControlPlane({ cliPath: fileURLToPath(import.meta.url), port })
+	cp.start()
+	logger.info(`Manage your spaces at http://localhost:${port}`)
+	const shutdown = (): void => {
+		cp.shutdown()
+			.then(() => process.exit(0))
+			.catch(() => process.exit(1))
+	}
+	process.on('SIGINT', shutdown)
+	process.on('SIGTERM', shutdown)
+	await new Promise<void>(() => {})
 }
 
 /** Daemon entry — runs a single space's engine in this (subprocess) process until SIGTERM. */

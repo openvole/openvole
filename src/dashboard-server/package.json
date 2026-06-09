@@ -1,0 +1,38 @@
+{
+  "name": "@openvole/dashboard-server",
+  "version": "0.1.0",
+  "description": "Reusable web dashboard server + UI for OpenVole — single-engine paw and multi-space control plane",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "ws": "^8.20.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/ws": "^8.5.0",
+    "tsup": "^8.3.0",
+    "typescript": "^5.6.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "files": ["dist", "assets"],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/openvole/openvole",
+    "directory": "src/dashboard-server"
+  },
+  "keywords": ["openvole", "dashboard", "control-plane"]
+}
