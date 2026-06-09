@@ -1054,8 +1054,10 @@ export function getDashboardHtml(wsPort: number): string {
         </div>
         <div class="config-section-body">
           <div class="form-field">
-            <div class="form-help">Per-source tool filtering. Keys are task sources (cli, telegram, heartbeat). Values have allow/deny arrays.</div>
-            <textarea class="form-textarea" id="cfg-toolProfiles" rows="8" placeholder='{"cli": {"allow": ["*"]}}'>{ }</textarea>
+            <div class="form-help">Restrict which tools each task source may use. Allow = only these tools (empty = all); Deny = always blocked. Exact tool names — no wildcards. Suggestions come from the tools loaded in this space.</div>
+            <div id="tp-blocks"></div>
+            <button class="btn-restart" type="button" onclick="addTpBlock('', {})" style="margin-top:6px">+ Add source profile</button>
+            <datalist id="tool-name-options"></datalist>
           </div>
         </div>
       </div>
@@ -1156,6 +1158,7 @@ function sendCommand(type, params, timeoutMs) {
 var currentSpaceId = null;
 var lastSpaces = [];
 var lastStatePaws = [];
+var lastStateTools = [];
 
 /* ── View switching: spaces launcher  <->  selected-space dashboard ── */
 function showSpacesView() {
@@ -1275,6 +1278,8 @@ function spaceAction(cmd) {
 /* ── Render aggregated engine state ── */
 function renderState(d) {
   lastStatePaws = d.paws || [];
+  lastStateTools = d.tools || [];
+  refreshToolNameOptions();
   renderPaws(d.paws || []);
   refreshBrainOptions();
   renderTools(d.tools || []);
@@ -1467,7 +1472,7 @@ function populateConfig(cfg) {
 
   document.getElementById('cfg-paws').value = JSON.stringify(cfg.paws || [], null, 2);
   populatePawPaths(cfg.paws || []);
-  document.getElementById('cfg-toolProfiles').value = JSON.stringify(cfg.toolProfiles || {}, null, 2);
+  populateToolProfiles(cfg.toolProfiles || {});
   document.getElementById('cfg-agents').value = JSON.stringify(cfg.agents || {}, null, 2);
   document.getElementById('cfg-net').value = JSON.stringify(cfg.net || {}, null, 2);
 }
@@ -1611,6 +1616,90 @@ function readDockerFromForm() {
   return d;
 }
 
+/* ── Tool profiles (per-source allow/deny, names suggested from loaded tools) ── */
+function refreshToolNameOptions() {
+  var dl = document.getElementById('tool-name-options');
+  if (!dl) return;
+  var names = (lastStateTools || []).map(function(t) { return t.name; }).sort();
+  dl.innerHTML = names.map(function(n) { return '<option value="' + esc(n) + '"></option>'; }).join('');
+}
+function populateToolProfiles(tp) {
+  document.getElementById('tp-blocks').innerHTML = '';
+  tp = tp || {};
+  for (var src in tp) addTpBlock(src, tp[src]);
+}
+function addTpBlock(source, profile) {
+  profile = profile || {};
+  var block = document.createElement('div');
+  block.className = 'tp-block';
+  block.style.cssText = 'border:1px solid var(--border);border-radius:6px;padding:10px;margin-top:8px';
+  var head = document.createElement('div');
+  head.style.cssText = 'display:flex;gap:8px;align-items:center';
+  head.innerHTML = '<input type="text" class="form-input tp-source" style="flex:1" placeholder="source (e.g. cli)" list="rl-source-options" value="' + esc(String(source || '')) + '">'
+    + '<button class="space-btn space-btn-danger" type="button" title="Remove profile">&times;</button>';
+  head.querySelector('button').addEventListener('click', function() { block.remove(); });
+  var cols = document.createElement('div');
+  cols.style.cssText = 'display:flex;gap:12px;margin-top:8px';
+  cols.appendChild(buildToolListCol('Allow (empty = all tools)', 'tp-allow', profile.allow || []));
+  cols.appendChild(buildToolListCol('Deny', 'tp-deny', profile.deny || []));
+  block.appendChild(head);
+  block.appendChild(cols);
+  document.getElementById('tp-blocks').appendChild(block);
+}
+function buildToolListCol(label, cls, tools) {
+  var col = document.createElement('div');
+  col.style.cssText = 'flex:1;min-width:0';
+  var lab = document.createElement('div');
+  lab.textContent = label;
+  lab.style.cssText = 'font-size:11px;color:var(--text-dim);margin-bottom:2px';
+  var rows = document.createElement('div');
+  rows.className = cls;
+  var btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'btn-restart';
+  btn.textContent = '+ Add tool';
+  btn.style.marginTop = '6px';
+  btn.addEventListener('click', function() { addToolRow(rows, ''); });
+  col.appendChild(lab);
+  col.appendChild(rows);
+  col.appendChild(btn);
+  for (var i = 0; i < tools.length; i++) addToolRow(rows, tools[i]);
+  return col;
+}
+function addToolRow(container, value) {
+  var row = document.createElement('div');
+  row.className = 'tool-row';
+  row.style.cssText = 'display:flex;gap:8px;margin-top:6px;align-items:center';
+  row.innerHTML = '<input type="text" class="form-input" style="flex:1" placeholder="tool name" list="tool-name-options" value="' + esc(String(value || '')) + '">'
+    + '<button class="space-btn space-btn-danger" type="button" title="Remove">&times;</button>';
+  row.querySelector('button').addEventListener('click', function() { row.remove(); });
+  container.appendChild(row);
+}
+function readToolRows(container) {
+  var out = [];
+  var inputs = container.querySelectorAll('.tool-row input');
+  for (var i = 0; i < inputs.length; i++) {
+    var v = inputs[i].value.trim();
+    if (v) out.push(v);
+  }
+  return out;
+}
+function readToolProfilesFromForm() {
+  var tp = {};
+  var blocks = document.querySelectorAll('#tp-blocks .tp-block');
+  for (var i = 0; i < blocks.length; i++) {
+    var src = blocks[i].querySelector('.tp-source').value.trim();
+    if (!src) continue;
+    var allow = readToolRows(blocks[i].querySelector('.tp-allow'));
+    var deny = readToolRows(blocks[i].querySelector('.tp-deny'));
+    var prof = {};
+    if (allow.length > 0) prof.allow = allow;
+    if (deny.length > 0) prof.deny = deny;
+    if (Object.keys(prof).length > 0) tp[src] = prof;
+  }
+  return tp;
+}
+
 function readConfigFromForm() {
   var cfg = {};
 
@@ -1677,11 +1766,8 @@ function readConfigFromForm() {
     }
   }
 
-  try {
-    cfg.toolProfiles = JSON.parse(document.getElementById('cfg-toolProfiles').value);
-  } catch (e) {
-    throw new Error('Invalid JSON in Tool Profiles');
-  }
+  var tp = readToolProfilesFromForm();
+  if (Object.keys(tp).length > 0) cfg.toolProfiles = tp;
 
   try {
     cfg.agents = JSON.parse(document.getElementById('cfg-agents').value);
