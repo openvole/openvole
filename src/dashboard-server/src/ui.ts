@@ -673,9 +673,41 @@ export function getDashboardHtml(wsPort: number): string {
     .panel.span-2 { grid-column: span 1; }
     .panel { min-height: 150px; }
   }
+
+  /* ── Spaces launcher + view switching ── */
+  body[data-view="spaces"] .tab-bar,
+  body[data-view="spaces"] .main,
+  body[data-view="spaces"] #header-space,
+  body[data-view="spaces"] .header-right .stats,
+  body[data-view="spaces"] #btn-restart { display: none !important; }
+  body[data-view="dashboard"] #view-spaces { display: none !important; }
+
+  .header-space { display: flex; align-items: center; gap: 10px; margin-right: 12px; }
+  .btn-back { background: transparent; border: 1px solid var(--border); color: var(--text-dim); padding: 5px 10px; border-radius: 6px; cursor: pointer; font-size: 12px; }
+  .btn-back:hover { color: var(--text); border-color: var(--text-dim); }
+  .header-space-name { font-weight: 600; color: var(--text); font-size: 14px; }
+
+  .view-spaces { flex: 1; overflow-y: auto; padding: 40px 24px; max-width: 1000px; width: 100%; margin: 0 auto; }
+  .spaces-hero { margin-bottom: 28px; }
+  .spaces-hero h1 { font-size: 26px; font-weight: 700; color: var(--text); margin-bottom: 8px; }
+  .spaces-hero p { color: var(--text-dim); font-size: 14px; max-width: 620px; margin-bottom: 16px; line-height: 1.5; }
+  .spaces-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px; }
+  .spaces-empty { color: var(--text-dim); padding: 40px; text-align: center; border: 1px dashed var(--border); border-radius: 10px; grid-column: 1 / -1; }
+  .space-card { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); padding: 16px; display: flex; flex-direction: column; gap: 10px; transition: border-color 0.15s, transform 0.15s; }
+  .space-card:hover { border-color: var(--accent); transform: translateY(-1px); }
+  .space-card-head { display: flex; align-items: center; justify-content: space-between; }
+  .space-card-name { font-weight: 600; font-size: 15px; color: var(--text); }
+  .space-card-meta { color: var(--text-dim); font-size: 11px; font-family: ui-monospace, monospace; }
+  .space-card-actions { display: flex; gap: 8px; margin-top: 4px; }
+  .space-status { font-size: 10px; padding: 2px 8px; border-radius: 999px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+  .space-status-running { background: rgba(0,200,100,0.15); color: var(--green); }
+  .space-status-stopped { background: var(--surface-hover); color: var(--text-dim); }
+  .space-btn { background: var(--surface-hover); border: 1px solid var(--border); color: var(--text); padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 12px; }
+  .space-btn:hover { border-color: var(--text-dim); }
+  .space-btn-danger:hover { color: var(--red); border-color: var(--red); }
 </style>
 </head>
-<body>
+<body data-view="spaces">
 <header>
   <div class="logo-group">
     <a href="https://github.com/openvole/openvole" target="_blank" class="logo-link">
@@ -684,13 +716,12 @@ export function getDashboardHtml(wsPort: number): string {
     </a>
   </div>
   <div class="header-right">
-    <div class="space-switcher" id="space-switcher" style="display:flex;align-items:center;gap:8px;margin-right:12px">
-      <span style="opacity:0.7">Space:</span>
-      <select id="space-select" onchange="selectSpace(this.value)"></select>
+    <div class="header-space" id="header-space">
+      <button class="btn-back" onclick="showSpacesView()" title="Back to spaces">&#8592; Spaces</button>
+      <span class="header-space-name" id="header-space-name"></span>
+      <span class="space-status" id="header-space-status"></span>
       <button class="btn-restart" id="btn-space-start" title="Start space" onclick="spaceAction('start_space')">Start</button>
       <button class="btn-restart" id="btn-space-stop" title="Stop space" onclick="spaceAction('stop_space')">Stop</button>
-      <button class="btn-restart" id="btn-space-new" title="Create a new space" onclick="createSpacePrompt()">+ New</button>
-      <button class="btn-restart" id="btn-space-remove" title="Remove this space" onclick="removeSpacePrompt()">Remove</button>
     </div>
     <div class="stats">
       <span><span class="stat-val" id="stat-paws">0</span> paws</span>
@@ -709,6 +740,15 @@ export function getDashboardHtml(wsPort: number): string {
     </div>
   </div>
 </header>
+
+<div id="view-spaces" class="view-spaces">
+  <div class="spaces-hero">
+    <h1>Your Spaces</h1>
+    <p>Each space is an isolated agent — its own brain, paws, memory, and identity. Open one to manage it, or create a new one.</p>
+    <button class="btn-primary" onclick="createSpacePrompt()">+ New space</button>
+  </div>
+  <div class="spaces-grid" id="spaces-grid"></div>
+</div>
 
 <div class="tab-bar">
   <button class="tab-btn active" data-tab="overview" onclick="switchTab('overview')">Overview</button>
@@ -1049,76 +1089,120 @@ function sendCommand(type, params, timeoutMs) {
 /* ── Spaces (control-plane mode) ── */
 var currentSpaceId = null;
 var lastSpaces = [];
+
+/* ── View switching: spaces launcher  <->  selected-space dashboard ── */
+function showSpacesView() {
+  currentSpaceId = null;
+  document.body.dataset.view = 'spaces';
+  sendCommand('list_spaces').then(renderSpaces).catch(function() {});
+}
+function showDashboardView() {
+  document.body.dataset.view = 'dashboard';
+}
+function openSpace(id) {
+  showDashboardView();
+  selectSpace(id);
+  switchTab('overview');
+}
+
+/* ── Spaces launcher (cards) ── */
 function renderSpaces(spaces) {
   lastSpaces = spaces || [];
-  var sel = document.getElementById('space-select');
-  document.getElementById('space-switcher').style.display = 'flex';
-  if (lastSpaces.length === 0) {
-    sel.innerHTML = '<option value="">no spaces yet — click + New</option>';
-    currentSpaceId = null;
-    updateSpaceButtons();
-    clearPanels();
-    return;
+  var grid = document.getElementById('spaces-grid');
+  if (grid) {
+    if (lastSpaces.length === 0) {
+      grid.innerHTML = '<div class="spaces-empty">No spaces yet. Click <b>+ New space</b> to create your first agent.</div>';
+    } else {
+      grid.innerHTML = lastSpaces.map(spaceCardHtml).join('');
+      wireSpaceCards();
+    }
   }
-  sel.innerHTML = lastSpaces.map(function(s) {
-    return '<option value="' + esc(s.id) + '">' + esc(s.name) + ' — ' + esc(s.state) + '</option>';
-  }).join('');
-  var ids = lastSpaces.map(function(s) { return s.id; });
-  var running = lastSpaces.filter(function(s) { return s.state === 'running'; })[0];
-  var pick = (currentSpaceId && ids.indexOf(currentSpaceId) >= 0) ? currentSpaceId
-    : (running ? running.id : lastSpaces[0].id);
-  sel.value = pick;
-  // Always (re)select so state is fetched on stopped→running transitions (e.g. right after Start).
-  selectSpace(pick);
+  if (currentSpaceId) updateSpaceHeader();
 }
-function updateSpaceButtons() {
-  var s = lastSpaces.filter(function(x) { return x.id === currentSpaceId; })[0];
-  var has = !!s;
-  var isRunning = s && s.state === 'running';
-  document.getElementById('btn-space-start').style.display = (has && !isRunning) ? '' : 'none';
-  document.getElementById('btn-space-stop').style.display = (has && isRunning) ? '' : 'none';
-  document.getElementById('btn-space-remove').style.display = has ? '' : 'none';
+function spaceCardHtml(s) {
+  var running = s.state === 'running';
+  return '<div class="space-card">'
+    + '<div class="space-card-head">'
+    + '<span class="space-card-name">' + esc(s.name) + '</span>'
+    + '<span class="space-status space-status-' + (running ? 'running' : 'stopped') + '">' + (running ? 'running' : 'stopped') + '</span>'
+    + '</div>'
+    + '<div class="space-card-meta">' + esc(s.id) + (s.pid ? ' &middot; pid ' + s.pid : '') + '</div>'
+    + '<div class="space-card-actions">'
+    + '<button class="btn-primary" data-act="open" data-id="' + esc(s.id) + '">Open</button>'
+    + '<button class="space-btn" data-act="' + (running ? 'stop_space' : 'start_space') + '" data-id="' + esc(s.id) + '">' + (running ? 'Stop' : 'Start') + '</button>'
+    + '<button class="space-btn space-btn-danger" data-act="remove" data-id="' + esc(s.id) + '">Remove</button>'
+    + '</div></div>';
+}
+function wireSpaceCards() {
+  var btns = document.querySelectorAll('#spaces-grid button[data-act]');
+  for (var i = 0; i < btns.length; i++) {
+    btns[i].addEventListener('click', function() {
+      var act = this.getAttribute('data-act');
+      var id = this.getAttribute('data-id');
+      if (act === 'open') { openSpace(id); return; }
+      if (act === 'remove') { removeSpaceById(id); return; }
+      sendCommand(act, { spaceId: id })
+        .then(function() { return sendCommand('list_spaces'); })
+        .then(renderSpaces)
+        .catch(function(e) { showToast(e.message, 'error'); });
+    });
+  }
 }
 function createSpacePrompt() {
   var name = prompt('New space name:');
   if (!name) return;
-  sendCommand('create_space', { name: name }).then(function() {
-    return sendCommand('list_spaces');
-  }).then(function(spaces) {
-    renderSpaces(spaces);
-    showToast('Created space "' + name + '"', 'success');
-  }).catch(function(e) { showToast(e.message, 'error'); });
+  sendCommand('create_space', { name: name })
+    .then(function() { return sendCommand('list_spaces'); })
+    .then(function(spaces) { renderSpaces(spaces); showToast('Created space "' + name + '"', 'success'); })
+    .catch(function(e) { showToast(e.message, 'error'); });
 }
-function removeSpacePrompt() {
-  if (!currentSpaceId) return;
-  if (!confirm('Remove space "' + currentSpaceId + '"? (its files are kept on disk)')) return;
-  var id = currentSpaceId;
-  sendCommand('remove_space', { spaceId: id }).then(function() {
-    currentSpaceId = null;
-    return sendCommand('list_spaces');
-  }).then(function(spaces) {
-    renderSpaces(spaces);
-    showToast('Removed space "' + id + '"', 'success');
-  }).catch(function(e) { showToast(e.message, 'error'); });
+function removeSpaceById(id) {
+  if (!confirm('Remove space "' + id + '"? (its files are kept on disk)')) return;
+  sendCommand('remove_space', { spaceId: id })
+    .then(function() {
+      showToast('Removed space "' + id + '"', 'success');
+      if (currentSpaceId === id) { showSpacesView(); }
+      else { sendCommand('list_spaces').then(renderSpaces).catch(function() {}); }
+    })
+    .catch(function(e) { showToast(e.message, 'error'); });
+}
+
+/* ── Selected-space header + dashboard ── */
+function updateSpaceHeader() {
+  var s = lastSpaces.filter(function(x) { return x.id === currentSpaceId; })[0];
+  var running = s && s.state === 'running';
+  var nameEl = document.getElementById('header-space-name');
+  var stEl = document.getElementById('header-space-status');
+  if (nameEl) nameEl.textContent = s ? s.name : (currentSpaceId || '');
+  if (stEl) {
+    stEl.textContent = running ? 'running' : 'stopped';
+    stEl.className = 'space-status space-status-' + (running ? 'running' : 'stopped');
+  }
+  document.getElementById('btn-space-start').style.display = (s && !running) ? '' : 'none';
+  document.getElementById('btn-space-stop').style.display = (s && running) ? '' : 'none';
 }
 function selectSpace(id) {
-  if (!id) { currentSpaceId = null; updateSpaceButtons(); clearPanels(); return; }
+  if (!id) { currentSpaceId = null; clearPanels(); return; }
   currentSpaceId = id;
-  updateSpaceButtons();
-  sendCommand('select_space', { spaceId: id }).then(function(state) {
-    renderState(state || {});
-  }).catch(function() { clearPanels(); });
+  updateSpaceHeader();
+  sendCommand('select_space', { spaceId: id })
+    .then(function(state) { renderState(state || {}); })
+    .catch(function() { clearPanels(); });
 }
 function clearPanels() {
   renderState({ paws: [], tools: [], skills: [], tasks: [], schedules: [], volenet: { enabled: false } });
 }
 function spaceAction(cmd) {
   if (!currentSpaceId) return;
-  sendCommand(cmd, { spaceId: currentSpaceId }).then(function() {
-    return sendCommand('list_spaces');
-  }).then(function(spaces) {
-    renderSpaces(spaces);
-  }).catch(function(e) { showToast(e.message, 'error'); });
+  var id = currentSpaceId;
+  sendCommand(cmd, { spaceId: id })
+    .then(function() { return sendCommand('list_spaces'); })
+    .then(function(spaces) {
+      renderSpaces(spaces);
+      if (cmd === 'start_space') selectSpace(id);
+      else clearPanels();
+    })
+    .catch(function(e) { showToast(e.message, 'error'); });
 }
 
 /* ── Render aggregated engine state ── */
