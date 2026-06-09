@@ -933,9 +933,34 @@ export function getDashboardHtml(wsPort: number): string {
             <input type="number" class="form-input" id="cfg-loop-costAlertThreshold" placeholder="(optional)" step="0.01" min="0">
           </div>
           <div class="form-field">
-            <label class="form-label">Rate Limits</label>
-            <div class="form-help">Prevent runaway costs. Keys: llmCallsPerMinute, llmCallsPerHour, toolExecutionsPerTask, tasksPerHour (per source).</div>
-            <textarea class="form-textarea" id="cfg-loop-rateLimits" rows="6" placeholder='{"llmCallsPerMinute": 30, "llmCallsPerHour": 500}'>{}</textarea>
+            <label class="form-label">loop.rateLimits.llmCallsPerMinute</label>
+            <div class="form-help">Max LLM calls per minute. Empty = unlimited.</div>
+            <input type="number" class="form-input" id="cfg-rl-llmPerMin" placeholder="(unlimited)" min="1">
+          </div>
+          <div class="form-field">
+            <label class="form-label">loop.rateLimits.llmCallsPerHour</label>
+            <div class="form-help">Max LLM calls per hour. Empty = unlimited.</div>
+            <input type="number" class="form-input" id="cfg-rl-llmPerHour" placeholder="(unlimited)" min="1">
+          </div>
+          <div class="form-field">
+            <label class="form-label">loop.rateLimits.toolExecutionsPerTask</label>
+            <div class="form-help">Max tool executions per task. Empty = unlimited.</div>
+            <input type="number" class="form-input" id="cfg-rl-toolPerTask" placeholder="(unlimited)" min="1">
+          </div>
+          <div class="form-field">
+            <label class="form-label">loop.rateLimits.tasksPerHour</label>
+            <div class="form-help">Per-source max tasks per hour (e.g. cli, telegram, heartbeat).</div>
+            <div id="rl-tph-rows"></div>
+            <button class="btn-restart" type="button" onclick="addTphRow('', '')" style="margin-top:6px">+ Add source limit</button>
+            <datalist id="rl-source-options">
+              <option value="cli"></option>
+              <option value="user"></option>
+              <option value="heartbeat"></option>
+              <option value="schedule"></option>
+              <option value="telegram"></option>
+              <option value="slack"></option>
+              <option value="discord"></option>
+            </datalist>
           </div>
         </div>
       </div>
@@ -1387,7 +1412,7 @@ function populateConfig(cfg) {
   document.getElementById('cfg-loop-responseReserve').value = loop.responseReserve != null ? loop.responseReserve : 4000;
   document.getElementById('cfg-loop-costTracking').value = loop.costTracking || 'auto';
   document.getElementById('cfg-loop-costAlertThreshold').value = loop.costAlertThreshold != null ? loop.costAlertThreshold : '';
-  document.getElementById('cfg-loop-rateLimits').value = JSON.stringify(loop.rateLimits || {}, null, 2);
+  populateRateLimits(loop.rateLimits || {});
 
   var hb = cfg.heartbeat || {};
   document.getElementById('cfg-heartbeat-enabled').checked = !!hb.enabled;
@@ -1403,6 +1428,50 @@ function populateConfig(cfg) {
   document.getElementById('cfg-toolProfiles').value = JSON.stringify(cfg.toolProfiles || {}, null, 2);
   document.getElementById('cfg-agents').value = JSON.stringify(cfg.agents || {}, null, 2);
   document.getElementById('cfg-net').value = JSON.stringify(cfg.net || {}, null, 2);
+}
+
+/* ── Rate limits (structured fields, schema = core RateLimits) ── */
+function populateRateLimits(rl) {
+  rl = rl || {};
+  document.getElementById('cfg-rl-llmPerMin').value = rl.llmCallsPerMinute != null ? rl.llmCallsPerMinute : '';
+  document.getElementById('cfg-rl-llmPerHour').value = rl.llmCallsPerHour != null ? rl.llmCallsPerHour : '';
+  document.getElementById('cfg-rl-toolPerTask').value = rl.toolExecutionsPerTask != null ? rl.toolExecutionsPerTask : '';
+  document.getElementById('rl-tph-rows').innerHTML = '';
+  var tph = rl.tasksPerHour || {};
+  for (var k in tph) addTphRow(k, tph[k]);
+}
+function addTphRow(source, limit) {
+  var row = document.createElement('div');
+  row.className = 'rl-tph-row';
+  row.style.cssText = 'display:flex;gap:8px;margin-top:6px;align-items:center';
+  row.innerHTML = '<input type="text" class="form-input" style="flex:1" placeholder="source (e.g. cli)" list="rl-source-options" value="' + esc(String(source || '')) + '">'
+    + '<input type="number" class="form-input" style="width:110px" placeholder="limit" min="1" value="' + esc(limit != null && limit !== '' ? String(limit) : '') + '">'
+    + '<button class="space-btn space-btn-danger" type="button" title="Remove">&times;</button>';
+  row.querySelector('button').addEventListener('click', function() { row.remove(); });
+  document.getElementById('rl-tph-rows').appendChild(row);
+}
+function readRateLimitsFromForm() {
+  var rl = {};
+  // Preserve any keys this form doesn't know about (forward compat).
+  var prev = (cachedConfig && cachedConfig.loop && cachedConfig.loop.rateLimits) || {};
+  for (var k in prev) {
+    if (['llmCallsPerMinute', 'llmCallsPerHour', 'toolExecutionsPerTask', 'tasksPerHour'].indexOf(k) < 0) rl[k] = prev[k];
+  }
+  var perMin = parseInt(document.getElementById('cfg-rl-llmPerMin').value, 10);
+  if (!isNaN(perMin)) rl.llmCallsPerMinute = perMin;
+  var perHour = parseInt(document.getElementById('cfg-rl-llmPerHour').value, 10);
+  if (!isNaN(perHour)) rl.llmCallsPerHour = perHour;
+  var perTask = parseInt(document.getElementById('cfg-rl-toolPerTask').value, 10);
+  if (!isNaN(perTask)) rl.toolExecutionsPerTask = perTask;
+  var tph = {};
+  var rows = document.querySelectorAll('#rl-tph-rows .rl-tph-row');
+  for (var i = 0; i < rows.length; i++) {
+    var src = rows[i].querySelector('input[type="text"]').value.trim();
+    var lim = parseInt(rows[i].querySelector('input[type="number"]').value, 10);
+    if (src && !isNaN(lim)) tph[src] = lim;
+  }
+  if (Object.keys(tph).length > 0) rl.tasksPerHour = tph;
+  return rl;
 }
 
 function readConfigFromForm() {
@@ -1427,12 +1496,8 @@ function readConfigFromForm() {
   cfg.loop.costTracking = document.getElementById('cfg-loop-costTracking').value;
   var costAlert = parseFloat(document.getElementById('cfg-loop-costAlertThreshold').value);
   if (!isNaN(costAlert)) cfg.loop.costAlertThreshold = costAlert;
-  try {
-    var rl = JSON.parse(document.getElementById('cfg-loop-rateLimits').value);
-    if (rl && Object.keys(rl).length > 0) cfg.loop.rateLimits = rl;
-  } catch (e) {
-    throw new Error('Invalid JSON in Rate Limits');
-  }
+  var rl = readRateLimitsFromForm();
+  if (Object.keys(rl).length > 0) cfg.loop.rateLimits = rl;
 
   cfg.heartbeat = {};
   cfg.heartbeat.enabled = document.getElementById('cfg-heartbeat-enabled').checked;
