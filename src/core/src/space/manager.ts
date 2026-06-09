@@ -90,6 +90,49 @@ export class SpaceManager {
 		return undefined
 	}
 
+	// --- space template (cloned by create() when present) ---
+
+	/** Path to the optional space template at <home>/space-template. */
+	get templatePath(): string {
+		return path.join(this.home, 'space-template')
+	}
+
+	private async pathExists(p: string): Promise<boolean> {
+		try {
+			await fs.access(p)
+			return true
+		} catch {
+			return false
+		}
+	}
+
+	/** Scaffold the space template if absent. Returns its path and whether it was just created. */
+	async ensureTemplate(): Promise<{ path: string; created: boolean }> {
+		const dir = this.templatePath
+		if (await this.pathExists(path.join(dir, 'vole.config.json'))) {
+			return { path: dir, created: false }
+		}
+		await fs.mkdir(dir, { recursive: true })
+		await scaffoldProject(dir)
+		return { path: dir, created: true }
+	}
+
+	/** Recursively copy the template into a new space dir, skipping volatile/installed files. */
+	private async copyTemplate(src: string, dest: string): Promise<void> {
+		await fs.cp(src, dest, {
+			recursive: true,
+			filter: (from) => {
+				const rel = path.relative(src, from)
+				if (!rel) return true
+				const top = rel.split(path.sep)[0]
+				if (top === 'node_modules' || top === '.git') return false
+				if (rel === path.join('.openvole', 'runtime.json')) return false
+				if (rel.startsWith(path.join('.openvole', 'logs'))) return false
+				return true
+			},
+		})
+	}
+
 	// --- commands ---
 
 	async create(name: string, opts?: { path?: string }): Promise<SpaceEntry> {
@@ -100,7 +143,12 @@ export class SpaceManager {
 
 		const dir = opts?.path ? path.resolve(opts.path) : path.join(this.home, 'spaces', id)
 		await fs.mkdir(dir, { recursive: true })
-		await scaffoldProject(dir)
+		// Clone the user's space template if present, else scaffold an empty project.
+		if (await this.pathExists(path.join(this.templatePath, 'vole.config.json'))) {
+			await this.copyTemplate(this.templatePath, dir)
+		} else {
+			await scaffoldProject(dir)
+		}
 
 		const entry: SpaceEntry = {
 			id,

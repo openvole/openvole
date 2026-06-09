@@ -178,7 +178,8 @@ VoleNet (distributed networking):
 
 Space management:
   vole serve                             Start the control-plane dashboard (manage all spaces)
-  vole space create <name>               Scaffold a new space (agent container)
+  vole space create <name>               Scaffold a new space (clones your template if set)
+  vole space template                    Create/locate the template new spaces clone
   vole space list                        List spaces and running status
   vole space start <name>                Start a space's engine (lazy, own process)
   vole space stop <name> | --all         Stop a space (or all spaces)
@@ -1703,7 +1704,8 @@ async function handleSpaceCommand(args: string[]): Promise<void> {
 			logger.info(`Created space "${entry.id}"`)
 			logger.info(`  path: ${entry.path}`)
 			logger.info('')
-			logger.info(`Equip it with paws, then: vole space start ${entry.id}`)
+			logger.info(`Next: vole space start ${entry.id}  (or manage all spaces in: vole serve)`)
+			logger.info('Tip: pre-equip new spaces by setting up a template — vole space template')
 			break
 		}
 
@@ -1779,9 +1781,22 @@ async function handleSpaceCommand(args: string[]): Promise<void> {
 			break
 		}
 
+		case 'template': {
+			const { path: tdir, created } = await mgr.ensureTemplate()
+			if (created) {
+				logger.info(`Created space template: ${tdir}`)
+				logger.info('Equip it (add paws to vole.config.json) — new spaces clone it:')
+				logger.info('  vole space create <name>')
+			} else {
+				logger.info(`Space template: ${tdir}`)
+				logger.info('Edit its vole.config.json to change what new spaces inherit.')
+			}
+			break
+		}
+
 		default:
 			logger.error(`Unknown space command: ${subcommand}`)
-			logger.info('Available: create, list, start, stop, status, switch, remove')
+			logger.info('Available: create, template, list, start, stop, status, switch, remove')
 			process.exit(1)
 	}
 }
