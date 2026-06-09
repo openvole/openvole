@@ -117,6 +117,7 @@ export interface VoleEngine {
 	pawRegistry: PawRegistry
 	skillRegistry: SkillRegistry
 	taskQueue: TaskQueue
+	scheduler: SchedulerStore
 	io: VoleIO
 	config: VoleConfig
 
@@ -238,6 +239,7 @@ export async function createEngine(
 		pawRegistry,
 		skillRegistry,
 		taskQueue,
+		scheduler,
 		io,
 		config,
 

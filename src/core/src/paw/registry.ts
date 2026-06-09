@@ -1,7 +1,10 @@
-import * as fs from 'node:fs/promises'
-import * as path from 'node:path'
 import type { AgentContext } from '../context/types.js'
-import { readConfigFile, writeConfigFile } from '../config/index.js'
+import {
+	readConfigFile,
+	readIdentityFiles,
+	writeConfigFile,
+	writeIdentityFile,
+} from '../config/index.js'
 import type { MessageBus } from '../core/bus.js'
 import type { ActionResult } from '../core/errors.js'
 import type { IpcTransport } from '../core/ipc.js'
@@ -584,54 +587,22 @@ export class PawRegistry {
 
 		// Handle Paw → Core: read identity files
 		transport.onRequest('read_identity', async () => {
-			const openvoleDir = path.join(this.projectRoot, '.openvole')
-			const files: Record<string, string> = {}
-
-			const identityFiles = ['SOUL.md', 'USER.md', 'AGENT.md', 'HEARTBEAT.md']
-			for (const file of identityFiles) {
-				try {
-					files[file] = await fs.readFile(path.join(openvoleDir, file), 'utf-8')
-				} catch {
-					files[file] = ''
-				}
-			}
-
-			// BRAIN.md lives under the brain paw's data directory
-			const brainPaw = this.brainPawName?.replace('@openvole/', '') ?? 'paw-brain'
-			try {
-				files['BRAIN.md'] = await fs.readFile(
-					path.join(openvoleDir, 'paws', brainPaw, 'BRAIN.md'),
-					'utf-8',
-				)
-			} catch {
-				files['BRAIN.md'] = ''
-			}
-
-			return files
+			return readIdentityFiles(this.projectRoot, this.brainPawName)
 		})
 
 		// Handle Paw → Core: write a single identity file
 		transport.onRequest('write_identity', async (params) => {
 			const { filename, content } = params as { filename: string; content: string }
-			const allowed = ['SOUL.md', 'USER.md', 'AGENT.md', 'HEARTBEAT.md', 'BRAIN.md']
-			if (!allowed.includes(filename)) {
-				return { error: `Invalid identity file: ${filename}` }
+			const result = await writeIdentityFile(
+				this.projectRoot,
+				filename,
+				content,
+				this.brainPawName,
+			)
+			if ('ok' in result) {
+				logger.info(`Identity file "${filename}" updated by paw "${pawName}"`)
 			}
-
-			const openvoleDir = path.join(this.projectRoot, '.openvole')
-			let filePath: string
-
-			if (filename === 'BRAIN.md') {
-				const brainPaw = this.brainPawName?.replace('@openvole/', '') ?? 'paw-brain'
-				filePath = path.join(openvoleDir, 'paws', brainPaw, 'BRAIN.md')
-			} else {
-				filePath = path.join(openvoleDir, filename)
-			}
-
-			await fs.mkdir(path.dirname(filePath), { recursive: true })
-			await fs.writeFile(filePath, content, 'utf-8')
-			logger.info(`Identity file "${filename}" updated by paw "${pawName}"`)
-			return { ok: true }
+			return result
 		})
 
 		// Handle Paw → Core: restart engine

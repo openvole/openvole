@@ -255,6 +255,55 @@ export async function writeConfigFile(
 	await fs.writeFile(configPath, JSON.stringify(config, null, 2) + '\n', 'utf-8')
 }
 
+const IDENTITY_FILES = ['SOUL.md', 'USER.md', 'AGENT.md', 'HEARTBEAT.md', 'BRAIN.md']
+
+/** Read identity files: SOUL/USER/AGENT/HEARTBEAT from .openvole/, BRAIN.md from the brain paw's data dir. */
+export async function readIdentityFiles(
+	projectRoot: string,
+	brainPawName?: string,
+): Promise<Record<string, string>> {
+	const openvoleDir = path.join(projectRoot, '.openvole')
+	const files: Record<string, string> = {}
+	for (const file of ['SOUL.md', 'USER.md', 'AGENT.md', 'HEARTBEAT.md']) {
+		try {
+			files[file] = await fs.readFile(path.join(openvoleDir, file), 'utf-8')
+		} catch {
+			files[file] = ''
+		}
+	}
+	const brainPaw = brainPawName?.replace('@openvole/', '') ?? 'paw-brain'
+	try {
+		files['BRAIN.md'] = await fs.readFile(
+			path.join(openvoleDir, 'paws', brainPaw, 'BRAIN.md'),
+			'utf-8',
+		)
+	} catch {
+		files['BRAIN.md'] = ''
+	}
+	return files
+}
+
+/** Write a single allowlisted identity file. BRAIN.md routes to the brain paw's data dir. */
+export async function writeIdentityFile(
+	projectRoot: string,
+	filename: string,
+	content: string,
+	brainPawName?: string,
+): Promise<{ ok: true } | { error: string }> {
+	if (!IDENTITY_FILES.includes(filename)) {
+		return { error: `Invalid identity file: ${filename}` }
+	}
+	const openvoleDir = path.join(projectRoot, '.openvole')
+	const brainPaw = brainPawName?.replace('@openvole/', '') ?? 'paw-brain'
+	const filePath =
+		filename === 'BRAIN.md'
+			? path.join(openvoleDir, 'paws', brainPaw, 'BRAIN.md')
+			: path.join(openvoleDir, filename)
+	await fs.mkdir(path.dirname(filePath), { recursive: true })
+	await fs.writeFile(filePath, content, 'utf-8')
+	return { ok: true }
+}
+
 /** Add a Paw to vole.config.json if not already present */
 export async function addPawToConfig(
 	projectRoot: string,

@@ -1785,13 +1785,17 @@ async function handleSpaceCommand(args: string[]): Promise<void> {
 
 /** Daemon entry — runs a single space's engine in this (subprocess) process until SIGTERM. */
 async function runSpaceDaemon(projectRoot: string): Promise<void> {
+	const { installControlAdapter } = await import('./space/control-adapter.js')
 	let engine = await createEngine(projectRoot)
+	// When spawned as an IPC child by the control plane, bridge engine ↔ parent.
+	const adapter = process.send ? installControlAdapter(engine, projectRoot) : undefined
 
 	const wireRestart = (eng: typeof engine): void => {
 		eng.bus.on('engine:restart', async () => {
 			logger.info('Engine restarting...')
 			await eng.shutdown()
 			engine = await createEngine(projectRoot)
+			adapter?.rebind(engine)
 			wireRestart(engine)
 			await engine.start()
 			logger.info('Engine restarted successfully')
