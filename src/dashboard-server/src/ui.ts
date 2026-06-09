@@ -1018,6 +1018,7 @@ function renderSpaces(spaces) {
     sel.innerHTML = '<option value="">no spaces yet — click + New</option>';
     currentSpaceId = null;
     updateSpaceButtons();
+    clearPanels();
     return;
   }
   sel.innerHTML = lastSpaces.map(function(s) {
@@ -1028,7 +1029,8 @@ function renderSpaces(spaces) {
   var pick = (currentSpaceId && ids.indexOf(currentSpaceId) >= 0) ? currentSpaceId
     : (running ? running.id : lastSpaces[0].id);
   sel.value = pick;
-  if (pick !== currentSpaceId) { selectSpace(pick); } else { updateSpaceButtons(); }
+  // Always (re)select so state is fetched on stopped→running transitions (e.g. right after Start).
+  selectSpace(pick);
 }
 function updateSpaceButtons() {
   var s = lastSpaces.filter(function(x) { return x.id === currentSpaceId; })[0];
@@ -1061,12 +1063,15 @@ function removeSpacePrompt() {
   }).catch(function(e) { showToast(e.message, 'error'); });
 }
 function selectSpace(id) {
-  if (!id) { currentSpaceId = null; updateSpaceButtons(); return; }
+  if (!id) { currentSpaceId = null; updateSpaceButtons(); clearPanels(); return; }
   currentSpaceId = id;
   updateSpaceButtons();
   sendCommand('select_space', { spaceId: id }).then(function(state) {
     renderState(state || {});
-  }).catch(function() {});
+  }).catch(function() { clearPanels(); });
+}
+function clearPanels() {
+  renderState({ paws: [], tools: [], skills: [], tasks: [], schedules: [], volenet: { enabled: false } });
 }
 function spaceAction(cmd) {
   if (!currentSpaceId) return;
