@@ -839,8 +839,8 @@ export function getDashboardHtml(wsPort: number): string {
         <div class="config-section-body">
           <div class="form-field">
             <label class="form-label">brain</label>
-            <div class="form-help">Which paw handles the Think phase (e.g. @openvole/paw-brain)</div>
-            <input type="text" class="form-input" id="cfg-brain" placeholder="@openvole/paw-brain">
+            <div class="form-help">Which paw handles the Think phase. Choose a brain-type paw you've added in Paws.</div>
+            <select class="form-select" id="cfg-brain"></select>
           </div>
         </div>
       </div>
@@ -1089,6 +1089,7 @@ function sendCommand(type, params, timeoutMs) {
 /* ── Spaces (control-plane mode) ── */
 var currentSpaceId = null;
 var lastSpaces = [];
+var lastStatePaws = [];
 
 /* ── View switching: spaces launcher  <->  selected-space dashboard ── */
 function showSpacesView() {
@@ -1207,7 +1208,9 @@ function spaceAction(cmd) {
 
 /* ── Render aggregated engine state ── */
 function renderState(d) {
+  lastStatePaws = d.paws || [];
   renderPaws(d.paws || []);
+  refreshBrainOptions();
   renderTools(d.tools || []);
   renderSkills(d.skills || []);
   renderTasks(d.tasks || []);
@@ -1354,8 +1357,25 @@ function loadConfig() {
   });
 }
 
+function refreshBrainOptions(desired) {
+  var sel = document.getElementById('cfg-brain');
+  if (!sel) return;
+  var current = (desired !== undefined && desired !== null)
+    ? desired
+    : (sel.value || (cachedConfig && cachedConfig.brain) || '');
+  var brains = (lastStatePaws || [])
+    .filter(function(p) { return p && p.category === 'brain'; })
+    .map(function(p) { return p.name; });
+  if (current && brains.indexOf(current) < 0) brains.unshift(current);
+  var opts = ['<option value="">(none)</option>'];
+  for (var i = 0; i < brains.length; i++) {
+    opts.push('<option value="' + esc(brains[i]) + '">' + esc(brains[i]) + '</option>');
+  }
+  sel.innerHTML = opts.join('');
+  sel.value = current;
+}
 function populateConfig(cfg) {
-  document.getElementById('cfg-brain').value = cfg.brain || '';
+  refreshBrainOptions(cfg.brain || '');
 
   var loop = cfg.loop || {};
   document.getElementById('cfg-loop-maxIterations').value = loop.maxIterations != null ? loop.maxIterations : 10;
