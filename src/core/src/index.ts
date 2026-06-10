@@ -123,12 +123,12 @@ export interface VoleEngine {
 
 	/** Start the engine — load Paws and Skills */
 	start(): Promise<void>
-	/** Submit a task for execution */
+	/** Submit a task for execution. Returns the task id. */
 	run(
 		input: string,
 		source?: 'user' | 'schedule' | 'heartbeat' | 'paw' | 'agent',
 		sessionId?: string,
-	): void
+	): string
 	/** Graceful shutdown */
 	shutdown(): Promise<void>
 }
@@ -366,7 +366,7 @@ export async function createEngine(
 		},
 
 		run(input, source = 'user', sessionId?) {
-			taskQueue.enqueue(input, source, sessionId ? { sessionId } : undefined)
+			return taskQueue.enqueue(input, source, sessionId ? { sessionId } : undefined).id
 		},
 
 		async shutdown() {

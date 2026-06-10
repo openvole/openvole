@@ -132,9 +132,28 @@ export function installControlAdapter(engine: VoleEngine, projectRoot: string): 
 					)
 					break
 				case 'submit':
-					current.run(params.input as string, 'user', params.sessionId as string | undefined)
-					result = { ok: true }
+					result = {
+						ok: true,
+						taskId: current.run(
+							params.input as string,
+							'user',
+							params.sessionId as string | undefined,
+						),
+					}
 					break
+				case 'chat_history': {
+					// History comes from paw-session's tool (if loaded) — no file-format coupling.
+					const tool = current.toolRegistry.get('session_history')
+					result = tool
+						? await tool.execute({ sessionId: params.sessionId, maxMessages: 500 })
+						: { ok: false, history: '' }
+					break
+				}
+				case 'chat_sessions': {
+					const tool = current.toolRegistry.get('session_list')
+					result = tool ? await tool.execute({}) : { ok: false, sessions: [] }
+					break
+				}
 				case 'restart':
 					current.bus.emit('engine:restart' as never, {} as never)
 					result = { ok: true }

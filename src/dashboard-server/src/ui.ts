@@ -674,6 +674,18 @@ export function getDashboardHtml(wsPort: number): string {
     .panel { min-height: 150px; }
   }
 
+  /* ── Chat tab ── */
+  .chat-page { display: flex; flex-direction: column; max-width: 860px; width: 100%; margin: 0 auto; padding: 16px 24px; height: calc(100vh - 210px); min-height: 320px; }
+  .chat-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+  .chat-messages { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding: 4px; min-height: 0; }
+  .chat-msg { max-width: 78%; padding: 10px 14px; border-radius: 12px; font-size: 13px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
+  .chat-msg-user { align-self: flex-end; background: var(--accent); color: #fff; border-bottom-right-radius: 4px; }
+  .chat-msg-brain { align-self: flex-start; background: var(--surface); border: 1px solid var(--border); color: var(--text); border-bottom-left-radius: 4px; }
+  .chat-msg-error { align-self: flex-start; background: rgba(255,80,80,0.12); border: 1px solid var(--red); color: var(--text); border-bottom-left-radius: 4px; }
+  .chat-msg-pending { color: var(--text-dim); font-style: italic; }
+  .chat-composer { display: flex; gap: 8px; margin-top: 10px; }
+  .chat-empty { color: var(--text-dim); text-align: center; margin-top: 40px; font-size: 13px; }
+
   /* ── Spaces launcher + view switching ── */
   body[data-view="spaces"] .tab-bar,
   body[data-view="spaces"] .main,
@@ -752,6 +764,7 @@ export function getDashboardHtml(wsPort: number): string {
 
 <div class="tab-bar">
   <button class="tab-btn active" data-tab="overview" onclick="switchTab('overview')">Overview</button>
+  <button class="tab-btn" data-tab="chat" onclick="switchTab('chat')">Chat</button>
   <button class="tab-btn" data-tab="config" onclick="switchTab('config')">Config</button>
   <button class="tab-btn" data-tab="identity" onclick="switchTab('identity')">Identity</button>
 </div>
@@ -822,6 +835,21 @@ export function getDashboardHtml(wsPort: number): string {
         <button onclick="document.getElementById('event-log').innerHTML=''">Clear</button>
       </div>
       <div class="events-body" id="event-log"></div>
+    </div>
+  </div>
+
+  <div id="tab-chat" class="tab-content" style="display:none">
+    <div class="chat-page">
+      <div class="chat-toolbar">
+        <span style="color:var(--text-dim);font-size:12px">Session</span>
+        <select class="form-select" id="chat-session" onchange="onChatSessionChange()" style="width:auto"></select>
+        <span id="chat-note" style="color:var(--text-dim);font-size:11px"></span>
+      </div>
+      <div class="chat-messages" id="chat-messages"></div>
+      <div class="chat-composer">
+        <input type="text" class="form-input" id="chat-input" placeholder="Message the brain&hellip;" onkeydown="if(event.key==='Enter'){sendChat();}">
+        <button class="btn-primary" id="chat-send" onclick="sendChat()">Send</button>
+      </div>
     </div>
   </div>
 
@@ -1253,7 +1281,9 @@ function updateSpaceHeader() {
 }
 function selectSpace(id) {
   if (!id) { currentSpaceId = null; clearPanels(); return; }
+  var changed = currentSpaceId !== id;
   currentSpaceId = id;
+  if (changed) resetChat();
   updateSpaceHeader();
   sendCommand('select_space', { spaceId: id })
     .then(function(state) { renderState(state || {}); })
@@ -1273,6 +1303,130 @@ function spaceAction(cmd) {
       else clearPanels();
     })
     .catch(function(e) { showToast(e.message, 'error'); });
+}
+
+/* ── Chat (per-space brain conversation via paw-session sessions) ── */
+var chatSessionId = 'dashboard';
+var chatLoadedKey = null;
+var pendingChats = {}; // taskId -> { el, spaceId }
+
+function resetChat() {
+  chatSessionId = 'dashboard';
+  chatLoadedKey = null;
+  pendingChats = {};
+  var box = document.getElementById('chat-messages');
+  if (box) box.innerHTML = '';
+  if (currentTab === 'chat') initChatTab();
+}
+function initChatTab() {
+  if (!currentSpaceId) return;
+  var key = currentSpaceId + ':' + chatSessionId;
+  if (chatLoadedKey === key) return;
+  loadChatSessions();
+  loadChatHistory();
+}
+function loadChatSessions() {
+  sendCommand('chat_sessions').then(function(res) {
+    var sel = document.getElementById('chat-session');
+    var note = document.getElementById('chat-note');
+    var opts = ['<option value="dashboard">dashboard</option>'];
+    if (res && res.ok && res.sessions) {
+      for (var i = 0; i < res.sessions.length; i++) {
+        var s = res.sessions[i];
+        if (s.sessionId === 'dashboard') continue;
+        var label = s.sessionId + (s.source ? ' (' + s.source + ')' : '') + ' — ' + (s.messageCount || 0) + ' msgs';
+        opts.push('<option value="' + esc(s.sessionId) + '">' + esc(label) + '</option>');
+      }
+      note.textContent = '';
+    } else {
+      note.textContent = "paw-session not loaded — history won't persist";
+    }
+    sel.innerHTML = opts.join('');
+    sel.value = chatSessionId;
+    if (sel.value !== chatSessionId) { sel.value = 'dashboard'; chatSessionId = 'dashboard'; }
+  }).catch(function() {});
+}
+function onChatSessionChange() {
+  chatSessionId = document.getElementById('chat-session').value || 'dashboard';
+  chatLoadedKey = null;
+  document.getElementById('chat-messages').innerHTML = '';
+  var note = document.getElementById('chat-note');
+  note.textContent = chatSessionId === 'dashboard' ? '' : 'channel session — replies appear here, not on the channel';
+  loadChatHistory();
+}
+function loadChatHistory() {
+  var box = document.getElementById('chat-messages');
+  box.innerHTML = '<div class="chat-empty">Loading&hellip;</div>';
+  var key = currentSpaceId + ':' + chatSessionId;
+  sendCommand('chat_history', { sessionId: chatSessionId }).then(function(res) {
+    chatLoadedKey = key;
+    box.innerHTML = '';
+    var added = 0;
+    var text = (res && res.ok !== false && res.history) ? String(res.history) : '';
+    var lines = text.split('\n');
+    for (var i = 0; i < lines.length; i++) {
+      var m = lines[i].match(/^\[(\d\d:\d\d:\d\d)\] (\w+): (.*)$/);
+      if (!m) continue;
+      addChatBubble(m[2] === 'user' ? 'user' : 'brain', m[3]);
+      added++;
+    }
+    if (!added) box.innerHTML = '<div class="chat-empty">No messages yet — say hi to the brain.</div>';
+    box.scrollTop = box.scrollHeight;
+  }).catch(function() {
+    chatLoadedKey = key;
+    box.innerHTML = '<div class="chat-empty">No history available (paw-session not loaded). Messages still work.</div>';
+  });
+}
+function addChatBubble(kind, text, extraClass) {
+  var box = document.getElementById('chat-messages');
+  var empty = box.querySelector('.chat-empty');
+  if (empty) empty.remove();
+  var el = document.createElement('div');
+  el.className = 'chat-msg chat-msg-' + kind + (extraClass ? ' ' + extraClass : '');
+  el.textContent = text;
+  box.appendChild(el);
+  box.scrollTop = box.scrollHeight;
+  return el;
+}
+function sendChat() {
+  var input = document.getElementById('chat-input');
+  var text = input.value.trim();
+  if (!text || !currentSpaceId) return;
+  input.value = '';
+  addChatBubble('user', text);
+  var pendingEl = addChatBubble('brain', 'queued…', 'chat-msg-pending');
+  sendCommand('submit', { input: text, sessionId: chatSessionId }).then(function(res) {
+    if (res && res.taskId) {
+      pendingChats[res.taskId] = { el: pendingEl, spaceId: currentSpaceId };
+    } else {
+      pendingEl.classList.remove('chat-msg-pending');
+      pendingEl.textContent = '(submitted)';
+    }
+  }).catch(function(e) {
+    pendingEl.className = 'chat-msg chat-msg-error';
+    pendingEl.textContent = 'Failed to submit: ' + e.message;
+  });
+}
+function chatOnTaskEvent(event, data, spaceId) {
+  var p = data && data.taskId ? pendingChats[data.taskId] : null;
+  if (!p) return;
+  if (spaceId !== undefined && p.spaceId !== spaceId) return;
+  if (event === 'task:started') {
+    p.el.textContent = 'thinking…';
+    return;
+  }
+  if (event === 'task:completed') {
+    p.el.classList.remove('chat-msg-pending');
+    p.el.textContent = data.result || '(no response)';
+  } else if (event === 'task:failed' || event === 'task:cancelled') {
+    p.el.className = 'chat-msg chat-msg-error';
+    p.el.textContent = data && (data.result || data.error) ? String(data.result || data.error) : 'Task failed';
+  } else {
+    return;
+  }
+  delete pendingChats[data.taskId];
+  var box = document.getElementById('chat-messages');
+  box.scrollTop = box.scrollHeight;
 }
 
 /* ── Render aggregated engine state ── */
@@ -1324,9 +1478,13 @@ function switchTab(tabName) {
     tabs[i].classList.toggle('active', tabs[i].getAttribute('data-tab') === tabName);
   }
   document.getElementById('tab-overview').style.display = tabName === 'overview' ? '' : 'none';
+  document.getElementById('tab-chat').style.display = tabName === 'chat' ? '' : 'none';
   document.getElementById('tab-config').style.display = tabName === 'config' ? '' : 'none';
   document.getElementById('tab-identity').style.display = tabName === 'identity' ? '' : 'none';
 
+  if (tabName === 'chat') {
+    initChatTab();
+  }
   if (tabName === 'config') {
     if (!configNavReady) { initConfigNav(); configNavReady = true; }
     if (!configLoaded) loadConfig();
@@ -1926,6 +2084,9 @@ ws.onmessage = function(evt) {
     if (msg.spaceId && msg.spaceId !== currentSpaceId) return;
     renderState(msg.data || {});
   } else if (msg.type === 'event') {
+    if (msg.event && msg.event.indexOf('task:') === 0) {
+      chatOnTaskEvent(msg.event, msg.data, msg.spaceId);
+    }
     if (!currentSpaceId || msg.spaceId === undefined || msg.spaceId === currentSpaceId) {
       addEvent(msg.event, msg.data);
     }

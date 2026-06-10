@@ -71,6 +71,9 @@ export class ControlPlane {
 			restartEngine: (id) => this.callSpace(id, 'restart'),
 			listAvailablePaws: () => this.listAvailablePaws(),
 			installPaw: (name, id) => this.installPawInSpace(id, name),
+			submitTask: (input, sessionId, id) => this.callSpace(id, 'submit', { input, sessionId }),
+			chatHistory: (sessionId, id) => this.callSpace(id, 'chat_history', { sessionId }),
+			chatSessions: (id) => this.callSpace(id, 'chat_sessions'),
 		})
 		logger.info(`Control plane listening on http://localhost:${this.port}`)
 	}
