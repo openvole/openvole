@@ -294,6 +294,21 @@ export async function createEngine(
 				: subprocessPaws
 			await Promise.all(pawsToLoad.map((pawConfig) => pawRegistry.load(pawConfig)))
 
+			// The brain may be referenced by manifest name while its paws entry uses a local
+			// path (or vice versa) — resolve again now that manifest names are known. Without
+			// this, think() silently no-ops and every task completes with no response.
+			if (config.brain && !brainConfig) {
+				pawRegistry.setBrain(config.brain)
+				const resolved = pawRegistry.getBrainName()
+				if (resolved && pawRegistry.get(resolved)) {
+					engineLogger.info(`Brain Paw: ${resolved}`)
+				} else {
+					engineLogger.error(
+						`Brain Paw "${config.brain}" not found among loaded paws — running in no-op Think mode`,
+					)
+				}
+			}
+
 			// Load Skills
 			for (const skillName of config.skills) {
 				await skillRegistry.load(skillName)
