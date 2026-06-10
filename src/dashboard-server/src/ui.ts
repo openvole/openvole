@@ -685,6 +685,19 @@ export function getDashboardHtml(wsPort: number): string {
   .chat-msg-pending { color: var(--text-dim); font-style: italic; }
   .chat-composer { display: flex; gap: 8px; margin-top: 10px; }
   .chat-empty { color: var(--text-dim); text-align: center; margin-top: 40px; font-size: 13px; }
+  .chat-md { white-space: normal; }
+  .chat-md .md-pre { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; overflow-x: auto; margin: 6px 0; font-size: 12px; white-space: pre; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .chat-md .md-code { background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 0 4px; font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .chat-md .md-h { font-weight: 700; margin: 8px 0 4px; }
+  .chat-md .md-h1 { font-size: 15px; }
+  .chat-md .md-h2 { font-size: 14px; }
+  .chat-md .md-h3, .chat-md .md-h4 { font-size: 13px; }
+  .chat-md .md-ul { margin: 4px 0 4px 18px; padding: 0; }
+  .chat-md .md-ul li { margin: 2px 0; list-style: disc; }
+  .chat-md .md-bq { border-left: 3px solid var(--border); padding-left: 8px; color: var(--text-dim); margin: 4px 0; }
+  .chat-md .md-hr { border: none; border-top: 1px solid var(--border); margin: 8px 0; }
+  .chat-md .md-gap { height: 6px; }
+  .chat-md a { color: var(--accent); }
 
   /* ── Spaces launcher + view switching ── */
   body[data-view="spaces"] .tab-bar,
@@ -1399,7 +1412,11 @@ function loadChatHistory() {
     for (var i = 0; i < lines.length; i++) {
       var m = lines[i].match(/^\\[(\\d\\d:\\d\\d:\\d\\d)\\] (\\w+): (.*)$/);
       if (!m) continue;
-      addChatBubble(m[2] === 'user' ? 'user' : 'brain', m[3]);
+      if (m[2] === 'user') {
+        addChatBubble('user', m[3]);
+      } else {
+        setBubbleMarkdown(addChatBubble('brain', ''), m[3]);
+      }
       added++;
     }
     if (!added) box.innerHTML = '<div class="chat-empty">No messages yet — say hi to the brain.</div>';
@@ -1408,6 +1425,49 @@ function loadChatHistory() {
     chatLoadedKey = key;
     box.innerHTML = '<div class="chat-empty">No history available (paw-session not loaded). Messages still work.</div>';
   });
+}
+/* ── Minimal safe markdown renderer for brain bubbles (escape first, then transform) ── */
+function mdEscape(s) {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+function renderMarkdown(src) {
+  var text = String(src || '');
+  var blocks = [];
+  text = text.replace(/\\u0060\\u0060\\u0060([a-zA-Z0-9_-]*)\\n?([\\s\\S]*?)\\u0060\\u0060\\u0060/g, function(_m, _lang, code) {
+    blocks.push('<pre class="md-pre"><code>' + mdEscape(code.replace(/\\n$/, '')) + '</code></pre>');
+    return '\\u0000B' + (blocks.length - 1) + '\\u0000';
+  });
+  text = mdEscape(text);
+  text = text.replace(/\\u0060([^\\u0060\\n]+)\\u0060/g, function(_m, c) { return '<code class="md-code">' + c + '</code>'; });
+  text = text.replace(/\\[([^\\]]+)\\]\\((https?:\\/\\/[^)\\s]+)\\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+  text = text.replace(/\\*\\*([^*]+)\\*\\*/g, '<strong>$1</strong>');
+  text = text.replace(/(^|[^*])\\*([^*\\n]+)\\*/g, '$1<em>$2</em>');
+  var lines = text.split('\\n');
+  var out = [];
+  var inList = false;
+  for (var i = 0; i < lines.length; i++) {
+    var line = lines[i];
+    var li = line.match(/^\\s*(?:[-*+]|\\d+\\.)\\s+(.*)$/);
+    if (li) {
+      if (!inList) { out.push('<ul class="md-ul">'); inList = true; }
+      out.push('<li>' + li[1] + '</li>');
+      continue;
+    }
+    if (inList) { out.push('</ul>'); inList = false; }
+    var h = line.match(/^(#{1,4})\\s+(.*)$/);
+    if (h) { out.push('<div class="md-h md-h' + h[1].length + '">' + h[2] + '</div>'); continue; }
+    if (/^\\s*(?:---+|\\*\\*\\*+)\\s*$/.test(line)) { out.push('<hr class="md-hr">'); continue; }
+    var bq = line.match(/^&gt;\\s?(.*)$/);
+    if (bq) { out.push('<div class="md-bq">' + bq[1] + '</div>'); continue; }
+    if (line.replace(/\\s/g, '') === '') { out.push('<div class="md-gap"></div>'); continue; }
+    out.push('<div>' + line + '</div>');
+  }
+  if (inList) out.push('</ul>');
+  return out.join('').replace(/\\u0000B(\\d+)\\u0000/g, function(_m, idx) { return blocks[idx]; });
+}
+function setBubbleMarkdown(el, text) {
+  el.classList.add('chat-md');
+  el.innerHTML = renderMarkdown(text);
 }
 function addChatBubble(kind, text, extraClass) {
   var box = document.getElementById('chat-messages');
@@ -1449,7 +1509,7 @@ function chatOnTaskEvent(event, data, spaceId) {
   }
   if (event === 'task:completed') {
     p.el.classList.remove('chat-msg-pending');
-    p.el.textContent = data.result || '(no response)';
+    setBubbleMarkdown(p.el, data.result || '(no response)');
   } else if (event === 'task:failed' || event === 'task:cancelled') {
     p.el.className = 'chat-msg chat-msg-error';
     p.el.textContent = data && (data.result || data.error) ? String(data.result || data.error) : 'Task failed';
