@@ -1363,9 +1363,9 @@ function loadChatHistory() {
     box.innerHTML = '';
     var added = 0;
     var text = (res && res.ok !== false && res.history) ? String(res.history) : '';
-    var lines = text.split('\n');
+    var lines = text.split('\\n');
     for (var i = 0; i < lines.length; i++) {
-      var m = lines[i].match(/^\[(\d\d:\d\d:\d\d)\] (\w+): (.*)$/);
+      var m = lines[i].match(/^\\[(\\d\\d:\\d\\d:\\d\\d)\\] (\\w+): (.*)$/);
       if (!m) continue;
       addChatBubble(m[2] === 'user' ? 'user' : 'brain', m[3]);
       added++;
