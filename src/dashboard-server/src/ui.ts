@@ -843,6 +843,8 @@ export function getDashboardHtml(wsPort: number): string {
       <div class="chat-toolbar">
         <span style="color:var(--text-dim);font-size:12px">Session</span>
         <select class="form-select" id="chat-session" onchange="onChatSessionChange()" style="width:auto"></select>
+        <button class="btn-restart" type="button" onclick="newChatSession()" title="Start a fresh conversation">+ New session</button>
+        <button class="btn-restart" type="button" id="btn-chat-clear" onclick="clearChatSession()" title="Delete this session's transcript">Clear</button>
         <span id="chat-note" style="color:var(--text-dim);font-size:11px"></span>
       </div>
       <div class="chat-messages" id="chat-messages"></div>
@@ -1314,6 +1316,7 @@ function resetChat() {
   chatSessionId = 'dashboard';
   chatLoadedKey = null;
   pendingChats = {};
+  localChatSessions = [];
   var box = document.getElementById('chat-messages');
   if (box) box.innerHTML = '';
   if (currentTab === 'chat') initChatTab();
@@ -1325,15 +1328,18 @@ function initChatTab() {
   loadChatSessions();
   loadChatHistory();
 }
+var localChatSessions = []; // created this page, not yet persisted by paw-session
 function loadChatSessions() {
   sendCommand('chat_sessions').then(function(res) {
     var sel = document.getElementById('chat-session');
     var note = document.getElementById('chat-note');
     var opts = ['<option value="dashboard">dashboard</option>'];
+    var seen = { dashboard: true };
     if (res && res.ok && res.sessions) {
       for (var i = 0; i < res.sessions.length; i++) {
         var s = res.sessions[i];
-        if (s.sessionId === 'dashboard') continue;
+        if (seen[s.sessionId]) continue;
+        seen[s.sessionId] = true;
         var label = s.sessionId + (s.source ? ' (' + s.source + ')' : '') + ' — ' + (s.messageCount || 0) + ' msgs';
         opts.push('<option value="' + esc(s.sessionId) + '">' + esc(label) + '</option>');
       }
@@ -1341,10 +1347,36 @@ function loadChatSessions() {
     } else {
       note.textContent = "paw-session not loaded — history won't persist";
     }
+    for (var j = 0; j < localChatSessions.length; j++) {
+      if (!seen[localChatSessions[j]]) {
+        opts.push('<option value="' + esc(localChatSessions[j]) + '">' + esc(localChatSessions[j]) + ' — new</option>');
+      }
+    }
     sel.innerHTML = opts.join('');
     sel.value = chatSessionId;
     if (sel.value !== chatSessionId) { sel.value = 'dashboard'; chatSessionId = 'dashboard'; }
   }).catch(function() {});
+}
+function newChatSession() {
+  var d = new Date();
+  var pad = function(x) { return (x < 10 ? '0' : '') + x; };
+  var id = 'dashboard:' + pad(d.getMonth() + 1) + pad(d.getDate()) + '-' + pad(d.getHours()) + pad(d.getMinutes()) + pad(d.getSeconds());
+  localChatSessions.push(id);
+  chatSessionId = id;
+  chatLoadedKey = currentSpaceId + ':' + id;
+  document.getElementById('chat-messages').innerHTML = '<div class="chat-empty">New session — say hi to the brain.</div>';
+  document.getElementById('chat-note').textContent = '';
+  loadChatSessions();
+}
+function clearChatSession() {
+  if (!confirm('Delete the transcript of session "' + chatSessionId + '"?')) return;
+  sendCommand('chat_clear', { sessionId: chatSessionId }).then(function(res) {
+    if (res && res.ok === false) { showToast(res.error || 'Could not clear session', 'error'); return; }
+    showToast('Cleared session "' + chatSessionId + '"', 'success');
+    chatLoadedKey = null;
+    loadChatSessions();
+    loadChatHistory();
+  }).catch(function(e) { showToast(e.message, 'error'); });
 }
 function onChatSessionChange() {
   chatSessionId = document.getElementById('chat-session').value || 'dashboard';

@@ -35,6 +35,7 @@ export interface DashboardCallbacks {
 	submitTask?: (input: string, sessionId?: string, spaceId?: string) => Promise<unknown>
 	chatHistory?: (sessionId?: string, spaceId?: string) => Promise<unknown>
 	chatSessions?: (spaceId?: string) => Promise<unknown>
+	chatClear?: (sessionId: string, spaceId?: string) => Promise<unknown>
 	/** Per-space; spaceId is undefined in single-engine mode. */
 	fetchState: (spaceId?: string) => Promise<unknown>
 	readConfig: (spaceId?: string) => Promise<unknown>
@@ -158,6 +159,11 @@ export function createDashboardServer(
 				case 'chat_sessions':
 					respond(await callbacks.chatSessions?.(sel()))
 					break
+				case 'chat_clear': {
+					const p = cmd.params as { sessionId: string }
+					respond(await callbacks.chatClear?.(p?.sessionId, sel()))
+					break
+				}
 				case 'select_space': {
 					const p = cmd.params as { spaceId?: string }
 					selected.set(ws, p?.spaceId)

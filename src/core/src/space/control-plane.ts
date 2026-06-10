@@ -74,6 +74,7 @@ export class ControlPlane {
 			submitTask: (input, sessionId, id) => this.callSpace(id, 'submit', { input, sessionId }),
 			chatHistory: (sessionId, id) => this.callSpace(id, 'chat_history', { sessionId }),
 			chatSessions: (id) => this.callSpace(id, 'chat_sessions'),
+			chatClear: (sessionId, id) => this.callSpace(id, 'chat_clear', { sessionId }),
 		})
 		logger.info(`Control plane listening on http://localhost:${this.port}`)
 	}

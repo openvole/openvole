@@ -154,6 +154,13 @@ export function installControlAdapter(engine: VoleEngine, projectRoot: string): 
 					result = tool ? await tool.execute({}) : { ok: false, sessions: [] }
 					break
 				}
+				case 'chat_clear': {
+					const tool = current.toolRegistry.get('session_clear')
+					result = tool
+						? await tool.execute({ sessionId: params.sessionId })
+						: { ok: false, error: 'paw-session is not loaded in this space' }
+					break
+				}
 				case 'restart':
 					current.bus.emit('engine:restart' as never, {} as never)
 					result = { ok: true }
