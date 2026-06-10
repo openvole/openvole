@@ -1407,17 +1407,28 @@ function loadChatHistory() {
     chatLoadedKey = key;
     box.innerHTML = '';
     var added = 0;
-    var text = (res && res.ok !== false && res.history) ? String(res.history) : '';
-    var lines = text.split('\\n');
-    for (var i = 0; i < lines.length; i++) {
-      var m = lines[i].match(/^\\[(\\d\\d:\\d\\d:\\d\\d)\\] (\\w+): (.*)$/);
-      if (!m) continue;
-      if (m[2] === 'user') {
-        addChatBubble('user', m[3]);
-      } else {
-        setBubbleMarkdown(addChatBubble('brain', ''), m[3]);
+    var h = (res && res.ok !== false) ? res.history : null;
+    if (Array.isArray(h)) {
+      // paw-session >= 2.1: messages [{ts, role, content}] with newlines preserved
+      for (var i = 0; i < h.length; i++) {
+        var role = h[i].role;
+        if (role === 'user') { addChatBubble('user', h[i].content); added++; }
+        else if (role === 'brain') { setBubbleMarkdown(addChatBubble('brain', ''), h[i].content); added++; }
+        // tool:* entries are skipped — chat shows the conversation only
       }
-      added++;
+    } else if (h) {
+      // older paw-session: flattened text lines
+      var lines = String(h).split('\\n');
+      for (var j = 0; j < lines.length; j++) {
+        var m = lines[j].match(/^\\[(\\d\\d:\\d\\d:\\d\\d)\\] (\\w+): (.*)$/);
+        if (!m) continue;
+        if (m[2] === 'user') {
+          addChatBubble('user', m[3]);
+        } else {
+          setBubbleMarkdown(addChatBubble('brain', ''), m[3]);
+        }
+        added++;
+      }
     }
     if (!added) box.innerHTML = '<div class="chat-empty">No messages yet — say hi to the brain.</div>';
     box.scrollTop = box.scrollHeight;
