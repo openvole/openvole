@@ -75,6 +75,8 @@ export class ControlPlane {
 			chatHistory: (sessionId, id) => this.callSpace(id, 'chat_history', { sessionId }),
 			chatSessions: (id) => this.callSpace(id, 'chat_sessions'),
 			chatClear: (sessionId, id) => this.callSpace(id, 'chat_clear', { sessionId }),
+			getPanelHtml: (spaceId, paw) => this.callSpace(spaceId, 'panel_html', { paw }),
+			callPawTool: (spaceId, name, params) => this.callSpace(spaceId, 'tool', { name, params }),
 		})
 		logger.info(`Control plane listening on http://localhost:${this.port}`)
 	}

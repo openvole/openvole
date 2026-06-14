@@ -36,6 +36,8 @@ export interface DashboardCallbacks {
 	chatHistory?: (sessionId?: string, spaceId?: string) => Promise<unknown>
 	chatSessions?: (spaceId?: string) => Promise<unknown>
 	chatClear?: (sessionId: string, spaceId?: string) => Promise<unknown>
+	getPanelHtml?: (spaceId: string, paw: string) => Promise<unknown>
+	callPawTool?: (spaceId: string, name: string, params: unknown) => Promise<unknown>
 	/** Per-space; spaceId is undefined in single-engine mode. */
 	fetchState: (spaceId?: string) => Promise<unknown>
 	readConfig: (spaceId?: string) => Promise<unknown>
@@ -66,6 +68,44 @@ export function createDashboardServer(
 		'.jpeg': 'image/jpeg',
 		'.ico': 'image/x-icon',
 		'.svg': 'image/svg+xml',
+	}
+
+	// Serve an embedded paw panel (HTML) and proxy its tool calls, all over IPC to the space.
+	async function servePanel(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+		try {
+			const u = new URL(req.url || '/', 'http://localhost')
+			const parts = u.pathname.split('/').filter(Boolean) // ['panel', space, encPaw, ...]
+			const space = parts[1] ? decodeURIComponent(parts[1]) : ''
+			const paw = parts[2] ? decodeURIComponent(parts[2]) : ''
+			if (!space || !paw) {
+				res.writeHead(404)
+				res.end()
+				return
+			}
+			if (parts[3] === 'tool' && parts[4]) {
+				let body = ''
+				for await (const chunk of req) body += chunk
+				const params = body ? JSON.parse(body) : {}
+				const result = await callbacks.callPawTool?.(space, decodeURIComponent(parts[4]), params)
+				res.writeHead(200, { 'Content-Type': 'application/json' })
+				res.end(JSON.stringify(result ?? {}))
+				return
+			}
+			const r = (await callbacks.getPanelHtml?.(space, paw)) as { html?: string } | undefined
+			if (!r?.html) {
+				res.writeHead(404)
+				res.end('panel not found')
+				return
+			}
+			res.writeHead(200, {
+				'Content-Type': 'text/html; charset=utf-8',
+				'X-Content-Type-Options': 'nosniff',
+			})
+			res.end(r.html)
+		} catch (e) {
+			res.writeHead(500)
+			res.end(e instanceof Error ? e.message : String(e))
+		}
 	}
 
 	// HTTP server — serves the dashboard HTML and static assets
@@ -109,6 +149,12 @@ export function createDashboardServer(
 				res.writeHead(404)
 				res.end()
 			}
+			return
+		}
+
+		// Embedded paw panels: /panel/<space>/<encodedPaw>/  and  .../tool/<name>
+		if (req.url?.startsWith('/panel/')) {
+			void servePanel(req, res)
 			return
 		}
 

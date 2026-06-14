@@ -685,6 +685,8 @@ export function getDashboardHtml(wsPort: number): string {
   .chat-msg-pending { color: var(--text-dim); font-style: italic; }
   .chat-composer { display: flex; gap: 8px; margin-top: 10px; }
   .chat-empty { color: var(--text-dim); text-align: center; margin-top: 40px; font-size: 13px; }
+  #tab-panel { padding: 0; }
+  #panel-frame { width: 100%; height: calc(100vh - 150px); min-height: 360px; border: 0; background: var(--bg); display: block; }
   .chat-md { white-space: normal; }
   .chat-md .md-pre { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; overflow-x: auto; margin: 6px 0; font-size: 12px; white-space: pre; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
   .chat-md .md-code { background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 0 4px; font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
@@ -780,6 +782,7 @@ export function getDashboardHtml(wsPort: number): string {
   <button class="tab-btn" data-tab="chat" onclick="switchTab('chat')">Chat</button>
   <button class="tab-btn" data-tab="config" onclick="switchTab('config')">Config</button>
   <button class="tab-btn" data-tab="identity" onclick="switchTab('identity')">Identity</button>
+  <span id="panel-tabs"></span>
 </div>
 
 <div class="main">
@@ -1155,6 +1158,10 @@ export function getDashboardHtml(wsPort: number): string {
         <button class="btn-primary" id="btn-save-identity" onclick="saveIdentity()">Save File</button>
       </div>
     </div>
+  </div>
+
+  <div id="tab-panel" class="tab-content" style="display:none">
+    <iframe id="panel-frame" title="Paw panel"></iframe>
   </div>
 
   <footer>
@@ -1538,6 +1545,7 @@ function renderState(d) {
   lastStateTools = d.tools || [];
   refreshToolNameOptions();
   renderPaws(d.paws || []);
+  renderPanelTabs(d.paws || []);
   refreshBrainOptions();
   renderTools(d.tools || []);
   renderSkills(d.skills || []);
@@ -1580,10 +1588,13 @@ function switchTab(tabName) {
   for (var i = 0; i < tabs.length; i++) {
     tabs[i].classList.toggle('active', tabs[i].getAttribute('data-tab') === tabName);
   }
+  var isPanel = tabName.indexOf('panel:') === 0;
   document.getElementById('tab-overview').style.display = tabName === 'overview' ? '' : 'none';
   document.getElementById('tab-chat').style.display = tabName === 'chat' ? '' : 'none';
   document.getElementById('tab-config').style.display = tabName === 'config' ? '' : 'none';
   document.getElementById('tab-identity').style.display = tabName === 'identity' ? '' : 'none';
+  document.getElementById('tab-panel').style.display = isPanel ? '' : 'none';
+  if (isPanel) showPanel(tabName.slice(6));
 
   if (tabName === 'chat') {
     initChatTab();
@@ -1595,6 +1606,22 @@ function switchTab(tabName) {
   if (tabName === 'identity' && !identityLoaded) {
     loadIdentity();
   }
+}
+
+function renderPanelTabs(paws) {
+  var host = document.getElementById('panel-tabs');
+  if (!host) return;
+  var withPanel = (paws || []).filter(function(p) { return p && p.panel; });
+  host.innerHTML = withPanel.map(function(p) {
+    var active = currentTab === ('panel:' + p.name) ? ' active' : '';
+    return '<button class="tab-btn' + active + '" data-tab="panel:' + esc(p.name) + '" onclick="switchTab(\\'panel:' + esc(p.name) + '\\')">' + esc(p.panel) + '</button>';
+  }).join('');
+}
+function showPanel(paw) {
+  var frame = document.getElementById('panel-frame');
+  if (!frame || !currentSpaceId) return;
+  var src = '/panel/' + encodeURIComponent(currentSpaceId) + '/' + encodeURIComponent(paw) + '/';
+  if (frame.getAttribute('src') !== src) frame.setAttribute('src', src);
 }
 
 /* ── Config sections as vertical tabs ── */

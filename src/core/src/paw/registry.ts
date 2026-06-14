@@ -1,10 +1,12 @@
-import type { AgentContext } from '../context/types.js'
+import * as fs from 'node:fs/promises'
+import * as path from 'node:path'
 import {
 	readConfigFile,
 	readIdentityFiles,
 	writeConfigFile,
 	writeIdentityFile,
 } from '../config/index.js'
+import type { AgentContext } from '../context/types.js'
 import type { MessageBus } from '../core/bus.js'
 import type { ActionResult } from '../core/errors.js'
 import type { IpcTransport } from '../core/ipc.js'
@@ -455,6 +457,19 @@ export class PawRegistry {
 		return transport.request('execute_tool', { toolName, params })
 	}
 
+	/** Read a Paw's embedded panel HTML (static file declared in its manifest), or null. */
+	async getPanelHtml(pawName: string): Promise<string | null> {
+		const instance = this.paws.get(pawName)
+		const panel = instance?.manifest?.panel
+		if (!instance || !panel) return null
+		try {
+			const dir = resolvePawPath(instance.config.name, this.projectRoot)
+			return await fs.readFile(path.join(dir, panel.html), 'utf-8')
+		} catch {
+			return null
+		}
+	}
+
 	private async callPerceive(pawName: string, context: AgentContext): Promise<AgentContext> {
 		const instance = this.paws.get(pawName)!
 
@@ -593,12 +608,7 @@ export class PawRegistry {
 		// Handle Paw → Core: write a single identity file
 		transport.onRequest('write_identity', async (params) => {
 			const { filename, content } = params as { filename: string; content: string }
-			const result = await writeIdentityFile(
-				this.projectRoot,
-				filename,
-				content,
-				this.brainPawName,
-			)
+			const result = await writeIdentityFile(this.projectRoot, filename, content, this.brainPawName)
 			if ('ok' in result) {
 				logger.info(`Identity file "${filename}" updated by paw "${pawName}"`)
 			}
@@ -644,6 +654,7 @@ export class PawRegistry {
 					transport: p.transport,
 					category: p.manifest?.category ?? 'tool',
 					toolCount: this.toolRegistry.toolsForPaw(p.name).length,
+					panel: p.manifest?.panel?.title ?? null,
 				}))
 			case 'skills':
 				return (

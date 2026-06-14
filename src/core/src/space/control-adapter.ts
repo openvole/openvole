@@ -39,6 +39,7 @@ function gatherState(engine: VoleEngine): Record<string, unknown> {
 			transport: p.transport,
 			category: p.manifest?.category ?? 'tool',
 			toolCount: engine.toolRegistry.toolsForPaw(p.name).length,
+			panel: p.manifest?.panel?.title ?? null,
 		})),
 		skills: engine.skillRegistry.list().map((s) => ({
 			name: s.name,
@@ -159,6 +160,18 @@ export function installControlAdapter(engine: VoleEngine, projectRoot: string): 
 					result = tool
 						? await tool.execute({ sessionId: params.sessionId })
 						: { ok: false, error: 'paw-session is not loaded in this space' }
+					break
+				}
+				case 'panel_html': {
+					const html = await current.pawRegistry.getPanelHtml(params.paw as string)
+					result = { html }
+					break
+				}
+				case 'tool': {
+					const t = current.toolRegistry.get(params.name as string)
+					result = t
+						? await t.execute((params.params as Record<string, unknown>) ?? {})
+						: { error: `tool not found: ${params.name}` }
 					break
 				}
 				case 'restart':

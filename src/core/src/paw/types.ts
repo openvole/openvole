@@ -94,6 +94,8 @@ export interface PawManifest {
 		/** If true, the Paw needs to spawn child processes */
 		childProcess?: boolean
 	}
+	/** Embedded dashboard panel: a static HTML file served by the control plane. */
+	panel?: { title?: string; html: string }
 }
 
 /** Paw configuration in vole.config.ts */

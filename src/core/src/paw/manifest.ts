@@ -35,6 +35,7 @@ const pawManifestSchema = z.object({
 		})
 		.optional()
 		.default({}),
+	panel: z.object({ title: z.string().optional(), html: z.string() }).optional(),
 })
 
 /** Resolve a Paw package path from its name */
