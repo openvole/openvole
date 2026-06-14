@@ -495,6 +495,46 @@ export function getDashboardHtml(wsPort: number): string {
     font-family: var(--mono);
     cursor: pointer;
   }
+  .switch {
+    position: relative;
+    display: inline-block;
+    width: 40px;
+    height: 22px;
+    flex: 0 0 auto;
+  }
+  .switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+  }
+  .switch-slider {
+    position: absolute;
+    inset: 0;
+    background: var(--surface-hover);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    transition: 0.15s;
+    cursor: pointer;
+  }
+  .switch-slider::before {
+    content: '';
+    position: absolute;
+    height: 16px;
+    width: 16px;
+    left: 2px;
+    top: 2px;
+    background: var(--text-dim);
+    border-radius: 50%;
+    transition: 0.15s;
+  }
+  .switch input:checked + .switch-slider {
+    background: var(--accent);
+    border-color: var(--accent);
+  }
+  .switch input:checked + .switch-slider::before {
+    transform: translateX(18px);
+    background: #fff;
+  }
   .btn-primary {
     background: var(--accent);
     color: #000;
@@ -686,7 +726,13 @@ export function getDashboardHtml(wsPort: number): string {
   .chat-composer { display: flex; gap: 8px; margin-top: 10px; }
   .chat-empty { color: var(--text-dim); text-align: center; margin-top: 40px; font-size: 13px; }
   #tab-panel { padding: 0; }
-  #panel-frame { width: 100%; height: calc(100vh - 150px); min-height: 360px; border: 0; background: var(--bg); display: block; }
+  .apps-layout { display: flex; height: calc(100vh - 150px); min-height: 360px; }
+  .apps-nav { flex: 0 0 180px; border-right: 1px solid var(--border); padding: 12px 8px; display: flex; flex-direction: column; gap: 2px; overflow-y: auto; }
+  .apps-nav-item { text-align: left; padding: 8px 12px; border-radius: 6px; background: transparent; border: 1px solid transparent; color: var(--text-dim); font-size: 13px; cursor: pointer; transition: background 0.15s, color 0.15s; }
+  .apps-nav-item:hover { background: var(--surface-hover); color: var(--text); }
+  .apps-nav-item.active { background: var(--surface); border-color: var(--border); color: var(--text); font-weight: 600; }
+  .apps-empty { color: var(--text-dim); padding: 40px; }
+  #panel-frame { flex: 1; min-width: 0; width: 100%; height: 100%; border: 0; background: var(--bg); display: block; }
   .chat-md { white-space: normal; }
   .chat-md .md-pre { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; overflow-x: auto; margin: 6px 0; font-size: 12px; white-space: pre; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
   .chat-md .md-code { background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 0 4px; font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
@@ -780,9 +826,9 @@ export function getDashboardHtml(wsPort: number): string {
 <div class="tab-bar">
   <button class="tab-btn active" data-tab="overview" onclick="switchTab('overview')">Overview</button>
   <button class="tab-btn" data-tab="chat" onclick="switchTab('chat')">Chat</button>
+  <button class="tab-btn" data-tab="apps" id="tab-btn-apps" onclick="switchTab('apps')" style="display:none">Apps</button>
   <button class="tab-btn" data-tab="config" onclick="switchTab('config')">Config</button>
   <button class="tab-btn" data-tab="identity" onclick="switchTab('identity')">Identity</button>
-  <span id="panel-tabs"></span>
 </div>
 
 <div class="main">
@@ -1115,8 +1161,9 @@ export function getDashboardHtml(wsPort: number): string {
         </div>
         <div class="config-section-body">
           <div class="form-field">
-            <div class="form-help">Named agent profiles for sub-agent spawning. Each has role, instructions, allowTools, denyTools, maxIterations.</div>
-            <textarea class="form-textarea" id="cfg-agents" rows="8" placeholder='{"researcher": {"role": "...", "instructions": "..."}}'>{}</textarea>
+            <div class="form-help">Named agent profiles for sub-agent spawning. Each has a role, instructions, allow/deny tools, and a max-iterations cap. Tool suggestions come from the tools loaded in this space.</div>
+            <div id="ag-blocks"></div>
+            <button class="btn-restart" type="button" onclick="addAgBlock('', {})" style="margin-top:6px">+ Add agent</button>
           </div>
         </div>
       </div>
@@ -1128,8 +1175,101 @@ export function getDashboardHtml(wsPort: number): string {
         </div>
         <div class="config-section-body">
           <div class="form-field">
-            <div class="form-help">VoleNet distributed networking config. See docs for architecture patterns.</div>
-            <textarea class="form-textarea" id="cfg-net" rows="8" placeholder='{"enabled": false}'>{}</textarea>
+            <div class="form-help">Distributed networking — connect instances into a mesh to share tools, memory, and brain. Off by default.</div>
+            <div class="form-checkbox-row">
+              <label class="switch"><input type="checkbox" id="cfg-net-enabled"><span class="switch-slider"></span></label>
+              <label class="form-checkbox-label" for="cfg-net-enabled">net.enabled &mdash; turn VoleNet on/off</label>
+            </div>
+          </div>
+          <div class="form-field">
+            <label class="form-label">net.instanceName</label>
+            <input type="text" class="form-input" id="cfg-net-instanceName" placeholder="(hostname)">
+          </div>
+          <div class="form-field">
+            <label class="form-label">net.role</label>
+            <select class="form-select" id="cfg-net-role">
+              <option value="">(default)</option>
+              <option value="coordinator">coordinator</option>
+              <option value="worker">worker</option>
+              <option value="peer">peer</option>
+            </select>
+          </div>
+          <div class="form-field">
+            <label class="form-label">net.port</label>
+            <input type="number" class="form-input" id="cfg-net-port" placeholder="(default)" min="1" style="width:160px">
+          </div>
+          <div class="form-field">
+            <label class="form-label">net.keyPath</label>
+            <input type="text" class="form-input" id="cfg-net-keyPath" placeholder="path to shared key">
+          </div>
+          <div class="form-field">
+            <label class="form-label">net.peers</label>
+            <div class="form-help">Other instances to connect to. trust: full | tool | read. allowTools empty = all.</div>
+            <div id="net-peers"></div>
+            <button class="btn-restart" type="button" onclick="addNetPeer({})" style="margin-top:6px">+ Add peer</button>
+          </div>
+          <div class="form-field">
+            <label class="form-label">net.share</label>
+            <div class="form-checkbox-row"><input type="checkbox" class="form-checkbox" id="cfg-net-share-tools"><label class="form-checkbox-label" for="cfg-net-share-tools">share.tools</label></div>
+            <div class="form-checkbox-row" style="margin-top:6px"><input type="checkbox" class="form-checkbox" id="cfg-net-share-memory"><label class="form-checkbox-label" for="cfg-net-share-memory">share.memory</label></div>
+            <div class="form-checkbox-row" style="margin-top:6px"><input type="checkbox" class="form-checkbox" id="cfg-net-share-session"><label class="form-checkbox-label" for="cfg-net-share-session">share.session</label></div>
+          </div>
+          <div class="form-field">
+            <label class="form-label">net.brainSource</label>
+            <div class="form-help">local | remote | &lt;instanceName&gt;</div>
+            <input type="text" class="form-input" id="cfg-net-brainSource" placeholder="local">
+          </div>
+          <div class="form-field">
+            <label class="form-label">net.discovery</label>
+            <select class="form-select" id="cfg-net-discovery">
+              <option value="">(default)</option>
+              <option value="manual">manual</option>
+              <option value="mdns">mdns</option>
+            </select>
+          </div>
+          <div class="form-field">
+            <label class="form-label">net.leader</label>
+            <div class="form-help">auto | &lt;instanceName&gt;</div>
+            <input type="text" class="form-input" id="cfg-net-leader" placeholder="auto">
+          </div>
+          <div class="form-field">
+            <label class="form-label">net.heartbeatMode</label>
+            <select class="form-select" id="cfg-net-heartbeatMode">
+              <option value="">(default)</option>
+              <option value="leader">leader</option>
+              <option value="independent">independent</option>
+            </select>
+          </div>
+          <div class="form-field">
+            <label class="form-label">net.brainMode</label>
+            <select class="form-select" id="cfg-net-brainMode">
+              <option value="">(default)</option>
+              <option value="local">local</option>
+              <option value="loadbalance">loadbalance</option>
+            </select>
+          </div>
+          <div class="form-field">
+            <label class="form-label">net.taskOverflow</label>
+            <select class="form-select" id="cfg-net-taskOverflow">
+              <option value="">(default)</option>
+              <option value="reject">reject</option>
+              <option value="forward">forward</option>
+            </select>
+          </div>
+          <div class="form-field">
+            <label class="form-label">net.maxQueuedTasks</label>
+            <input type="number" class="form-input" id="cfg-net-maxQueuedTasks" placeholder="10" min="1" style="width:160px">
+          </div>
+          <div class="form-field">
+            <label class="form-label">net.tls</label>
+            <input type="text" class="form-input" id="cfg-net-tls-cert" placeholder="cert path" style="margin-bottom:6px">
+            <input type="text" class="form-input" id="cfg-net-tls-key" placeholder="key path">
+          </div>
+          <div class="form-field">
+            <label class="form-label">net.routing</label>
+            <div class="form-help">Route patterns &rarr; target instance. key = pattern, value = instanceName.</div>
+            <div id="net-routing"></div>
+            <button class="btn-restart" type="button" onclick="addNetRoute('', '')" style="margin-top:6px">+ Add route</button>
           </div>
         </div>
       </div>
@@ -1161,7 +1301,10 @@ export function getDashboardHtml(wsPort: number): string {
   </div>
 
   <div id="tab-panel" class="tab-content" style="display:none">
-    <iframe id="panel-frame" title="Paw panel"></iframe>
+    <div class="apps-layout">
+      <nav class="apps-nav" id="apps-nav"></nav>
+      <iframe id="panel-frame" title="Paw app"></iframe>
+    </div>
   </div>
 
   <footer>
@@ -1545,7 +1688,7 @@ function renderState(d) {
   lastStateTools = d.tools || [];
   refreshToolNameOptions();
   renderPaws(d.paws || []);
-  renderPanelTabs(d.paws || []);
+  renderAppsNav(d.paws || []);
   refreshBrainOptions();
   renderTools(d.tools || []);
   renderSkills(d.skills || []);
@@ -1588,13 +1731,12 @@ function switchTab(tabName) {
   for (var i = 0; i < tabs.length; i++) {
     tabs[i].classList.toggle('active', tabs[i].getAttribute('data-tab') === tabName);
   }
-  var isPanel = tabName.indexOf('panel:') === 0;
   document.getElementById('tab-overview').style.display = tabName === 'overview' ? '' : 'none';
   document.getElementById('tab-chat').style.display = tabName === 'chat' ? '' : 'none';
   document.getElementById('tab-config').style.display = tabName === 'config' ? '' : 'none';
   document.getElementById('tab-identity').style.display = tabName === 'identity' ? '' : 'none';
-  document.getElementById('tab-panel').style.display = isPanel ? '' : 'none';
-  if (isPanel) showPanel(tabName.slice(6));
+  document.getElementById('tab-panel').style.display = tabName === 'apps' ? '' : 'none';
+  if (tabName === 'apps') showAppFrame();
 
   if (tabName === 'chat') {
     initChatTab();
@@ -1608,19 +1750,42 @@ function switchTab(tabName) {
   }
 }
 
-function renderPanelTabs(paws) {
-  var host = document.getElementById('panel-tabs');
-  if (!host) return;
+var currentApp = null;
+function renderAppsNav(paws) {
   var withPanel = (paws || []).filter(function(p) { return p && p.panel; });
-  host.innerHTML = withPanel.map(function(p) {
-    var active = currentTab === ('panel:' + p.name) ? ' active' : '';
-    return '<button class="tab-btn' + active + '" data-tab="panel:' + esc(p.name) + '" onclick="switchTab(\\'panel:' + esc(p.name) + '\\')">' + esc(p.panel) + '</button>';
+  var btn = document.getElementById('tab-btn-apps');
+  if (btn) btn.style.display = withPanel.length ? '' : 'none';
+  var nav = document.getElementById('apps-nav');
+  if (!nav) return;
+  if (!withPanel.length) {
+    nav.innerHTML = '<div class="apps-empty">No paw apps in this space.</div>';
+    currentApp = null;
+    return;
+  }
+  var names = withPanel.map(function(p) { return p.name; });
+  if (!currentApp || names.indexOf(currentApp) < 0) currentApp = withPanel[0].name;
+  nav.innerHTML = withPanel.map(function(p) {
+    var active = p.name === currentApp ? ' active' : '';
+    return '<button class="apps-nav-item' + active + '" data-paw="' + esc(p.name) + '">' + esc(p.panel) + '</button>';
   }).join('');
+  var items = nav.querySelectorAll('.apps-nav-item');
+  for (var i = 0; i < items.length; i++) {
+    items[i].addEventListener('click', function() { selectApp(this.getAttribute('data-paw')); });
+  }
+  if (currentTab === 'apps') showAppFrame();
 }
-function showPanel(paw) {
+function selectApp(paw) {
+  currentApp = paw;
+  var items = document.querySelectorAll('#apps-nav .apps-nav-item');
+  for (var i = 0; i < items.length; i++) {
+    items[i].classList.toggle('active', items[i].getAttribute('data-paw') === paw);
+  }
+  showAppFrame();
+}
+function showAppFrame() {
   var frame = document.getElementById('panel-frame');
-  if (!frame || !currentSpaceId) return;
-  var src = '/panel/' + encodeURIComponent(currentSpaceId) + '/' + encodeURIComponent(paw) + '/';
+  if (!frame || !currentSpaceId || !currentApp) return;
+  var src = '/panel/' + encodeURIComponent(currentSpaceId) + '/' + encodeURIComponent(currentApp) + '/';
   if (frame.getAttribute('src') !== src) frame.setAttribute('src', src);
 }
 
@@ -1761,8 +1926,8 @@ function populateConfig(cfg) {
   document.getElementById('cfg-paws').value = JSON.stringify(cfg.paws || [], null, 2);
   populatePawPaths(cfg.paws || []);
   populateToolProfiles(cfg.toolProfiles || {});
-  document.getElementById('cfg-agents').value = JSON.stringify(cfg.agents || {}, null, 2);
-  document.getElementById('cfg-net').value = JSON.stringify(cfg.net || {}, null, 2);
+  populateAgents(cfg.agents || {});
+  populateNet(cfg.net || {});
 }
 
 /* ── Rate limits (structured fields, schema = core RateLimits) ── */
@@ -1987,6 +2152,213 @@ function readToolProfilesFromForm() {
   }
   return tp;
 }
+function populateAgents(ag) {
+  document.getElementById('ag-blocks').innerHTML = '';
+  ag = ag || {};
+  for (var name in ag) addAgBlock(name, ag[name]);
+}
+function addAgBlock(name, profile) {
+  profile = profile || {};
+  var block = document.createElement('div');
+  block.className = 'ag-block';
+  block.style.cssText = 'border:1px solid var(--border);border-radius:6px;padding:10px;margin-top:8px';
+  var head = document.createElement('div');
+  head.style.cssText = 'display:flex;gap:8px;align-items:center';
+  head.innerHTML = '<input type="text" class="form-input ag-name" style="flex:1" placeholder="agent name (e.g. researcher)" value="' + esc(String(name || '')) + '">'
+    + '<button class="space-btn space-btn-danger" type="button" title="Remove agent">&times;</button>';
+  head.querySelector('button').addEventListener('click', function() { block.remove(); });
+  block.appendChild(head);
+
+  var roleField = document.createElement('div');
+  roleField.style.cssText = 'margin-top:8px';
+  roleField.innerHTML = '<div style="font-size:11px;color:var(--text-dim);margin-bottom:2px">Role</div>'
+    + '<input type="text" class="form-input ag-role" placeholder="Human-readable role" value="' + esc(String(profile.role || '')) + '">';
+  block.appendChild(roleField);
+
+  var instrField = document.createElement('div');
+  instrField.style.cssText = 'margin-top:8px';
+  instrField.innerHTML = '<div style="font-size:11px;color:var(--text-dim);margin-bottom:2px">Instructions</div>';
+  var ta = document.createElement('textarea');
+  ta.className = 'form-textarea ag-instructions';
+  ta.rows = 3;
+  ta.placeholder = "Injected into the sub-agent's context";
+  ta.value = String(profile.instructions || '');
+  instrField.appendChild(ta);
+  block.appendChild(instrField);
+
+  var iterField = document.createElement('div');
+  iterField.style.cssText = 'margin-top:8px';
+  iterField.innerHTML = '<div style="font-size:11px;color:var(--text-dim);margin-bottom:2px">Max iterations</div>'
+    + '<input type="number" class="form-input ag-maxiter" min="1" placeholder="10" style="width:120px" value="' + (profile.maxIterations != null ? esc(String(profile.maxIterations)) : '') + '">';
+  block.appendChild(iterField);
+
+  var cols = document.createElement('div');
+  cols.style.cssText = 'display:flex;gap:12px;margin-top:8px';
+  cols.appendChild(buildToolListCol('Allow tools (empty = all)', 'ag-allow', profile.allowTools || []));
+  cols.appendChild(buildToolListCol('Deny tools', 'ag-deny', profile.denyTools || []));
+  block.appendChild(cols);
+
+  document.getElementById('ag-blocks').appendChild(block);
+}
+function readAgentsFromForm() {
+  var ag = {};
+  var blocks = document.querySelectorAll('#ag-blocks .ag-block');
+  for (var i = 0; i < blocks.length; i++) {
+    var name = blocks[i].querySelector('.ag-name').value.trim();
+    if (!name) continue;
+    var prof = {};
+    var role = blocks[i].querySelector('.ag-role').value.trim();
+    if (role) prof.role = role;
+    var instr = blocks[i].querySelector('.ag-instructions').value.trim();
+    if (instr) prof.instructions = instr;
+    var allow = readToolRows(blocks[i].querySelector('.ag-allow'));
+    if (allow.length > 0) prof.allowTools = allow;
+    var deny = readToolRows(blocks[i].querySelector('.ag-deny'));
+    if (deny.length > 0) prof.denyTools = deny;
+    var iter = parseInt(blocks[i].querySelector('.ag-maxiter').value, 10);
+    if (!isNaN(iter)) prof.maxIterations = iter;
+    ag[name] = prof;
+  }
+  return ag;
+}
+var loadedNet = {};
+function populateNet(net) {
+  loadedNet = net || {};
+  var n = loadedNet;
+  document.getElementById('cfg-net-enabled').checked = !!n.enabled;
+  document.getElementById('cfg-net-instanceName').value = n.instanceName || '';
+  document.getElementById('cfg-net-role').value = n.role || '';
+  document.getElementById('cfg-net-port').value = n.port != null ? n.port : '';
+  document.getElementById('cfg-net-keyPath').value = n.keyPath || '';
+  var share = n.share || {};
+  document.getElementById('cfg-net-share-tools').checked = !!share.tools;
+  document.getElementById('cfg-net-share-memory').checked = !!share.memory;
+  document.getElementById('cfg-net-share-session').checked = !!share.session;
+  document.getElementById('cfg-net-brainSource').value = n.brainSource || '';
+  document.getElementById('cfg-net-discovery').value = n.discovery || '';
+  document.getElementById('cfg-net-leader').value = n.leader || '';
+  document.getElementById('cfg-net-heartbeatMode').value = n.heartbeatMode || '';
+  document.getElementById('cfg-net-brainMode').value = n.brainMode || '';
+  document.getElementById('cfg-net-taskOverflow').value = n.taskOverflow || '';
+  document.getElementById('cfg-net-maxQueuedTasks').value = n.maxQueuedTasks != null ? n.maxQueuedTasks : '';
+  var tls = n.tls || {};
+  document.getElementById('cfg-net-tls-cert').value = tls.cert || '';
+  document.getElementById('cfg-net-tls-key').value = tls.key || '';
+  document.getElementById('net-peers').innerHTML = '';
+  (n.peers || []).forEach(function(p) { addNetPeer(p); });
+  document.getElementById('net-routing').innerHTML = '';
+  var routing = n.routing || {};
+  for (var k in routing) addNetRoute(k, routing[k]);
+}
+function addNetPeer(peer) {
+  peer = peer || {};
+  var block = document.createElement('div');
+  block.className = 'net-peer';
+  block.style.cssText = 'border:1px solid var(--border);border-radius:6px;padding:10px;margin-top:8px';
+  var head = document.createElement('div');
+  head.style.cssText = 'display:flex;gap:8px;align-items:center';
+  head.innerHTML = '<input type="text" class="form-input np-url" style="flex:1" placeholder="wss://host:port" value="' + esc(String(peer.url || '')) + '">'
+    + '<button class="space-btn space-btn-danger" type="button" title="Remove peer">&times;</button>';
+  head.querySelector('button').addEventListener('click', function() { block.remove(); });
+  block.appendChild(head);
+  var trust = peer.trust || '';
+  var opts = document.createElement('div');
+  opts.style.cssText = 'display:flex;gap:14px;align-items:center;margin-top:8px';
+  opts.innerHTML = '<label style="font-size:11px;color:var(--text-dim);display:flex;gap:6px;align-items:center">trust'
+    + '<select class="form-select np-trust" style="width:auto">'
+    + '<option value="">(default)</option>'
+    + '<option value="full"' + (trust === 'full' ? ' selected' : '') + '>full</option>'
+    + '<option value="tool"' + (trust === 'tool' ? ' selected' : '') + '>tool</option>'
+    + '<option value="read"' + (trust === 'read' ? ' selected' : '') + '>read</option>'
+    + '</select></label>'
+    + '<label class="form-checkbox-label" style="display:flex;gap:6px;align-items:center"><input type="checkbox" class="form-checkbox np-allowbrain"' + (peer.allowBrain ? ' checked' : '') + '>allowBrain</label>';
+  block.appendChild(opts);
+  var cols = document.createElement('div');
+  cols.style.cssText = 'display:flex;gap:12px;margin-top:8px';
+  cols.appendChild(buildToolListCol('Allow tools (empty = all)', 'np-allow', peer.allowTools || []));
+  cols.appendChild(buildToolListCol('Deny tools', 'np-deny', peer.denyTools || []));
+  block.appendChild(cols);
+  document.getElementById('net-peers').appendChild(block);
+}
+function addNetRoute(key, val) {
+  var row = document.createElement('div');
+  row.className = 'net-route';
+  row.style.cssText = 'display:flex;gap:8px;margin-top:6px;align-items:center';
+  row.innerHTML = '<input type="text" class="form-input nr-key" style="flex:1" placeholder="pattern" value="' + esc(String(key || '')) + '">'
+    + '<span style="color:var(--text-dim)">&rarr;</span>'
+    + '<input type="text" class="form-input nr-val" style="flex:1" placeholder="instanceName" value="' + esc(String(val || '')) + '">'
+    + '<button class="space-btn space-btn-danger" type="button" title="Remove">&times;</button>';
+  row.querySelector('button').addEventListener('click', function() { row.remove(); });
+  document.getElementById('net-routing').appendChild(row);
+}
+function readNetFromForm() {
+  var net = {};
+  net.enabled = document.getElementById('cfg-net-enabled').checked;
+  var instanceName = document.getElementById('cfg-net-instanceName').value.trim();
+  if (instanceName) net.instanceName = instanceName;
+  var role = document.getElementById('cfg-net-role').value;
+  if (role) net.role = role;
+  var port = parseInt(document.getElementById('cfg-net-port').value, 10);
+  if (!isNaN(port)) net.port = port;
+  var keyPath = document.getElementById('cfg-net-keyPath').value.trim();
+  if (keyPath) net.keyPath = keyPath;
+
+  var peers = [];
+  var pblocks = document.querySelectorAll('#net-peers .net-peer');
+  for (var i = 0; i < pblocks.length; i++) {
+    var url = pblocks[i].querySelector('.np-url').value.trim();
+    if (!url) continue;
+    var peer = { url: url };
+    var trust = pblocks[i].querySelector('.np-trust').value;
+    if (trust) peer.trust = trust;
+    if (pblocks[i].querySelector('.np-allowbrain').checked) peer.allowBrain = true;
+    var pa = readToolRows(pblocks[i].querySelector('.np-allow'));
+    if (pa.length > 0) peer.allowTools = pa;
+    var pd = readToolRows(pblocks[i].querySelector('.np-deny'));
+    if (pd.length > 0) peer.denyTools = pd;
+    peers.push(peer);
+  }
+  if (peers.length > 0) net.peers = peers;
+
+  var share = {};
+  if (document.getElementById('cfg-net-share-tools').checked) share.tools = true;
+  if (document.getElementById('cfg-net-share-memory').checked) share.memory = true;
+  if (document.getElementById('cfg-net-share-session').checked) share.session = true;
+  if (Object.keys(share).length > 0) net.share = share;
+
+  var brainSource = document.getElementById('cfg-net-brainSource').value.trim();
+  if (brainSource) net.brainSource = brainSource;
+  var discovery = document.getElementById('cfg-net-discovery').value;
+  if (discovery) net.discovery = discovery;
+  var leader = document.getElementById('cfg-net-leader').value.trim();
+  if (leader) net.leader = leader;
+  var heartbeatMode = document.getElementById('cfg-net-heartbeatMode').value;
+  if (heartbeatMode) net.heartbeatMode = heartbeatMode;
+  var brainMode = document.getElementById('cfg-net-brainMode').value;
+  if (brainMode) net.brainMode = brainMode;
+  var taskOverflow = document.getElementById('cfg-net-taskOverflow').value;
+  if (taskOverflow) net.taskOverflow = taskOverflow;
+  var maxQueued = parseInt(document.getElementById('cfg-net-maxQueuedTasks').value, 10);
+  if (!isNaN(maxQueued)) net.maxQueuedTasks = maxQueued;
+
+  var tlsCert = document.getElementById('cfg-net-tls-cert').value.trim();
+  var tlsKey = document.getElementById('cfg-net-tls-key').value.trim();
+  if (tlsCert || tlsKey) net.tls = { cert: tlsCert, key: tlsKey };
+
+  var routing = {};
+  var rrows = document.querySelectorAll('#net-routing .net-route');
+  for (var r = 0; r < rrows.length; r++) {
+    var rk = rrows[r].querySelector('.nr-key').value.trim();
+    var rv = rrows[r].querySelector('.nr-val').value.trim();
+    if (rk) routing[rk] = rv;
+  }
+  if (Object.keys(routing).length > 0) net.routing = routing;
+
+  // Forward-compat: preserve any keys we don't manage so saving never drops them.
+  var managed = { enabled: 1, instanceName: 1, role: 1, port: 1, keyPath: 1, peers: 1, share: 1, brainSource: 1, discovery: 1, leader: 1, heartbeatMode: 1, brainMode: 1, taskOverflow: 1, maxQueuedTasks: 1, tls: 1, routing: 1 };
+  for (var mk in loadedNet) if (!managed[mk]) net[mk] = loadedNet[mk];
+  return net;
+}
 
 function readConfigFromForm() {
   var cfg = {};
@@ -2057,17 +2429,11 @@ function readConfigFromForm() {
   var tp = readToolProfilesFromForm();
   if (Object.keys(tp).length > 0) cfg.toolProfiles = tp;
 
-  try {
-    cfg.agents = JSON.parse(document.getElementById('cfg-agents').value);
-  } catch (e) {
-    throw new Error('Invalid JSON in Agents');
-  }
+  var ag = readAgentsFromForm();
+  if (Object.keys(ag).length > 0) cfg.agents = ag;
 
-  try {
-    cfg.net = JSON.parse(document.getElementById('cfg-net').value);
-  } catch (e) {
-    throw new Error('Invalid JSON in Net (VoleNet)');
-  }
+  var net = readNetFromForm();
+  if (net.enabled || Object.keys(net).length > 1) cfg.net = net;
 
   return cfg;
 }
