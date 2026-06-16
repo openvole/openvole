@@ -5,7 +5,7 @@ import * as path from 'node:path'
  * Scaffold a base OpenVole project at `dir`:
  * vole.config.json + .openvole/{skills,workspace,paws} + identity files + .env + .gitignore.
  *
- * Shared by `vole init` and `vole space create`. Throws if vole.config.json already exists.
+ * Used by `vole space create`. Throws if vole.config.json already exists.
  */
 export async function scaffoldProject(dir: string): Promise<void> {
 	const configPath = path.resolve(dir, 'vole.config.json')

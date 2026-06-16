@@ -317,7 +317,7 @@ export async function createEngine(
 			// Final resolver pass
 			skillRegistry.resolve()
 
-			// Restore persisted schedules from disk (skip in headless — vole run shouldn't touch schedules)
+			// Restore persisted schedules from disk (skipped in headless mode)
 			if (!headless) {
 				await scheduler.restore()
 			} else {

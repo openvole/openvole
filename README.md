@@ -24,16 +24,12 @@ A fresh OpenVole installation has zero tools, zero skills, zero opinions. This i
 ## Quick Start
 
 ```bash
-mkdir my-agent && cd my-agent
-npm init -y
+mkdir my-agents && cd my-agents
 npm install openvole
-npx vole init
-npx vole paw add @openvole/paw-brain
-npx vole paw add @openvole/paw-memory
-npx vole paw add @openvole/paw-dashboard
+npx vole serve
 ```
 
-Edit `vole.config.json`:
+Open the dashboard at `http://localhost:3000`, click **New space**, and the onboarding installs the essential paws (brain, session, memory, compact, shell). Each space is an isolated agent with its own `vole.config.json`:
 
 ```json
 {
@@ -53,10 +49,6 @@ Edit `vole.config.json`:
     {
       "name": "@openvole/paw-memory",
       "allow": { "env": ["VOLE_MEMORY_DIR"] }
-    },
-    {
-      "name": "@openvole/paw-dashboard",
-      "allow": { "listen": [3001], "env": ["VOLE_DASHBOARD_PORT"] }
     }
   ],
   "skills": [],
@@ -64,25 +56,21 @@ Edit `vole.config.json`:
 }
 ```
 
-Create `.env`:
+Set your LLM provider in the space's `.env`:
 
 ```
 BRAIN_PROVIDER=gemini
 GEMINI_API_KEY=your-api-key
 ```
 
-Run:
-
-```bash
-npx vole start
-```
+Start the space from the dashboard and chat with it in the **Chat** tab.
 
 > **Tip:** For easier access, install globally with `npm install -g openvole` — then use `vole` directly instead of `npx vole`.
 
 Or use a preset:
 
 ```bash
-# Basic (Brain + Memory + Dashboard)
+# Basic (Brain + Memory + Session + Compact + Shell)
 curl -fsSL https://raw.githubusercontent.com/openvole/openvole/main/presets/basic.sh | bash
 
 # With Telegram
@@ -95,8 +83,8 @@ curl -fsSL https://raw.githubusercontent.com/openvole/openvole/main/presets/full
 ## Architecture
 
 ```
-                         vole start (CLI)
-                     readline prompt (vole>)
+                      vole serve (control plane)
+                       one server · many spaces
                               |
                               v
 ┌─────────────────────────────────────────────────────────────┐
@@ -446,10 +434,10 @@ Configure via `loop.maxContextTokens` (default: 128000) and `loop.responseReserv
 
 ### Dashboard
 
-Real-time web UI — powered by `paw-dashboard`, another Paw you install like any other. Shows paws, tools, skills, tasks, schedules, and live events.
+`vole serve` starts the built-in **control-plane dashboard** — one web server that manages all your agents ("spaces") from the browser: create / start / stop / switch / delete spaces, edit config & identity, chat, watch live events, and use embedded paw panels (the **Apps** tab). No extra paw, no extra port.
 
 ```bash
-npx vole paw add @openvole/paw-dashboard
+npx vole serve
 ```
 
 <p align="center">
@@ -510,7 +498,7 @@ All paws live in [PawHub](https://github.com/openvole/pawhub) and are installed 
 | `paw-memory` | Persistent memory with source isolation + hybrid semantic/keyword search |
 | `paw-session` | Session/conversation management |
 | `paw-compact` | Context compaction — heuristic (default) + optional LLM summarization |
-| `paw-dashboard` | Real-time web dashboard |
+| `paw-dashboard` | Real-time web dashboard *(deprecated — use `vole serve`)* |
 
 Install from npm:
 
@@ -522,9 +510,8 @@ npx vole paw add @openvole/paw-browser
 ## CLI
 
 ```bash
-npx vole init                              # Initialize project
-npx vole start                             # Start agent (interactive)
-npx vole run "summarize my emails"         # Single task (headless — no dashboard/channels)
+npx vole serve                             # Control-plane dashboard for all your agents (spaces)
+npx vole space create <name>               # Create a new space (agent)
 
 npx vole paw add @openvole/paw-telegram    # Install a Paw
 npx vole paw list                          # List loaded Paws
