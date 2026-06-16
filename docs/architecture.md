@@ -5,8 +5,8 @@ OpenVole follows a **microkernel architecture** — the core provides the agent 
 ## System Diagram
 
 ```
-                         vole start (CLI)
-                     readline prompt (vole>)
+                      vole serve (control plane)
+                       one server · many spaces
                               |
                               v
 ┌──────────────────────────────────────────────────────────────────┐
@@ -182,6 +182,37 @@ Key capabilities:
 - **Load balancing** — tasks route to the least-loaded peer
 
 See the [VoleNet documentation](/volenet) for architecture patterns and setup.
+
+## Control Plane & Spaces
+
+`vole serve` runs the **control plane** — a single web server (the `@openvole/dashboard-server` package) that manages every agent from one place. This is the primary way to operate OpenVole.
+
+```
+                         vole serve
+                  control-plane web server
+                    (one port, default 3000)
+                              |
+        ┌─────────────────────┼─────────────────────┐
+        │                     │                     │
+   ┌────▼────┐           ┌────▼────┐           ┌────▼────┐
+   │ space A │           │ space B │           │ space N │
+   │ engine  │           │ engine  │           │ engine  │
+   │ (child) │           │ (child) │           │ (child) │
+   └─────────┘           └─────────┘           └─────────┘
+   own config            own config            own config
+   paws · identity       paws · identity       paws · identity
+   data dir              data dir              data dir
+```
+
+- A **space** is an isolated agent — its own `vole.config.json`, paws, identity files, and data directory. Each running space is its own engine subprocess (IPC child), parented to the `vole serve` process (not detached).
+- All spaces under one OpenVole **root** are recorded in a `spaces.json` registry. The control plane resolves the root from `VOLE_HOME`, else the current directory if it's already a root or empty (see the [Dashboard guide](/dashboard#root-resolution)).
+- The control plane aggregates each space's state and events over IPC and serves one dashboard (Overview / Chat / Apps / Config / Identity) for all of them.
+
+### Embedded Panels (Apps)
+
+A paw can contribute a UI to the dashboard by declaring a `panel` in its manifest (`vole-paw.json`). The named static HTML ships inside the paw package; the control plane serves it at `/panel/<space>/<paw>/` and proxies the paw's tools at `/panel/<space>/<paw>/tool/<toolName>`.
+
+These tool calls are **brain-free** — the control plane invokes the paw's tools directly over IPC, with no LLM. Because everything flows through the one control-plane server, there are **no per-paw web servers and no extra ports**. The reference example is `@openvole/paw-markets`.
 
 ## Philosophy
 

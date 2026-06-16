@@ -12,6 +12,16 @@ npx vole paw add @openvole/paw-browser
 npx vole paw list
 ```
 
+## Embedded Dashboard Panels
+
+A paw can contribute its own UI to the [control-plane dashboard](/dashboard) by declaring a panel in its manifest (`vole-paw.json`):
+
+```json
+{ "panel": { "title": "Markets", "html": "panel.html" } }
+```
+
+The named static HTML file ships inside the paw package. The control plane serves it at `/panel/<space>/<paw>/` and proxies the paw's tools at `/panel/<space>/<paw>/tool/<toolName>` — brain-free, directly over IPC. Every panel-contributing paw appears under the dashboard's **Apps** tab as a sandboxed iframe, with **no per-paw web servers and no extra ports**. The reference example is [`@openvole/paw-markets`](/dashboard#apps-embedded-paw-panels).
+
 ## All 27 Official Paws
 
 ### Brain (1 + 5 legacy)
@@ -67,4 +77,4 @@ Lifecycle hooks and internal services. [Learn more](/paws-infrastructure)
 | `paw-memory` | Persistent memory with source isolation |
 | `paw-session` | Session/conversation management |
 | `paw-compact` | Context compaction (in-process) |
-| `paw-dashboard` | Real-time web dashboard |
+| `paw-dashboard` | *(deprecated — use [`vole serve`](/dashboard))* Single-engine web dashboard |

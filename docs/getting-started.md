@@ -22,27 +22,29 @@ npm install openvole
 For easier access, install globally with `npm install -g openvole` — then use `vole` directly instead of `npx vole`.
 :::
 
-## Initialize Your Agent
+## Start the Dashboard
+
+OpenVole runs as a server. Pick a directory to hold your agents and start the **control-plane dashboard** there:
 
 ```bash
-npx vole init
+mkdir ~/agents && cd ~/agents
+npx vole serve
 ```
 
-This creates the base `vole.config.json` and `.openvole/` directory structure.
+An empty directory becomes a new OpenVole **root**. `vole serve` prints the resolved root and a URL (default `http://localhost:3000`); set `VOLE_HOME` to pin a fixed root from anywhere. Then click **New space** to create your first agent — the onboarding step installs the essential paws for you. See the [Dashboard guide](/dashboard).
 
 ## Add Paws
 
-A fresh OpenVole installation has zero tools, zero skills, zero opinions. Add the Paws you need:
+The new-space onboarding installs the essentials. To add more paws, use the space's **Config** tab — or run `vole paw add` inside the space's directory:
 
 ```bash
 npx vole paw add @openvole/paw-brain
 npx vole paw add @openvole/paw-memory
-npx vole paw add @openvole/paw-dashboard
 ```
 
 ## Configure
 
-Edit `vole.config.json`:
+Edit the space's config from the **Config** tab (structured fields). Under the hood, its `vole.config.json` looks like:
 
 ```json
 {
@@ -60,10 +62,6 @@ Edit `vole.config.json`:
     {
       "name": "@openvole/paw-memory",
       "allow": { "env": ["VOLE_MEMORY_DIR"] }
-    },
-    {
-      "name": "@openvole/paw-dashboard",
-      "allow": { "listen": [3001], "env": ["VOLE_DASHBOARD_PORT"] }
     }
   ],
   "skills": [],
@@ -81,24 +79,24 @@ OLLAMA_MODEL=qwen3:latest
 
 ## Run Your Agent
 
-Start the interactive agent loop:
+The primary way to run and operate OpenVole is the **control-plane dashboard** — one web server that manages all your agents from the browser:
 
 ```bash
-npx vole start
+npx vole serve
 ```
 
-Or run a single task in headless mode (no dashboard, no channels):
+This opens a dashboard at `http://localhost:3000` where you create, start, stop, and chat with your agents — each an isolated "space" with its own config, paws, and data. See the [Dashboard guide](/dashboard) for spaces, root resolution, and embedded Apps panels.
 
-```bash
-npx vole run "summarize my emails"
-```
+::: tip Where does it run?
+`vole serve` uses the current directory as your OpenVole root if it's empty (or already a root). Pick a home for your agents and run it there — e.g. `mkdir ~/agents && cd ~/agents && npx vole serve`. Set `VOLE_HOME` to pin a fixed root from anywhere.
+:::
 
 ## Presets
 
-Skip manual setup with a preset script:
+Skip manual setup with a preset script — each creates an OpenVole root with a ready-to-run space:
 
 ```bash
-# Basic (Brain + Memory + Dashboard)
+# Basic (Brain + Memory + Session + Compact + Shell)
 curl -fsSL https://raw.githubusercontent.com/openvole/openvole/main/presets/basic.sh | bash
 
 # With Telegram
@@ -110,6 +108,7 @@ curl -fsSL https://raw.githubusercontent.com/openvole/openvole/main/presets/full
 
 ## Next Steps
 
+- [Dashboard](/dashboard) — Manage all your agents with `vole serve`
 - [Configuration](/configuration) — All config options explained
 - [Architecture](/architecture) — How the agent loop works
 - [Paws](/paws) — Browse all 27 official Paws

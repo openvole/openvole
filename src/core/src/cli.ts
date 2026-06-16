@@ -8,7 +8,7 @@ import {
 	removePawFromConfig,
 	removeSkillFromConfig,
 } from './config/index.js'
-import { createLogger } from './core/logger.js'
+import { createLogger, setLoggerSilent } from './core/logger.js'
 import { createEngine } from './index.js'
 
 const logger = createLogger('cli')
@@ -19,9 +19,21 @@ async function main(): Promise<void> {
 
 	const projectRoot = process.cwd()
 
-	// Allow init and help without a project root
+	// Show CLI output on the console. The noisy agent loop only runs in the __run-space daemon
+	// (whose stdout is ignored), so foreground commands can log freely.
+	setLoggerSilent(false)
+
+	// The single-engine workflow was removed — OpenVole now runs as a server (spaces).
+	if (command === 'start' || command === 'run' || command === 'init') {
+		logger.error(`"vole ${command}" has been removed — OpenVole now runs as a server.`)
+		logger.info(
+			'Run "vole serve" to manage spaces in the dashboard, or "vole space create <name>" to add one.',
+		)
+		process.exit(1)
+	}
+
+	// These commands don't operate on a cwd project; everything else needs a vole.config.json.
 	if (
-		command !== 'init' &&
 		command !== 'help' &&
 		command !== '--help' &&
 		command !== '-h' &&
@@ -38,30 +50,12 @@ async function main(): Promise<void> {
 			await fsCheck.access(path.join(projectRoot, 'vole.config.json'))
 		} catch {
 			logger.error('vole.config.json not found in current directory')
-			logger.info('Run "vole init" to create a new project, or cd to your project root')
+			logger.info('cd into a space directory, or run "vole serve" to manage spaces')
 			process.exit(1)
 		}
 	}
 
 	switch (command) {
-		case 'start':
-			await startInteractive(projectRoot)
-			break
-
-		case 'run': {
-			const input = args.slice(1).join(' ')
-			if (!input) {
-				logger.error('Usage: vole run "<task>"')
-				process.exit(1)
-			}
-			await runSingle(projectRoot, input)
-			break
-		}
-
-		case 'init':
-			await initProject(projectRoot)
-			break
-
 		case 'paw':
 			await handlePawCommand(args.slice(1), projectRoot)
 			break
@@ -87,7 +81,7 @@ async function main(): Promise<void> {
 			break
 
 		case 'serve':
-			await runServe()
+			await runServe(projectRoot)
 			break
 
 		case 'space':
@@ -135,9 +129,7 @@ function printHelp(): void {
 OpenVole — Micro Agent Core
 
 Usage:
-  vole init                              Initialize a new project
-  vole start                             Start the agent loop (interactive)
-  vole run "<task>"                       Run a single task
+  vole serve                             Start the control-plane dashboard — manage all spaces (main entrypoint)
 
 Paw management:
   vole paw create <name>                 Scaffold a new Paw in paws/
@@ -175,7 +167,7 @@ VoleNet (distributed networking):
   vole net status                        Network status overview
 
 Space management:
-  vole serve                             Start the control-plane dashboard (manage all spaces)
+  vole serve                             Control-plane dashboard for this dir's spaces (empty dir = new root; VOLE_HOME overrides)
   vole space create <name>               Scaffold a new space (clones your template if set)
   vole space template                    Create/locate the template new spaces clone
   vole space list                        List spaces and running status
@@ -196,223 +188,6 @@ Options:
   -h, --help                             Show this help
   -v, --version                          Show version
 `)
-}
-
-async function startInteractive(projectRoot: string): Promise<void> {
-	const { setNotifySuppressed } = await import('./io/tty.js')
-	setNotifySuppressed(true)
-
-	let engine = await createEngine(projectRoot)
-	await engine.start()
-
-	// Handle engine restart requests (from dashboard)
-	engine.bus.on('engine:restart', async () => {
-		logger.info('Engine restarting...')
-		await engine.shutdown()
-		engine = await createEngine(projectRoot)
-		await engine.start()
-		logger.info('Engine restarted successfully')
-	})
-
-	// Welcome screen
-	const { readFile } = await import('node:fs/promises')
-	let version = '?'
-	try {
-		const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf-8'))
-		version = pkg.version
-	} catch {
-		/* ignore */
-	}
-
-	const toolCount = engine.toolRegistry.list().length
-	const pawCount = engine.pawRegistry.list().length
-	const skillCount = engine.skillRegistry.active().length
-	const totalSkills = engine.skillRegistry.list().length
-	const brainName = engine.config.brain
-		? engine.pawRegistry.resolveManifestName(engine.config.brain)
-		: 'none'
-
-	// Find dashboard URL — check env var first, then config listen port
-	let dashboardUrl = ''
-	const dashPaw = engine.pawRegistry.list().find((p) => p.name.includes('dashboard'))
-	if (dashPaw) {
-		const envPort = process.env.VOLE_DASHBOARD_PORT
-		if (envPort) {
-			dashboardUrl = `http://localhost:${envPort}`
-		} else {
-			const listenConfig = engine.config.paws.find((p) =>
-				typeof p === 'string' ? false : p.name?.includes('dashboard') && p.allow?.listen?.length,
-			)
-			const port = typeof listenConfig !== 'string' && listenConfig?.allow?.listen?.[0]
-			if (port) dashboardUrl = `http://localhost:${port}`
-		}
-	}
-
-	const W = 51
-	const pad = (s: string) => {
-		const content = ` ${s} `
-		const fill = W - content.length
-		return `  │${content}${' '.repeat(Math.max(0, fill))}│`
-	}
-
-	const lines: string[] = [
-		`OpenVole v${version}`,
-		`Brain: ${brainName}`,
-		`${pawCount} paws · ${toolCount} tools · ${skillCount}/${totalSkills} skills`,
-	]
-	if (dashboardUrl) lines.push(`Dashboard: ${dashboardUrl}`)
-	lines.push('', 'Type a task or "exit" to quit.')
-
-	console.log('')
-	console.log(`  ╭${'─'.repeat(W)}╮`)
-	for (const line of lines) console.log(pad(line))
-	console.log(`  ╰${'─'.repeat(W)}╯`)
-	console.log('')
-
-	setNotifySuppressed(false)
-
-	const dim = '\x1b[2m'
-	const reset = '\x1b[0m'
-
-	const readline = await import('node:readline')
-	const promptStr = `${dim}  you ›${reset} `
-	const rl = readline.createInterface({
-		input: process.stdin,
-		output: process.stdout,
-		prompt: promptStr,
-	})
-	const frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
-	const thinkingPhrases = [
-		'thinking...',
-		'pondering...',
-		'reasoning...',
-		'mulling it over...',
-		'working on it...',
-		'figuring it out...',
-		'processing...',
-		'brainstorming...',
-		'contemplating...',
-		'crunching...',
-		'connecting the dots...',
-		'cooking up a plan...',
-		'digging in...',
-		'on it...',
-		'piecing it together...',
-		'burrowing deeper...',
-		'sniffing around...',
-		'foraging for answers...',
-		'nibbling on the problem...',
-		'tunneling through...',
-		'scurrying along...',
-		'pawing at it...',
-		'digging a new tunnel...',
-		'nosing around...',
-		'nesting on an idea...',
-	]
-	let spinnerInterval: ReturnType<typeof setInterval> | undefined
-
-	const startSpinner = (): void => {
-		let i = 0
-		const phrase = thinkingPhrases[Math.floor(Math.random() * thinkingPhrases.length)]
-		spinnerInterval = setInterval(() => {
-			process.stdout.write(`\r${dim}  ${frames[i % frames.length]} ${phrase}${reset}`)
-			i++
-		}, 80)
-	}
-
-	const stopSpinner = (): void => {
-		if (spinnerInterval) {
-			clearInterval(spinnerInterval)
-			spinnerInterval = undefined
-			process.stdout.write('\r\x1b[K') // clear the spinner line
-		}
-	}
-
-	let closing = false
-
-	// Stop spinner and re-display prompt when Brain responds
-	engine.bus.on('task:completed', () => {
-		stopSpinner()
-		if (!closing) rl.prompt()
-	})
-	engine.bus.on('task:failed', () => {
-		stopSpinner()
-		if (!closing) rl.prompt()
-	})
-
-	const promptUser = (): void => {
-		rl.question(`${dim}  you ›${reset} `, (input) => {
-			const trimmed = input.trim()
-			if (trimmed === 'exit' || trimmed === 'quit') {
-				closing = true
-				rl.close()
-				engine.shutdown().then(() => process.exit(0))
-				return
-			}
-			if (trimmed) {
-				startSpinner()
-				engine.run(trimmed, 'user', 'cli:default')
-			}
-			promptUser()
-		})
-	}
-
-	promptUser()
-
-	// Graceful shutdown on SIGINT/SIGTERM
-	const gracefulShutdown = (): void => {
-		logger.info('\nShutting down...')
-		rl.close()
-		engine.shutdown().then(() => process.exit(0))
-	}
-
-	process.on('SIGINT', gracefulShutdown)
-	process.on('SIGTERM', gracefulShutdown)
-}
-
-async function runSingle(projectRoot: string, input: string): Promise<void> {
-	const engine = await createEngine(projectRoot, { headless: true })
-	await engine.start()
-	engine.run(input)
-
-	// Wait for task completion
-	return new Promise<void>((resolve) => {
-		engine.bus.on('task:completed', () => {
-			engine.shutdown().then(resolve)
-		})
-		engine.bus.on('task:failed', () => {
-			engine.shutdown().then(() => {
-				process.exit(1)
-			})
-		})
-	})
-}
-
-async function initProject(projectRoot: string): Promise<void> {
-	const { scaffoldProject } = await import('./space/scaffold.js')
-	try {
-		await scaffoldProject(projectRoot)
-	} catch (err) {
-		if (err instanceof Error && err.message.includes('already exists')) {
-			logger.error('vole.config.json already exists')
-			return
-		}
-		throw err
-	}
-
-	logger.info('Created vole.config.json')
-	logger.info('Created .openvole/')
-	logger.info('  skills/                — local and ClawHub skills')
-	logger.info('  workspace/             — agent scratch space')
-	logger.info('  paws/paw-memory/       — agent memory (MEMORY.md + daily logs)')
-	logger.info('  paws/paw-session/      — session transcripts')
-	logger.info('  paws/paw-mcp/          — MCP server config')
-	logger.info('Created identity files (SOUL.md, USER.md, AGENT.md, HEARTBEAT.md)')
-	logger.info('Created .env')
-	logger.info('')
-	logger.info('Next: install paws and start')
-	logger.info('  npm install @openvole/paw-brain @openvole/paw-memory')
-	logger.info('  npx vole start')
 }
 
 async function handleUpgrade(projectRoot: string): Promise<void> {
@@ -986,14 +761,14 @@ async function handleToolCommand(args: string[], projectRoot: string): Promise<v
 						}
 					}
 				} catch {
-					logger.warn('VoleNet instance not reachable — is vole start running?')
+					logger.warn('VoleNet instance not reachable — is a space running? (vole serve, or vole space start)')
 				}
 			}
 
 			const tool = toolRegistry.get(toolName)
 			if (!tool) {
 				logger.error(`Tool "${toolName}" not found in core tools`)
-				logger.info('Core tools only — paw tools require a running "vole start" instance')
+				logger.info('Core tools only — paw tools require a running space (vole serve, or vole space start)')
 				process.exit(1)
 			}
 
@@ -1747,14 +1522,64 @@ async function handleSpaceCommand(args: string[]): Promise<void> {
 	}
 }
 
-/** Persistent control-plane process — one web server managing all spaces (`vole serve`). */
-async function runServe(): Promise<void> {
+/**
+ * Persistent control-plane process — one web server managing the spaces under an OpenVole root
+ * (`vole serve`). The root is resolved from VOLE_HOME, else the current directory when it is empty
+ * (becomes a fresh root) or already an OpenVole root (has spaces.json); otherwise it refuses, so
+ * `serve` is scoped to where it's run rather than an implicit global ~/.openvole.
+ */
+async function runServe(projectRoot: string): Promise<void> {
 	const { setLoggerSilent } = await import('./core/logger.js')
 	setLoggerSilent(false)
+	const fs = await import('node:fs/promises')
+	const os = await import('node:os')
+
+	// Marker of an existing OpenVole root: the spaces registry file.
+	const hasRegistry = async (dir: string): Promise<boolean> => {
+		try {
+			await fs.access(path.join(dir, 'spaces.json'))
+			return true
+		} catch {
+			return false
+		}
+	}
+
+	// Resolve the root to serve. Explicit VOLE_HOME always wins. Otherwise use the current
+	// directory — but only if it is already a root or is empty (ignoring incidental files).
+	let home: string
+	if (process.env.VOLE_HOME) {
+		home = path.resolve(process.env.VOLE_HOME)
+	} else if (await hasRegistry(projectRoot)) {
+		home = projectRoot
+	} else {
+		const ignore = new Set(['.DS_Store', '.git', '.gitignore'])
+		const entries = (await fs.readdir(projectRoot).catch(() => [] as string[])).filter(
+			(e) => !ignore.has(e),
+		)
+		if (entries.length === 0) {
+			home = projectRoot
+		} else {
+			logger.error('vole serve: the current directory is not an OpenVole root and is not empty.')
+			logger.info(`  ${projectRoot}`)
+			logger.info(
+				'Run `vole serve` in an empty directory (it becomes a new root) or in an existing root (one that has spaces.json).',
+			)
+			const legacy = path.join(os.homedir(), '.openvole')
+			if (await hasRegistry(legacy)) {
+				logger.info(`Your existing spaces live at ${legacy} — manage them with:`)
+				logger.info(`  cd ${legacy} && vole serve`)
+				logger.info(`  (or)  VOLE_HOME=${legacy} vole serve`)
+			}
+			process.exit(1)
+		}
+	}
+
+	const fresh = !(await hasRegistry(home))
 	const { ControlPlane } = await import('./space/control-plane.js')
 	const port = Number(process.env.VOLE_DASHBOARD_PORT) || 3000
-	const cp = new ControlPlane({ cliPath: fileURLToPath(import.meta.url), port })
+	const cp = new ControlPlane({ cliPath: fileURLToPath(import.meta.url), port, home })
 	cp.start()
+	logger.info(`OpenVole root: ${home}${fresh ? '  (new)' : ''}`)
 	logger.info(`Manage your spaces at http://localhost:${port}`)
 	const shutdown = (): void => {
 		cp.shutdown()

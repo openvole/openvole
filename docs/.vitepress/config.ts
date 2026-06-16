@@ -8,6 +8,7 @@ export default defineConfig({
 		logo: '/vole.png',
 		nav: [
 			{ text: 'Guide', link: '/getting-started' },
+			{ text: 'Dashboard', link: '/dashboard' },
 			{ text: 'Paws', link: '/paws' },
 			{ text: 'API', link: '/configuration' },
 			{ text: 'Changelog', link: '/changelog' },
@@ -19,6 +20,7 @@ export default defineConfig({
 				items: [
 					{ text: 'What is OpenVole?', link: '/' },
 					{ text: 'Getting Started', link: '/getting-started' },
+					{ text: 'Dashboard', link: '/dashboard' },
 					{ text: 'Configuration', link: '/configuration' },
 				],
 			},

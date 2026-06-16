@@ -1,5 +1,37 @@
 # Changelog
 
+## v4.0.0 (2026-06-14)
+
+### Control-Plane Dashboard & Spaces
+- `vole serve` is now the primary workflow — **one** web server (default port 3000, `VOLE_DASHBOARD_PORT` overrides) that manages **all** your agents from a single place, replacing the old one-dashboard-per-project model
+- A **space** is an isolated agent with its own config, paws, identity, and data; each runs as its own engine subprocess parented to the `vole serve` process (not detached)
+- New `@openvole/dashboard-server` package hosts the control plane and aggregates each space's state/events over IPC
+- **Root resolution**: `vole serve` resolves the OpenVole root from `VOLE_HOME` (explicit override, always wins), else the current directory if it's already a root (has `spaces.json`) or is empty (becomes a new root, ignoring `.DS_Store`/`.git`/`.gitignore`); otherwise it refuses with a clear error and points to a legacy `~/.openvole` if one exists. The implicit global `~/.openvole` (regardless of cwd) is gone
+- Startup logs `OpenVole root: <dir>` (with `(new)` if freshly created) and the dashboard URL
+- Dashboard tabs: Overview, Chat, Apps, Config, Identity, plus a header space switcher to create / start / stop / switch / delete spaces
+
+### New-Space Flow
+- **New space** opens a modern modal form (name field)
+- On create, an **onboarding** step suggests the essential paws, pre-checked: `@openvole/paw-brain`, `@openvole/paw-session`, `@openvole/paw-memory`, `@openvole/paw-compact`, `@openvole/paw-shell` — selected ones install into the new space
+- Deleting a space from the dashboard now **permanently deletes its directory on disk** (config, identity, installed paws, data) after a destructive confirmation — equivalent to `vole space remove <name> --purge` (the CLI without `--purge` keeps files)
+
+### Embedded Apps Panels
+- Any paw can contribute a dashboard UI by declaring a `panel` in its manifest (`vole-paw.json`): `"panel": { "title": "Markets", "html": "panel.html" }`; the named static HTML ships inside the paw package
+- The control plane serves panel HTML at `/panel/<space>/<paw>/` and proxies the paw's tools at `/panel/<space>/<paw>/tool/<toolName>` — **brain-free**, called directly over IPC with no LLM
+- Every panel-contributing paw appears under the always-visible **Apps** tab as a sandboxed iframe (with an empty state when a space has none) — **no per-paw web servers and no extra ports**
+- Reference example: `@openvole/paw-markets`, a US-stock tracking paw with an embedded **Markets** panel
+
+### Structured Config Tab
+- The Config tab is now entirely structured form fields — no raw-JSON textareas
+- Sections: brain (dropdown), loop, heartbeat, security (incl. per-paw filesystem paths), docker sandbox, rate limits, tool profiles, **AGENTS** (named sub-agent profiles: role, instructions, allowTools, denyTools, maxIterations), and **NET** (VoleNet) — fully structured with an on/off **toggle** for `enabled`, plus peers, share (tools/memory/session), TLS, routing, and the various modes
+- Identity files are edited in the Identity tab
+
+### Removed
+- The single-engine workflow is gone: **`vole init`, `vole start`, and `vole run` have been removed**. OpenVole now runs as a server — use `vole serve` and manage agents as spaces. Typing a removed command prints a pointer to `vole serve`.
+
+### Deprecation
+- `@openvole/paw-dashboard` (the old single-engine web dashboard paw) is **deprecated** in favor of `vole serve`. It still works but logs a deprecation warning on load and will be removed in a future release
+
 ## v3.1.0 (2026-06-08)
 
 ### Dashboard Control Panel

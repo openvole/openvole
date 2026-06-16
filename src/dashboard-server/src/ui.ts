@@ -733,6 +733,11 @@ export function getDashboardHtml(wsPort: number): string {
   .apps-nav-item.active { background: var(--surface); border-color: var(--border); color: var(--text); font-weight: 600; }
   .apps-empty { color: var(--text-dim); padding: 40px; }
   #panel-frame { flex: 1; min-width: 0; width: 100%; height: 100%; border: 0; background: var(--bg); display: block; }
+  .apps-empty-state { height: calc(100vh - 150px); min-height: 360px; display: flex; align-items: center; justify-content: center; padding: 24px; }
+  .apps-empty-inner { max-width: 460px; text-align: center; }
+  .apps-empty-title { font-size: 15px; font-weight: 600; color: var(--text); margin-bottom: 8px; }
+  .apps-empty-text { font-size: 13px; color: var(--text-dim); line-height: 1.6; }
+  .apps-empty-text code { background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; font-size: 12px; font-family: var(--mono); }
   .chat-md { white-space: normal; }
   .chat-md .md-pre { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; overflow-x: auto; margin: 6px 0; font-size: 12px; white-space: pre; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
   .chat-md .md-code { background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 0 4px; font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
@@ -778,6 +783,20 @@ export function getDashboardHtml(wsPort: number): string {
   .space-btn { background: var(--surface-hover); border: 1px solid var(--border); color: var(--text); padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 12px; }
   .space-btn:hover { border-color: var(--text-dim); }
   .space-btn-danger:hover { color: var(--red); border-color: var(--red); }
+  /* ── Modal (create space + onboarding) ── */
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.55); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 16px; }
+  .modal-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 24px; width: 460px; max-width: 100%; max-height: calc(100vh - 48px); overflow-y: auto; box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45); }
+  .modal-title { font-size: 18px; font-weight: 600; margin: 0 0 4px; }
+  .modal-sub { font-size: 13px; color: var(--text-dim); margin: 0 0 18px; line-height: 1.5; }
+  .modal-input { width: 100%; box-sizing: border-box; padding: 10px 12px; font-size: 14px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-family: var(--mono); }
+  .modal-input:focus { border-color: var(--accent); outline: none; }
+  .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
+  .onboard-item { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; margin-top: 8px; cursor: pointer; }
+  .onboard-item:hover { border-color: var(--accent); }
+  .onboard-item input { margin-top: 3px; flex: 0 0 auto; accent-color: var(--accent); cursor: pointer; }
+  .onboard-name { font-weight: 600; font-size: 13px; }
+  .onboard-pkg { opacity: 0.6; font-weight: 400; font-size: 11px; font-family: var(--mono); }
+  .onboard-desc { font-size: 12px; color: var(--text-dim); margin-top: 2px; line-height: 1.4; }
 </style>
 </head>
 <body data-view="spaces">
@@ -1301,10 +1320,11 @@ export function getDashboardHtml(wsPort: number): string {
   </div>
 
   <div id="tab-panel" class="tab-content" style="display:none">
-    <div class="apps-layout">
+    <div class="apps-layout" id="apps-layout">
       <nav class="apps-nav" id="apps-nav"></nav>
       <iframe id="panel-frame" title="Paw app"></iframe>
     </div>
+    <div id="apps-empty" class="apps-empty-state" style="display:none"></div>
   </div>
 
   <footer>
@@ -1323,6 +1343,8 @@ export function getDashboardHtml(wsPort: number): string {
 </div>
 
 <div class="toast-container" id="toast-container"></div>
+
+<div class="modal-overlay" id="modal-overlay" style="display:none" onclick="if(event.target===this)closeModal()"><div class="modal-card" id="modal-card" role="dialog" aria-modal="true"></div></div>
 
 <script>
 const ws = new WebSocket('ws://' + location.hostname + ':' + ${wsPort} + '/ws');
@@ -1411,23 +1433,144 @@ function wireSpaceCards() {
     });
   }
 }
+function openModal(html) {
+  var card = document.getElementById('modal-card');
+  if (!card) return;
+  card.innerHTML = html;
+  document.getElementById('modal-overlay').style.display = 'flex';
+}
+function closeModal() {
+  var ov = document.getElementById('modal-overlay');
+  if (!ov) return;
+  ov.style.display = 'none';
+  document.getElementById('modal-card').innerHTML = '';
+}
+document.addEventListener('keydown', function(e) {
+  if (e.key !== 'Escape') return;
+  var ov = document.getElementById('modal-overlay');
+  if (ov && ov.style.display !== 'none') closeModal();
+});
 function createSpacePrompt() {
-  var name = prompt('New space name:');
-  if (!name) return;
+  openModal(
+    '<h2 class="modal-title">New space</h2>'
+    + '<p class="modal-sub">A space is an isolated agent with its own config, paws, identity, and data.</p>'
+    + '<label class="form-label" for="new-space-name">Name</label>'
+    + '<input id="new-space-name" class="modal-input" type="text" placeholder="e.g. Research, Trading, Personal" autocomplete="off" spellcheck="false">'
+    + '<div id="new-space-err" style="color:var(--red);font-size:12px;margin-top:8px;display:none"></div>'
+    + '<div class="modal-actions">'
+    +   '<button class="btn-restart" type="button" onclick="closeModal()">Cancel</button>'
+    +   '<button class="btn-primary" type="button" id="new-space-submit" onclick="submitNewSpace()">Create space</button>'
+    + '</div>'
+  );
+  var input = document.getElementById('new-space-name');
+  if (input) {
+    input.focus();
+    input.addEventListener('keydown', function(e) { if (e.key === 'Enter') { e.preventDefault(); submitNewSpace(); } });
+  }
+}
+function submitNewSpace() {
+  var input = document.getElementById('new-space-name');
+  var err = document.getElementById('new-space-err');
+  var name = ((input && input.value) || '').trim();
+  if (!name) { if (err) { err.textContent = 'Please enter a name.'; err.style.display = 'block'; } if (input) input.focus(); return; }
+  var btn = document.getElementById('new-space-submit');
+  if (btn) { btn.disabled = true; btn.textContent = 'Creating…'; }
   sendCommand('create_space', { name: name })
-    .then(function() { return sendCommand('list_spaces'); })
-    .then(function(spaces) { renderSpaces(spaces); showToast('Created space "' + name + '"', 'success'); })
-    .catch(function(e) { showToast(e.message, 'error'); });
+    .then(function(res) {
+      return sendCommand('list_spaces').then(function(spaces) {
+        renderSpaces(spaces);
+        showToast('Created space "' + name + '"', 'success');
+        showOnboarding((res && res.id) || null, name);
+      });
+    })
+    .catch(function(e) {
+      if (err) { err.textContent = e.message; err.style.display = 'block'; }
+      if (btn) { btn.disabled = false; btn.textContent = 'Create space'; }
+    });
+}
+var ESSENTIAL_PAWS = [
+  { name: '@openvole/paw-brain', label: 'Brain', desc: 'LLM reasoning — runs the Think phase. An agent needs a brain to respond.' },
+  { name: '@openvole/paw-session', label: 'Session', desc: 'Per-session transcript and metadata — powers the Chat tab history.' },
+  { name: '@openvole/paw-memory', label: 'Memory', desc: 'Persistent markdown long-term and daily memory across runs.' },
+  { name: '@openvole/paw-compact', label: 'Compact', desc: 'Summarizes old messages to free the context window automatically.' },
+  { name: '@openvole/paw-shell', label: 'Shell', desc: 'Run shell commands with safety restrictions.' }
+];
+var onboardCtx = { id: null, name: '' };
+function showOnboarding(spaceId, name) {
+  if (!spaceId) { closeModal(); return; }
+  onboardCtx = { id: spaceId, name: name };
+  var items = ESSENTIAL_PAWS.map(function(p) {
+    return '<label class="onboard-item">'
+      + '<input type="checkbox" data-paw="' + esc(p.name) + '" checked>'
+      + '<div><div class="onboard-name">' + esc(p.label) + ' <span class="onboard-pkg">' + esc(p.name) + '</span></div>'
+      + '<div class="onboard-desc">' + esc(p.desc) + '</div></div>'
+      + '</label>';
+  }).join('');
+  openModal(
+    '<h2 class="modal-title">Set up &ldquo;' + esc(name) + '&rdquo;</h2>'
+    + '<p class="modal-sub">Install the essential paws to get a working agent. You can change these any time from the space Config tab. Paws load after the space is started.</p>'
+    + items
+    + '<div id="onboard-status" style="font-size:12px;color:var(--text-dim);margin-top:14px;display:none"></div>'
+    + '<div class="modal-actions">'
+    +   '<button class="btn-restart" type="button" id="onboard-skip" onclick="closeModal()">Skip for now</button>'
+    +   '<button class="btn-primary" type="button" id="onboard-install" onclick="installEssentials()">Install selected</button>'
+    + '</div>'
+  );
+}
+function installEssentials() {
+  var spaceId = onboardCtx.id;
+  if (!spaceId) { closeModal(); return; }
+  var checks = document.querySelectorAll('#modal-card input[data-paw]:checked');
+  var names = [];
+  for (var i = 0; i < checks.length; i++) names.push(checks[i].getAttribute('data-paw'));
+  if (!names.length) { closeModal(); return; }
+  var btn = document.getElementById('onboard-install');
+  var skip = document.getElementById('onboard-skip');
+  var status = document.getElementById('onboard-status');
+  if (btn) { btn.disabled = true; btn.textContent = 'Installing…'; }
+  if (skip) skip.disabled = true;
+  if (status) status.style.display = 'block';
+  var done = 0, failed = [];
+  function step(i) {
+    if (i >= names.length) {
+      if (status) status.textContent = 'Installed ' + done + '/' + names.length + (failed.length ? ' · failed: ' + failed.join(', ') : '');
+      if (skip) skip.style.display = 'none';
+      if (btn) { btn.disabled = false; btn.textContent = 'Done'; btn.onclick = function() { closeModal(); sendCommand('list_spaces').then(renderSpaces); }; }
+      showToast('Set up "' + onboardCtx.name + '": installed ' + done + ' paw' + (done === 1 ? '' : 's') + (failed.length ? ', ' + failed.length + ' failed' : ''), failed.length ? 'error' : 'success');
+      return;
+    }
+    var n = names[i];
+    if (status) status.textContent = 'Installing ' + n + '… (' + (i + 1) + '/' + names.length + ')';
+    sendCommand('install_paw', { name: n, spaceId: spaceId }, 180000)
+      .then(function() { done++; }, function() { failed.push(n); })
+      .then(function() { step(i + 1); });
+  }
+  step(0);
 }
 function removeSpaceById(id) {
-  if (!confirm('Remove space "' + id + '"? (its files are kept on disk)')) return;
+  openModal(
+    '<h2 class="modal-title">Delete space</h2>'
+    + '<p class="modal-sub">This permanently deletes <b>' + esc(id) + '</b> and all of its files on disk — config, identity, installed paws, and data. This cannot be undone.</p>'
+    + '<div class="modal-actions">'
+    +   '<button class="btn-restart" type="button" onclick="closeModal()">Cancel</button>'
+    +   '<button class="btn-primary" type="button" id="confirm-delete" style="background:var(--red);border-color:var(--red)" onclick="confirmRemoveSpace(\\'' + esc(id) + '\\')">Delete permanently</button>'
+    + '</div>'
+  );
+}
+function confirmRemoveSpace(id) {
+  var btn = document.getElementById('confirm-delete');
+  if (btn) { btn.disabled = true; btn.textContent = 'Deleting…'; }
   sendCommand('remove_space', { spaceId: id })
     .then(function() {
-      showToast('Removed space "' + id + '"', 'success');
+      closeModal();
+      showToast('Deleted space "' + id + '"', 'success');
       if (currentSpaceId === id) { showSpacesView(); }
       else { sendCommand('list_spaces').then(renderSpaces).catch(function() {}); }
     })
-    .catch(function(e) { showToast(e.message, 'error'); });
+    .catch(function(e) {
+      showToast(e.message, 'error');
+      if (btn) { btn.disabled = false; btn.textContent = 'Delete permanently'; }
+    });
 }
 
 /* ── Selected-space header + dashboard ── */
@@ -1754,14 +1897,26 @@ var currentApp = null;
 function renderAppsNav(paws) {
   var withPanel = (paws || []).filter(function(p) { return p && p.panel; });
   var btn = document.getElementById('tab-btn-apps');
-  if (btn) btn.style.display = withPanel.length ? '' : 'none';
+  if (btn) btn.style.display = '';
   var nav = document.getElementById('apps-nav');
+  var layout = document.getElementById('apps-layout');
+  var empty = document.getElementById('apps-empty');
   if (!nav) return;
   if (!withPanel.length) {
-    nav.innerHTML = '<div class="apps-empty">No paw apps in this space.</div>';
     currentApp = null;
+    nav.innerHTML = '';
+    if (layout) layout.style.display = 'none';
+    if (empty) {
+      empty.style.display = 'flex';
+      empty.innerHTML = '<div class="apps-empty-inner">'
+        + '<div class="apps-empty-title">No paw apps here yet</div>'
+        + '<div class="apps-empty-text">Apps appear here when a running paw provides a dashboard panel. Install one that ships a panel — like <code>@openvole/paw-markets</code> — from the Config tab, then start the space.</div>'
+        + '</div>';
+    }
     return;
   }
+  if (empty) empty.style.display = 'none';
+  if (layout) layout.style.display = 'flex';
   var names = withPanel.map(function(p) { return p.name; });
   if (!currentApp || names.indexOf(currentApp) < 0) currentApp = withPanel[0].name;
   nav.innerHTML = withPanel.map(function(p) {

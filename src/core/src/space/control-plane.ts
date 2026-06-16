@@ -136,15 +136,27 @@ export class ControlPlane {
 		return { ok: true }
 	}
 
-	async createSpace(name: string): Promise<{ ok: true }> {
-		await this.manager.create(name)
+	async createSpace(name: string): Promise<{ ok: true; id: string; name: string }> {
+		const entry = await this.manager.create(name)
 		this.broadcastSpaces()
-		return { ok: true }
+		return { ok: true, id: entry.id, name: entry.name }
 	}
 
 	async removeSpace(id: string): Promise<{ ok: true }> {
+		const proc = this.children.get(id)?.proc
 		await this.stopSpace(id)
-		await this.manager.remove(id, { purge: false })
+		// Wait for the engine child to actually exit before deleting its files, so a late
+		// shutdown write can't recreate the directory after we remove it.
+		if (proc && proc.exitCode == null) {
+			await new Promise<void>((resolve) => {
+				const t = setTimeout(resolve, STOP_GRACE_MS + 500)
+				proc.once('exit', () => {
+					clearTimeout(t)
+					resolve()
+				})
+			})
+		}
+		await this.manager.remove(id, { purge: true })
 		this.broadcastSpaces()
 		return { ok: true }
 	}

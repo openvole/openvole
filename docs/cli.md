@@ -6,31 +6,65 @@ The `vole` CLI is the primary interface for managing your OpenVole agent.
 Install globally with `npm install -g openvole` to use `vole` directly instead of `npx vole`.
 :::
 
-## Agent Commands
+::: warning Removed commands
+The single-engine commands `vole init`, `vole start`, and `vole run` have been removed. OpenVole now runs as a **server** — use [`vole serve`](#dashboard-spaces) and manage agents as **spaces** (each its own config, paws, identity, and data).
+:::
 
-### `vole init`
+## Dashboard & Spaces
 
-Initialize a new OpenVole project. Creates `vole.config.json` and the `.openvole/` directory structure.
+### `vole serve`
 
-```bash
-npx vole init
-```
-
-### `vole start`
-
-Start the agent in interactive mode with a chat-style CLI. Loads all configured paws, channels, and the dashboard.
+Start the **control-plane dashboard** — one web server that manages all your agents ("spaces") from the browser. This is the primary way to run and operate OpenVole.
 
 ```bash
-npx vole start
+npx vole serve
 ```
 
-### `vole run`
+By default it listens on `http://localhost:3000`; set `VOLE_DASHBOARD_PORT` to change the port.
 
-Run a single task in headless mode — no dashboard, no channels. Useful for scripting and automation.
+**Root resolution** — `vole serve` operates on an OpenVole *root* directory (which holds a `spaces.json` registry). The root is resolved in this order:
+
+1. `VOLE_HOME` if set — an explicit override that always wins.
+2. Otherwise the current directory, if it is already a root (contains `spaces.json`).
+3. Otherwise the current directory, if it is empty (ignoring `.DS_Store`, `.git`, `.gitignore`) — it becomes a **new** root.
+4. Otherwise it refuses to start with a clear error. If a legacy `~/.openvole` with spaces exists, it prints how to reach it.
 
 ```bash
-npx vole run "summarize my emails"
+# Use a dedicated directory as your root
+mkdir ~/agents && cd ~/agents && npx vole serve
+
+# Or pin a fixed root from anywhere
+VOLE_HOME=~/agents npx vole serve
 ```
+
+> [!NOTE]
+> The implicit global `~/.openvole` root (used regardless of the current directory) is gone. If your spaces live there, run `cd ~/.openvole && vole serve` or `VOLE_HOME=~/.openvole vole serve`.
+
+See the [Dashboard guide](/dashboard) for the full walkthrough.
+
+### `vole space`
+
+Manage spaces from the CLI. (The dashboard's space switcher does the same things visually.)
+
+| Command | Description |
+|---------|-------------|
+| `vole space create <name>` | Scaffold a new space (clones your template if set). |
+| `vole space template` | Create or locate the template that new spaces clone. |
+| `vole space list` | List spaces and their running status. |
+| `vole space status [name]` | Show live status (pid, port). |
+| `vole space start <name>` | Start a space's engine (its own process). |
+| `vole space stop <name> \| --all` | Stop a space (or all spaces). |
+| `vole space switch <name>` | Set the active space. |
+| `vole space remove <name> [--purge]` | Remove a space. Add `--purge` to delete its files on disk. |
+
+```bash
+npx vole space create research
+npx vole space start research
+npx vole space list
+```
+
+> [!WARNING]
+> `vole space remove <name>` removes the space from the registry but **keeps its files**. Add `--purge` to permanently delete the space's directory (config, identity, installed paws, data). Deleting a space from the dashboard is equivalent to `--purge`.
 
 ## Paw Management
 

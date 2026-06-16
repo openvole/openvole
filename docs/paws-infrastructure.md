@@ -67,9 +67,12 @@ Runs as an **in-process** paw (not subprocess) for performance. When the message
 
 No LLM needed — pure extraction. Fast and free.
 
-### paw-dashboard
+### paw-dashboard (deprecated)
 
-Real-time web **control panel** — monitor *and operate* the agent from your browser: paws (with health), tools, skills, tasks, schedules, and live events, plus editing config and identity files and restarting the engine.
+> [!WARNING]
+> `@openvole/paw-dashboard` is **deprecated** in favor of [`vole serve`](/dashboard) — the control-plane dashboard that manages *all* your agents from one web server. It still works but logs a deprecation warning on load and will be removed in a future release. Use `vole serve` for a UI instead.
+
+The legacy single-engine web **control panel** — monitor *and operate* one agent from your browser: paws (with health), tools, skills, tasks, schedules, and live events, plus editing config and identity files and restarting the engine.
 
 ```bash
 npx vole paw add @openvole/paw-dashboard
@@ -91,9 +94,31 @@ Configuration:
 }
 ```
 
-The dashboard connects to the engine's message bus and streams state updates over WebSocket — no polling. As of 3.1.0 it's a full control panel, not just a viewer:
+The dashboard connects to the engine's message bus and streams state updates over WebSocket — no polling. It's a full control panel, not just a viewer:
 
 - **Config editor** — edit `vole.config.json` across 8 sections (brain, heartbeat, loop, security/Docker, paws, tool profiles, agents, net)
 - **Identity editor** — edit `SOUL.md`, `USER.md`, `AGENT.md`, `HEARTBEAT.md`, and `BRAIN.md`
 - **One-click restart** — apply config/identity changes in-process, no terminal needed
 - **Live event log** — task lifecycle, paw/tool registration, crashes, rate limits, VoleNet executions
+
+## Embedded Dashboard Panels
+
+Any paw — not just infrastructure paws — can contribute a UI panel to the [control-plane dashboard](/dashboard) (`vole serve`). Declare a panel in the paw's manifest (`vole-paw.json`):
+
+```json
+{
+  "panel": { "title": "Markets", "html": "panel.html" }
+}
+```
+
+The named static HTML file ships inside the paw package. The control plane:
+
+- serves the HTML at `/panel/<space>/<paw>/`
+- proxies the paw's tools at `/panel/<space>/<paw>/tool/<toolName>`
+
+Tool calls from a panel are **brain-free** — they invoke the paw's tools directly over IPC, with no LLM. Every panel-contributing paw shows up under the dashboard's **Apps** tab as a sandboxed iframe.
+
+> [!IMPORTANT]
+> No per-paw web servers, no extra ports — every panel and every tool call it makes goes through the single control-plane server.
+
+The reference example is [`@openvole/paw-markets`](/dashboard#apps-embedded-paw-panels), a US-stock tracking paw whose **Markets** panel embeds this way.

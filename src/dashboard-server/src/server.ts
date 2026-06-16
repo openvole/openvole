@@ -5,8 +5,8 @@ import { type WebSocket, WebSocketServer } from 'ws'
 import { getDashboardHtml } from './ui.js'
 
 const logger = {
-	info: (msg: string) => console.info(`[paw-dashboard] ${msg}`),
-	error: (msg: string) => console.error(`[paw-dashboard] ${msg}`),
+	info: (msg: string) => console.info(`[dashboard] ${msg}`),
+	error: (msg: string) => console.error(`[dashboard] ${msg}`),
 }
 
 export interface DashboardServer {
@@ -188,8 +188,8 @@ export function createDashboardServer(
 					respond((await callbacks.listAvailablePaws?.()) ?? [])
 					break
 				case 'install_paw': {
-					const p = cmd.params as { name: string }
-					respond(await callbacks.installPaw?.(p?.name, sel()))
+					const p = cmd.params as { name: string; spaceId?: string }
+					respond(await callbacks.installPaw?.(p?.name, p?.spaceId ?? sel()))
 					break
 				}
 				case 'submit': {

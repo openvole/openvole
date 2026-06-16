@@ -397,19 +397,19 @@ vole net status              # Show VoleNet status (instance, leader, peers, too
 
 ### 1. Set Up Two Instances
 
+> [!WARNING]
+> This quickstart predates the server model and is being updated. Create each instance as a **space** (`vole serve` → New space scaffolds its `vole.config.json` and installs paws), then run `vole net init <name>` inside that space's directory. VoleNet-over-spaces is still being finalized.
+
 ```bash
-# Instance A (coordinator with brain)
-mkdir coordinator && cd coordinator
-npm init -y && npm install openvole @openvole/paw-brain @openvole/paw-memory @openvole/paw-session @openvole/paw-dashboard
-npx vole init
+# Coordinator (brain) — run inside its space directory
 npx vole net init coordinator
 
-# Instance B (worker with shell)
-mkdir worker && cd worker
-npm init -y && npm install openvole @openvole/paw-shell @openvole/paw-dashboard
-npx vole init
+# Worker (shell) — run inside its space directory
 npx vole net init worker
 ```
+
+> [!NOTE]
+> To view either instance in a browser, run [`vole serve`](/dashboard) — one control-plane dashboard manages all your agents. The old `@openvole/paw-dashboard` paw (with a `listen` port per instance) is deprecated.
 
 ### 2. Exchange Keys
 
@@ -436,8 +436,7 @@ Coordinator `vole.config.json`:
   "paws": [
     { "name": "@openvole/paw-brain", "allow": { "network": ["*"], "env": ["BRAIN_PROVIDER", "OLLAMA_HOST", "OLLAMA_MODEL"] } },
     { "name": "@openvole/paw-memory", "allow": { "network": ["*"] } },
-    { "name": "@openvole/paw-session" },
-    { "name": "@openvole/paw-dashboard", "allow": { "listen": [3001] } }
+    { "name": "@openvole/paw-session" }
   ],
   "loop": { "confirmBeforeAct": false, "maxIterations": 25, "toolHorizon": true },
   "net": {
@@ -452,8 +451,7 @@ Worker `vole.config.json`:
 ```json
 {
   "paws": [
-    { "name": "@openvole/paw-shell", "allow": { "filesystem": ["./", "/tmp"], "childProcess": true, "env": ["VOLE_SHELL_ALLOWED_DIRS"] } },
-    { "name": "@openvole/paw-dashboard", "allow": { "listen": [3002] } }
+    { "name": "@openvole/paw-shell", "allow": { "filesystem": ["./", "/tmp"], "childProcess": true, "env": ["VOLE_SHELL_ALLOWED_DIRS"] } }
   ],
   "loop": { "confirmBeforeAct": false, "maxIterations": 10, "toolHorizon": false },
   "net": {
@@ -468,10 +466,10 @@ Worker `vole.config.json`:
 
 ```bash
 # Terminal 1
-cd coordinator && npx vole start
+cd coordinator && npx vole serve
 
 # Terminal 2
-cd worker && npx vole start
+cd worker && npx vole serve
 ```
 
 The coordinator's Brain can now call `shell_exec` — the call routes to the worker transparently.

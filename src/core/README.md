@@ -24,16 +24,12 @@ A fresh OpenVole installation has zero tools, zero skills, zero opinions. This i
 ## Quick Start
 
 ```bash
-mkdir my-agent && cd my-agent
-npm init -y
+mkdir my-agents && cd my-agents
 npm install openvole
-npx vole init
-npx vole paw add @openvole/paw-brain
-npx vole paw add @openvole/paw-memory
-npx vole paw add @openvole/paw-dashboard
+npx vole serve
 ```
 
-Edit `vole.config.json`:
+Open the dashboard, click **New space**, and the onboarding installs the essential paws (brain, session, memory, compact, shell). Each space has its own `vole.config.json`:
 
 ```json
 {
@@ -51,10 +47,6 @@ Edit `vole.config.json`:
     {
       "name": "@openvole/paw-memory",
       "allow": { "env": ["VOLE_MEMORY_DIR"] }
-    },
-    {
-      "name": "@openvole/paw-dashboard",
-      "allow": { "listen": [3001], "env": ["VOLE_DASHBOARD_PORT"] }
     }
   ],
   "skills": [],
@@ -70,16 +62,18 @@ OLLAMA_HOST=http://localhost:11434
 OLLAMA_MODEL=qwen3:latest
 ```
 
-Run:
+Run and manage your agents from the control-plane dashboard:
 
 ```bash
-npx vole start
+npx vole serve
 ```
+
+This opens a dashboard at `http://localhost:3000` that manages all your agents ("spaces") — create, start, stop, configure, and chat with each from the browser.
 
 Or use a preset:
 
 ```bash
-# Basic (Brain + Memory + Dashboard)
+# Basic (Brain + Memory + Session + Compact + Shell)
 curl -fsSL https://raw.githubusercontent.com/openvole/openvole/main/presets/basic.sh | bash
 
 # With Telegram
@@ -92,8 +86,8 @@ curl -fsSL https://raw.githubusercontent.com/openvole/openvole/main/presets/full
 ## Architecture
 
 ```
-                         vole start (CLI)
-                     readline prompt (vole>)
+                      vole serve (control plane)
+                       one server · many spaces
                               |
                               v
 ┌─────────────────────────────────────────────────────────────┐
@@ -320,11 +314,15 @@ When context grows too large, `paw-compact` summarizes old messages while preser
 
 ### Dashboard
 
-Real-time web UI — powered by `paw-dashboard`, another Paw you install like any other. Shows paws, tools, skills, tasks, schedules, and live events.
+Run `vole serve` to start the **control-plane dashboard** — one web server that manages all your agents ("spaces") from the browser:
 
 ```bash
-npx vole paw add @openvole/paw-dashboard
+npx vole serve   # http://localhost:3000
 ```
+
+Each space is an isolated agent with its own config, paws, identity, and data. The dashboard has Overview, Chat, Apps, Config, and Identity tabs, plus a space switcher to create / start / stop / delete spaces. Any paw can also contribute an embedded UI panel (declared via a `panel` field in its manifest) that appears under the **Apps** tab — no per-paw servers, no extra ports.
+
+> The legacy `@openvole/paw-dashboard` (single-engine web dashboard paw) is **deprecated** in favor of `vole serve`. It still works but logs a deprecation warning and will be removed in a future release.
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/openvole/openvole/main/assets/example/paw-dashboard/paw-dashboard.png" alt="OpenVole Dashboard" width="800">
@@ -374,7 +372,7 @@ All paws live in [PawHub](https://github.com/openvole/pawhub) and are installed 
 | `paw-memory` | Persistent memory with source isolation |
 | `paw-session` | Session/conversation management |
 | `paw-compact` | Context compaction (in-process) |
-| `paw-dashboard` | Real-time web dashboard |
+| `paw-dashboard` | *(deprecated — use `vole serve`)* Single-engine web dashboard |
 
 Install from npm:
 
@@ -386,9 +384,8 @@ npx vole paw add @openvole/paw-browser
 ## CLI
 
 ```bash
-npx vole init                              # Initialize project
-npx vole start                             # Start agent (interactive)
-npx vole run "summarize my emails"         # Single task
+npx vole serve                             # Control-plane dashboard for all your agents (spaces)
+npx vole space create <name>               # Create a new space (agent)
 
 npx vole paw add @openvole/paw-telegram    # Install a Paw
 npx vole paw list                          # List loaded Paws
@@ -485,7 +482,7 @@ Both are open-source AI agent frameworks. Different philosophies, many shared co
 | **Scheduling** | Cron-based, persistent, Brain-initiated | Cron + heartbeat |
 | **Sessions** | Per-session transcripts with auto-expiry | Built-in session keys |
 | **Vault** | AES-256 encrypted, write-once, metadata | N/A (env vars) |
-| **Dashboard** | Real-time web UI | Gateway web UI |
+| **Dashboard** | Control-plane web UI (`vole serve`) — manages all agents | Gateway web UI |
 | **CLI** | `vole` (start/run/tool call/clawhub/skill) | `openclaw` |
 | **Config** | Single JSON file | Single JSON file |
 

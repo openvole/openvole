@@ -13,8 +13,7 @@ OpenVole uses a single `vole.config.json` file at the project root — plain JSO
     { "name": "@openvole/paw-session" },
     { "name": "@openvole/paw-compact" },
     { "name": "@openvole/paw-telegram", "allow": { "network": ["*"], "env": ["TELEGRAM_BOT_TOKEN", "TELEGRAM_ALLOW_FROM"] } },
-    { "name": "@openvole/paw-shell", "allow": { "filesystem": ["./"], "env": ["VOLE_SHELL_ALLOWED_DIRS"], "childProcess": true } },
-    { "name": "@openvole/paw-dashboard", "allow": { "listen": [3001], "env": ["VOLE_DASHBOARD_PORT"] } }
+    { "name": "@openvole/paw-shell", "allow": { "filesystem": ["./"], "env": ["VOLE_SHELL_ALLOWED_DIRS"], "childProcess": true } }
   ],
   "skills": ["clawhub/summarize"],
   "loop": {
@@ -153,7 +152,7 @@ Paw hooks can be configured with ordering and pipeline behavior:
 | `paw-shell` | Spawn processes | `"childProcess": true`, `"filesystem": ["./"]` |
 | `paw-browser` | Spawn Chrome | `"childProcess": true`, `"network": ["*"]` |
 | `paw-database` | Native addons | Disable sandbox: `"sandboxFilesystem": false` |
-| `paw-dashboard` | Bind HTTP port | `"listen": [3001]` |
+| `paw-dashboard` *(deprecated — use [`vole serve`](/dashboard))* | Bind HTTP port | `"listen": [3001]` |
 | `paw-telegram` | Telegram API | `"network": ["api.telegram.org"]` or `["*"]` |
 | `paw-memory` | Embedding API | `"network": ["*"]` |
 | `paw-compact` | LLM for compaction | `"network": ["*"]` |
@@ -368,6 +367,9 @@ Named agent profiles for sub-agent spawning via the `spawn_agent` core tool. Eac
 
 The Brain can spawn these via `spawn_agent({ profile: "researcher", task: "..." })`.
 
+> [!TIP]
+> In the [control-plane dashboard](/dashboard) (`vole serve`), agent profiles are editable as structured form fields under **Config → AGENTS** — role, instructions, allowTools, denyTools, and maxIterations — no raw JSON.
+
 ---
 
 ### `net` (VoleNet)
@@ -457,6 +459,9 @@ Route tool calls to specific peers by glob pattern:
 
 When multiple peers share the same tool, the Brain can target a specific peer using `<peerName>/<toolName>` syntax (e.g. `us-monitor/shell_exec`).
 
+> [!TIP]
+> The whole `net` section is editable as structured form fields under **Config → NET** in the [control-plane dashboard](/dashboard) (`vole serve`) — including an on/off **toggle** for `enabled`, plus peers, share (tools/memory/session), TLS, routing, and the various modes. No raw JSON.
+
 #### VoleNet Setup
 
 ```bash
@@ -470,7 +475,7 @@ vole net trust "vole-ed25519 ..."    # on instance B (paste A's key)
 # 3. Configure peers in vole.config.json (see above)
 
 # 4. Start both instances
-vole start
+vole serve
 ```
 
 ---
@@ -533,7 +538,8 @@ Global environment variables that affect OpenVole core:
 |----------|-------------|
 | `VOLE_LOG_LEVEL` | Log level: `debug`, `info`, `warn`, `error`. Default: `info`. |
 | `VOLE_LOG_FILE` | Path to log file. Default: `.openvole/logs/vole.log`. |
-| `VOLE_DASHBOARD_PORT` | Dashboard HTTP port. Default: `3001`. |
+| `VOLE_DASHBOARD_PORT` | Control-plane dashboard (`vole serve`) HTTP port. Default: `3000`. |
+| `VOLE_HOME` | Explicit OpenVole root for `vole serve` (overrides current-directory resolution). |
 | `VOLE_DEBUG` | Enable debug mode (`true`/`false`). |
 | `VOLE_IPC_TIMEOUT_MS` | IPC timeout for paw communication in ms. Default: `300000`. |
 | `VOLE_COMPACT_MODEL` | Explicit model for LLM compaction (if unset, uses simple compaction). |
