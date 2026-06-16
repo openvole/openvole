@@ -96,7 +96,7 @@ curl -fsSL https://raw.githubusercontent.com/openvole/openvole/main/presets/full
 │   │              Agent Loop (per task)             │        │
 │   │                                                │        │
 │   │   BOOTSTRAP → PERCEIVE → COMPACT → THINK       │        │
-│   │       |          |          |         |         │        │
+│   │       |          |          |         |        │        │
 │   │   Load data  Enrich     Compress   Brain       │        │
 │   │   + VoleNet  context    old msgs   plans       │        │
 │   │                                                │        │
