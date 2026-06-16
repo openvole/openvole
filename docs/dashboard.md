@@ -95,26 +95,9 @@ See [Configuration](/configuration) for what each field means.
 
 Any paw can contribute its own UI to the dashboard. The **Apps** tab is always visible and shows one entry per panel-contributing paw in a left vertical nav, each rendered as a sandboxed `iframe`. If a space has no panel paws, an empty state explains how to add one.
 
-### How it works
+Panels are **brain-free** — a panel's tool calls go straight to the paw over IPC, with no LLM — and there are **no per-paw web servers and no extra ports**; everything flows through the single control-plane server.
 
-A paw declares a panel in its manifest (`vole-paw.json`):
-
-```json
-{
-  "name": "@openvole/paw-markets",
-  "panel": { "title": "Markets", "html": "panel.html" }
-}
-```
-
-The named static HTML file (`panel.html`) ships **inside the paw package**. The control plane:
-
-- serves that HTML at `/panel/<space>/<paw>/`
-- proxies the paw's tools at `/panel/<space>/<paw>/tool/<toolName>`
-
-Tool calls from a panel are **brain-free** — they invoke the paw's tools directly over IPC, with no LLM in the loop.
-
-> [!IMPORTANT]
-> There are **no per-paw web servers and no extra ports**. Every panel — and every tool call it makes — goes through the single control-plane server.
+To add a panel to your own paw, see **[Build an Embedded App](/paws#build-an-embedded-app)**.
 
 ### Reference example
 

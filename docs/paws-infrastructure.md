@@ -103,22 +103,4 @@ The dashboard connects to the engine's message bus and streams state updates ove
 
 ## Embedded Dashboard Panels
 
-Any paw — not just infrastructure paws — can contribute a UI panel to the [control-plane dashboard](/dashboard) (`vole serve`). Declare a panel in the paw's manifest (`vole-paw.json`):
-
-```json
-{
-  "panel": { "title": "Markets", "html": "panel.html" }
-}
-```
-
-The named static HTML file ships inside the paw package. The control plane:
-
-- serves the HTML at `/panel/<space>/<paw>/`
-- proxies the paw's tools at `/panel/<space>/<paw>/tool/<toolName>`
-
-Tool calls from a panel are **brain-free** — they invoke the paw's tools directly over IPC, with no LLM. Every panel-contributing paw shows up under the dashboard's **Apps** tab as a sandboxed iframe.
-
-> [!IMPORTANT]
-> No per-paw web servers, no extra ports — every panel and every tool call it makes goes through the single control-plane server.
-
-The reference example is [`@openvole/paw-markets`](/dashboard#apps-embedded-paw-panels), a US-stock tracking paw whose **Markets** panel embeds this way.
+Any paw — not just infrastructure paws — can ship its own UI that appears under the dashboard's **Apps** tab, with no per-paw web server and no extra port. See **[Build an Embedded App](/paws#build-an-embedded-app)** for the how-to; [`@openvole/paw-markets`](/dashboard#apps-embedded-paw-panels) is the reference example.

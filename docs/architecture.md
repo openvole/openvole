@@ -210,9 +210,7 @@ See the [VoleNet documentation](/volenet) for architecture patterns and setup.
 
 ### Embedded Panels (Apps)
 
-A paw can contribute a UI to the dashboard by declaring a `panel` in its manifest (`vole-paw.json`). The named static HTML ships inside the paw package; the control plane serves it at `/panel/<space>/<paw>/` and proxies the paw's tools at `/panel/<space>/<paw>/tool/<toolName>`.
-
-These tool calls are **brain-free** — the control plane invokes the paw's tools directly over IPC, with no LLM. Because everything flows through the one control-plane server, there are **no per-paw web servers and no extra ports**. The reference example is `@openvole/paw-markets`.
+A paw can contribute a UI to the dashboard by declaring a `panel` in its manifest; the control plane serves the static HTML at `/panel/<space>/<paw>/` and proxies the paw's tools at `/panel/<space>/<paw>/tool/<toolName>` — **brain-free**, directly over IPC. Everything flows through the one control-plane server, so there are **no per-paw web servers and no extra ports**. See [Build an Embedded App](/paws#build-an-embedded-app) for the authoring guide.
 
 ## Philosophy
 

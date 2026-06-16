@@ -12,15 +12,73 @@ npx vole paw add @openvole/paw-browser
 npx vole paw list
 ```
 
-## Embedded Dashboard Panels
+## Build an Embedded App
 
-A paw can contribute its own UI to the [control-plane dashboard](/dashboard) by declaring a panel in its manifest (`vole-paw.json`):
+A paw can ship its own UI — a **panel** — that appears under the dashboard's **Apps** tab whenever the paw is loaded in a space. It renders as a sandboxed `iframe` served by the control plane, with **no per-paw web server and no extra port**. [`@openvole/paw-markets`](/dashboard#apps-embedded-paw-panels) is a complete working example.
+
+### 1. Declare the panel in the manifest
+
+In your paw's `vole-paw.json`:
 
 ```json
-{ "panel": { "title": "Markets", "html": "panel.html" } }
+{
+  "name": "@openvole/paw-markets",
+  "panel": { "title": "Markets", "html": "panel.html" }
+}
 ```
 
-The named static HTML file ships inside the paw package. The control plane serves it at `/panel/<space>/<paw>/` and proxies the paw's tools at `/panel/<space>/<paw>/tool/<toolName>` — brain-free, directly over IPC. Every panel-contributing paw appears under the dashboard's **Apps** tab as a sandboxed iframe, with **no per-paw web servers and no extra ports**. The reference example is [`@openvole/paw-markets`](/dashboard#apps-embedded-paw-panels).
+`title` is the label shown in the Apps nav; `html` is a static file shipped inside the paw package.
+
+### 2. Write `panel.html`
+
+A self-contained HTML file. Call your paw's tools with a **relative** `fetch` to `tool/<name>` — the control plane proxies it straight to the tool, **brain-free** (no LLM in the loop):
+
+```html
+<!doctype html>
+<html>
+  <body>
+    <button id="go">Quote AAPL</button>
+    <pre id="out"></pre>
+    <script>
+      // Relative to the panel URL (/panel/<space>/<paw>/) — calls the paw's tool directly.
+      function callTool(name, params) {
+        return fetch('tool/' + name, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(params || {}),
+        }).then((r) => r.json())
+      }
+      document.getElementById('go').onclick = async () => {
+        const res = await callTool('stock_quote', { symbols: ['AAPL'] })
+        document.getElementById('out').textContent = JSON.stringify(res, null, 2)
+      }
+    </script>
+  </body>
+</html>
+```
+
+::: warning
+Every asset path in `panel.html` must be **relative** — the panel is served under `/panel/<space>/<paw>/`, so absolute paths like `/style.css` won't resolve. Inline your CSS/JS, or reference files relatively.
+:::
+
+### 3. Ship the file
+
+Add `panel.html` to your `package.json` `files` array so it's published with the package:
+
+```json
+{ "files": ["dist", "vole-paw.json", "panel.html", "README.md"] }
+```
+
+### 4. Try it
+
+Install the paw into a space (the **Config** tab, or `vole paw add` inside the space's directory) and start the space — your panel appears under the **Apps** tab.
+
+### How it's served
+
+- **HTML** → `GET /panel/<space>/<paw>/`
+- **Tools** → `POST /panel/<space>/<paw>/tool/<toolName>` → runs `tool.execute(params)` over IPC and returns its JSON
+
+Because tool calls go straight to your paw with no Brain, panels are deterministic and free — ideal for dashboards, forms, and live views over your paw's data.
 
 ## All 27 Official Paws
 
