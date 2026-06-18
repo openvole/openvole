@@ -2,7 +2,7 @@ import { defineConfig } from 'vitepress'
 
 export default defineConfig({
 	title: 'OpenVole',
-	description: 'Microkernel AI Agent Framework',
+	description: 'The self-hosted OS for AI agents — your hardware, any model, peer-to-peer networked.',
 	base: '/openvole/',
 	themeConfig: {
 		logo: '/vole.png',

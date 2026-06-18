@@ -1,5 +1,12 @@
 # Changelog
 
+## v4.0.1 (2026-06-17)
+
+### Docs & site
+- Rewrote the README and docs landing around the positioning — a self-hosted, model-agnostic agent OS with VoleNet and embedded-app paws — leading with value instead of "microkernel framework"
+- New value-first home page (`docs/index.md`) with the `vole serve` control-plane and embedded-apps screenshots
+- Elevated **embedded apps** (paws that ship their own UI under the Apps tab) as a first-class capability
+
 ## v4.0.0 (2026-06-14)
 
 ### Control-Plane Dashboard & Spaces

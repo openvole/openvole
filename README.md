@@ -1,27 +1,40 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/openvole/openvole/main/assets/vole.png" alt="OpenVole" width="200">
+  <img src="https://raw.githubusercontent.com/openvole/openvole/main/assets/vole.png" alt="OpenVole" width="180">
 </p>
 
 <h1 align="center">OpenVole</h1>
 
 <p align="center">
-  <strong>Micro-agent core. The smallest possible thing that other useful things can be built on top of.</strong>
+  <strong>The self-hosted agent OS — run a fleet of AI agents on your own hardware,<br>
+  against any model, from one dashboard. Peer-to-peer networked. Nothing phones home.</strong>
 </p>
 
 <p align="center">
   <a href="https://www.npmjs.com/package/openvole"><img src="https://img.shields.io/npm/v/openvole" alt="npm"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
+  <a href="https://openvole.github.io/openvole"><img src="https://img.shields.io/badge/docs-openvole.github.io-3fb950" alt="Docs"></a>
 </p>
 
----
+<p align="center">
+  <img src="https://raw.githubusercontent.com/openvole/openvole/main/assets/dashboard.png" alt="The OpenVole control plane" width="820">
+</p>
 
 ## What is OpenVole?
 
-OpenVole is a **microkernel AI agent framework**. It provides the agent loop and the plugin contract — nothing else. Everything useful (reasoning, memory, tools, channels, integrations) is a **Paw** or a **Skill** built by the community.
+OpenVole is a **self-hosted server for running and managing AI agents**. One command —
+`npx vole serve` — gives you a dashboard where you create, configure, and chat with a whole
+fleet of agents, each isolated with its own tools, memory, and identity.
 
-A fresh OpenVole installation has zero tools, zero skills, zero opinions. This is by design.
+- **Model-agnostic** — Gemini, OpenAI, Claude, xAI, or local Ollama. Your choice, swappable per agent.
+- **Self-hosted & private** — runs entirely on your hardware, against whatever model you point it at, with nothing phoning home.
+- **Networked** — connect instances over **VoleNet**, a peer-to-peer agent mesh, and share tools, memory, and even a brain across machines.
 
-## Quick Start
+Under the hood it's a **microkernel**: the core is just the agent loop and a plugin contract.
+Every capability — reasoning, memory, tools, channels — is a swappable plugin (a **Paw**), so
+you're never locked into someone else's worldview. A fresh install ships with zero baked-in
+opinions: you assemble exactly the agent you want.
+
+## Quick start
 
 ```bash
 mkdir my-agents && cd my-agents
@@ -29,659 +42,148 @@ npm install openvole
 npx vole serve
 ```
 
-Open the dashboard at `http://localhost:3000`, click **New space**, and the onboarding installs the essential paws (brain, session, memory, compact, shell). Each space is an isolated agent with its own `vole.config.json`:
-
-```json
-{
-  "brain": "@openvole/paw-brain",
-  "paws": [
-    {
-      "name": "@openvole/paw-brain",
-      "allow": {
-        "network": ["*"],
-        "env": ["BRAIN_PROVIDER", "BRAIN_API_KEY", "BRAIN_MODEL",
-                "GEMINI_API_KEY", "GEMINI_MODEL",
-                "ANTHROPIC_API_KEY", "ANTHROPIC_MODEL",
-                "OPENAI_API_KEY", "OPENAI_MODEL",
-                "OLLAMA_HOST", "OLLAMA_MODEL"]
-      }
-    },
-    {
-      "name": "@openvole/paw-memory",
-      "allow": { "env": ["VOLE_MEMORY_DIR"] }
-    }
-  ],
-  "skills": [],
-  "loop": { "maxIterations": 25, "maxContextTokens": 128000 }
-}
-```
-
-Set your LLM provider in the space's `.env`:
+Open the dashboard at `http://localhost:3000`, click **New space**, and onboarding installs the
+essential paws (brain, session, memory, compact, shell). Point a space at your model:
 
 ```
 BRAIN_PROVIDER=gemini
 GEMINI_API_KEY=your-api-key
 ```
 
-Start the space from the dashboard and chat with it in the **Chat** tab.
-
-> **Tip:** For easier access, install globally with `npm install -g openvole` — then use `vole` directly instead of `npx vole`.
-
-Or use a preset:
+…then start it and chat in the **Chat** tab. Prefer one command? Use a preset:
 
 ```bash
-# Basic (Brain + Memory + Session + Compact + Shell)
 curl -fsSL https://raw.githubusercontent.com/openvole/openvole/main/presets/basic.sh | bash
-
-# With Telegram
-curl -fsSL https://raw.githubusercontent.com/openvole/openvole/main/presets/telegram.sh | bash
-
-# Everything
-curl -fsSL https://raw.githubusercontent.com/openvole/openvole/main/presets/full.sh | bash
 ```
 
-## Architecture
+> Install globally (`npm install -g openvole`) to use `vole` directly instead of `npx vole`.
 
-```
-                      vole serve (control plane)
-                       one server · many spaces
-                              |
-                              v
-┌─────────────────────────────────────────────────────────────┐
-│                       VoleEngine                            │
-│                                                             │
-│   Tool Registry ──── Skill Registry ──── Paw Registry       │
-│        |                   |                  |             │
-│   ┌────────────────────────────────────────────────┐        │
-│   │              Agent Loop (per task)             │        │
-│   │                                                │        │
-│   │   BOOTSTRAP → PERCEIVE → COMPACT → THINK       │        │
-│   │       |          |          |         |        │        │
-│   │   Load data  Enrich     Compress   Brain       │        │
-│   │   + VoleNet  context    old msgs   plans       │        │
-│   │                                                │        │
-│   │   → ACT → OBSERVE → loop                       │        │
-│   │      |        |                                │        │
-│   │   Execute   Record                             │        │
-│   │   tools     results                            │        │
-│   │                                                │        │
-│   │       Context Budget Manager                   │        │
-│   └────────────────────────────────────────────────┘        │
-│                                                             │
-│   Task Queue ── Scheduler ── Message Bus ── Cost Tracker    │
-│                                                             │
-│   VoleNet (optional distributed networking)                 │
-│   ├── WebSocket + Ed25519 Auth                              │
-│   ├── Remote Tools + Load Balancing                         │
-│   └── Memory/Session Sync + Leader Election                 │
-│                                                             │
-└──────┬──────────┬──────────┬──────────┬─────────────────────┘
-       |          |          |          |
-  [Brain Paw] [Channel]  [Tools]   [In-Process]
-   paw-brain  Telegram   Browser    Compact
-   (unified)  Slack      Shell      Memory
-              Discord    Database   Session
-                         MCP        Dashboard
-```
+Full walkthrough → [Getting Started](https://openvole.github.io/openvole/getting-started).
 
-Official Paws across four categories: Brain, Channel, Tool, and Infrastructure.
+## Why OpenVole?
 
-## Core Concepts
+| | |
+|---|---|
+| 🏠 **Self-hosted & private** | Your agents, your hardware, your data. Nothing phones home — point it at a local Ollama model and it never touches the cloud. |
+| 🔌 **Model-agnostic** | One unified brain paw speaks Anthropic, OpenAI, Gemini, xAI, and Ollama. Switch providers per agent with a single env var. |
+| 🖥️ **A server, not a script** | `vole serve` is a control plane: create, start, stop, and chat with a fleet of agents — "spaces" — from one browser dashboard. No babysitting processes on ports. |
+| 🧩 **Microkernel, zero lock-in** | A tiny, LLM-ignorant core. Every capability is a Paw you can swap, sandbox, or write yourself — and you can bring your own system prompt via `BRAIN.md`. |
+| 🕸️ **VoleNet** | A peer-to-peer AI agent network: remote tools become local, cheap workers share one brain, memory syncs across the mesh — Ed25519-signed, with leader election and no central server. |
+| 🪟 **An app platform** | A Paw can ship its own UI, rendered as a panel under the dashboard's **Apps** tab — the way apps live on a desktop. The control plane becomes a self-hosted app you extend, one panel per paw. |
 
-### The Agent Loop
+## Apps — paws that bring their own UI
 
-The only thing OpenVole does natively:
+A Paw can ship its own interface: it drops a static HTML file in its package, declares it in the
+manifest, and the control plane renders it as a sandboxed panel under the **Apps** tab — one entry
+per paw that has a UI.
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/openvole/openvole/main/assets/apps.png" alt="The Apps tab — an embedded paw panel" width="820">
+</p>
+
+It's the app-platform model — self-contained apps embedded inside a host shell, the way apps live on
+a desktop or extensions add panels to an editor: the panel calls its paw's own tools directly (proxied over IPC — **no LLM in
+the loop, no tokens, no extra port**), so a paw author gets a real interactive app — dashboards,
+forms, live data views — running deterministically inside the dashboard. The reference example,
+`paw-markets`, embeds a live watchlist with sparklines and alerts.
+
+The further this goes, the less OpenVole is "an agent runner" and the more it's a **dashboard you
+extend into a full app** — every capability, agentic or not, a panel you can attach.
+
+## Core concepts
+
+**The agent loop** — the only thing the core does natively:
 
 ```
 Bootstrap → Perceive → Compact → Think → Act → Observe → loop
 ```
 
-| Phase | What happens |
-|-------|-------------|
-| **Bootstrap** | Load memory, session, VoleNet context (once per task) |
-| **Perceive** | Paws inject dynamic context (time, calendar, unread messages) |
-| **Compact** | Compress old messages when threshold hit (frees context space) |
-| **Think** | Context budget trim → Brain Paw calls LLM → returns plan |
-| **Act** | Execute tool calls (local or remote via VoleNet). Rate limits enforced. |
-| **Observe** | Record results, update memory, sync to VoleNet peers |
+**Paws** — subprocess-isolated plugins that connect OpenVole to the world (APIs, databases,
+browsers, messaging). Each runs behind a capability-based permission sandbox.
 
-### Paws
+**Skills** — behavioral recipes: a folder with a `SKILL.md` and no code. Compatible with
+[ClawHub](https://clawhub.ai) (13,000+ skills).
 
-**Paws are tool providers.** They connect OpenVole to the outside world — APIs, databases, browsers, messaging platforms. Each Paw runs in an isolated subprocess with capability-based permissions.
+**Brain** — the LLM lives in a Paw, not the core. `@openvole/paw-brain` is one unified paw for
+all providers and auto-detects from your API keys.
+
+Deep dive → [Architecture](https://openvole.github.io/openvole/architecture).
+
+## Official Paws
+
+A growing catalog, all installed from [PawHub](https://github.com/openvole/pawhub) via npm and
+sandboxed by default:
+
+- **Brain** · unified multi-provider (`paw-brain`)
+- **Channels** · Telegram, Slack, Discord, WhatsApp, MS Teams, Voice (Twilio)
+- **Tools** · Browser, Shell, Filesystem, MCP bridge, Email/Resend, GitHub, Calendar, TTS/STT, Computer use, Database, Scraper, PDF, Image, Social (X/LinkedIn)
+- **Infrastructure** · Memory (hybrid semantic + keyword), Session, Compact
 
 ```bash
 npx vole paw add @openvole/paw-telegram
 ```
 
-### Skills
+Full list & docs → [Paws](https://openvole.github.io/openvole/paws).
 
-**Skills are behavioral recipes.** A skill is a folder with a `SKILL.md` file — no code, no build step. Compatible with [ClawHub](https://clawhub.ai) (13,000+ skills).
+## VoleNet — distributed agents
 
-```bash
-npx vole clawhub install summarize
-```
-
-```markdown
----
-name: summarize
-description: "Summarize text, articles, or documents"
----
-When asked to summarize content:
-1. Identify the key points
-2. Condense into 3-5 bullet points
-...
-```
-
-### Brain Paw
-
-The Brain is a Paw — the core is LLM-ignorant. Use `@openvole/paw-brain` — a single unified brain paw that supports all providers:
-
-- **Anthropic Claude** — `BRAIN_PROVIDER=anthropic`
-- **OpenAI** — `BRAIN_PROVIDER=openai`
-- **Google Gemini** — `BRAIN_PROVIDER=gemini`
-- **xAI Grok** — `BRAIN_PROVIDER=xai`
-- **Ollama (local)** — `BRAIN_PROVIDER=ollama`
-
-Auto-detects provider from available API keys if `BRAIN_PROVIDER` is not set. Provider-specific env vars (e.g. `GEMINI_API_KEY`) take precedence over generic `BRAIN_API_KEY`.
-
-> Legacy single-provider paws (`paw-ollama`, `paw-claude`, `paw-openai`, `paw-gemini`, `paw-xai`) are deprecated but still available.
-
-## Features
-
-### Built-in Core Tools
-
-| Tool | Purpose |
-|------|---------|
-| `discover_tools` | Search available tools by intent (BM25 ranking) |
-| `schedule_task` | Brain creates recurring tasks at runtime |
-| `cancel_schedule` / `list_schedules` | Manage schedules (persistent across restarts) |
-| `skill_read` | Load skill instructions on demand |
-| `heartbeat_read` / `heartbeat_write` | Manage recurring jobs |
-| `workspace_write` / `workspace_read` | Read/write agent scratch space |
-| `vault_store` / `vault_get` / `vault_list` | Encrypted key-value store |
-| `web_fetch` | Lightweight URL fetching (GET/POST with headers, body) |
-| `spawn_agent` | Spawn sub-agent with named profile and tool restrictions |
-| `spawn_remote_agent` | Delegate task to a remote VoleNet peer |
-| `list_instances` / `get_remote_result` | Query VoleNet peers and remote task status |
-
-### Heartbeat
-
-Periodic wake-up — the Brain checks `HEARTBEAT.md` and decides what to do. No user input needed. Uses cron expressions:
-
-```json
-{ "heartbeat": { "enabled": true, "cron": "*/30 * * * *" } }
-```
-
-### Persistent Scheduling
-
-Brain-created schedules use cron expressions and are stored in `.openvole/schedules.json`, surviving restarts. The heartbeat is recreated from config on each startup (intervalMinutes is auto-converted to cron).
-
-```
-"0 13 * * *"     — daily at 1 PM UTC
-"*/30 * * * *"   — every 30 minutes
-"0 9 * * 1"      — every Monday at 9 AM
-```
-
-### Memory (Source-Isolated)
-
-Persistent memory with daily logs scoped by task source:
-
-```
-.openvole/paws/paw-memory/
-├── MEMORY.md       # Shared long-term facts
-├── user/           # CLI session logs
-├── paw/            # Telegram/Slack logs
-└── heartbeat/      # Heartbeat logs
-```
-
-### Sessions
-
-Conversation continuity across messages. Auto-expiring transcripts per session ID. Session data lives in `.openvole/paws/paw-session/`, organized by session ID (e.g., `cli:default/`, `telegram:123/`).
-
-### MCP Support
-
-Bridge 1000+ community MCP servers into the tool registry via `paw-mcp`. MCP tools appear alongside Paw tools — the Brain doesn't know the difference.
-
-- MCP tools are **auto-discovered at runtime** as MCP servers connect
-- **Late tool registration** — tools appear after the engine starts, not at boot
-- MCP config lives in `.openvole/paws/paw-mcp/servers.json` (not in the installed package)
-
-Example `.openvole/paws/paw-mcp/servers.json`:
-
-```json
-{
-  "servers": [
-    {
-      "name": "resend",
-      "command": "npx",
-      "args": ["-y", "resend-mcp"],
-      "env": { "RESEND_API_KEY": "$RESEND_API_KEY" }
-    }
-  ]
-}
-```
-
-### Late Tool Registration
-
-Any Paw can discover and register tools at runtime using the `register_tools` mechanism — not just MCP. Tools registered this way appear in the tool registry like any other tool. This is a generic capability of the engine, not an MCP-specific feature.
-
-### Local Paw Config
-
-Each Paw has its own local config directory at `.openvole/paws/<name>/`. The installed npm package stays immutable — all user configuration lives in the local paw directory.
-
-```
-.openvole/paws/
-├── paw-memory/     ← memory data (MEMORY.md, daily logs)
-├── paw-session/    ← session transcripts
-└── paw-mcp/        ← MCP config (servers.json)
-```
-
-Example: `paw-mcp` reads its `servers.json` from `.openvole/paws/paw-mcp/`, not from `node_modules/`.
-
-### Cost Tracking
-
-Per-task LLM cost estimation with provider pricing tables. Tracks input/output tokens and estimates USD cost per call. Supports auto-detection of local Ollama (free) vs cloud models.
-
-Configure in `loop`:
-- `costTracking`: `"auto"` (default) | `"enabled"` | `"disabled"`
-- `costAlertThreshold`: warn when a task exceeds $X (e.g. `0.50`)
-
-### Task Priority & Dependencies
-
-Tasks support priority levels (`urgent`, `normal`, `low`) and dependencies (`dependsOn: [taskId]`). Urgent tasks jump the queue. Dependent tasks wait until all prerequisites complete.
-
-### Multi-Agent
-
-Spawn specialized sub-agents with named profiles, tool restrictions, and context passing:
-
-```json
-{
-  "agents": {
-    "researcher": {
-      "role": "Research Agent",
-      "allowTools": ["web_fetch", "memory_search", "workspace_write"],
-      "maxIterations": 15
-    }
-  }
-}
-```
-
-Sub-agents support 2-level depth, `wait_for_agents` for parallel coordination, and `agent:completed` events for async notification.
-
-### Semantic Memory Search
-
-When an embedding provider is available (Ollama, OpenAI, or Gemini), `memory_search` uses hybrid retrieval — combining BM25 keyword matching with vector semantic similarity via Reciprocal Rank Fusion. Falls back to keyword-only when no embeddings are configured. Vector index is disposable — markdown files remain the source of truth.
-
-### Docker Sandbox
-
-Optional container-level isolation for paw subprocesses (stronger than default Node.js --permission):
-
-```json
-{
-  "security": {
-    "docker": {
-      "enabled": true,
-      "image": "node:20-slim",
-      "memory": "512m",
-      "network": "none"
-    }
-  }
-}
-```
-
-### VoleNet — Distributed Agent Networking
-
-Connect multiple OpenVole instances across machines. Remote tools, shared memory, brain sharing — all authenticated with Ed25519 signatures.
-
-```json
-{
-  "net": {
-    "enabled": true,
-    "instanceName": "coordinator",
-    "role": "coordinator",
-    "port": 9700,
-    "peers": [
-      { "url": "http://worker:9701", "trust": "full" }
-    ],
-    "share": { "tools": true, "memory": true }
-  }
-}
-```
-
-Key capabilities:
-- **Remote tool execution** — tools on remote peers appear in the local registry, transparent to the Brain
-- **Peer-specific targeting** — `us-monitor/shell_exec` vs `eu-monitor/shell_exec` when multiple peers share a tool
-- **Brain sharing** — brainless workers delegate thinking to a coordinator (`brainSource: "remote"`)
-- **Memory sync** — write propagation and cross-peer search
-- **Session sync** — shared conversations across devices
-- **Leader election** — automatic failover, heartbeat coordination
-- **Load balancing** — tasks route to the least-loaded peer
-- **8 architecture patterns** — from single-brain + workers to autonomous swarms
+Connect OpenVole instances across machines into a mesh. Remote tools appear in your local
+registry (the Brain can't tell the difference), brainless workers delegate thinking to a
+coordinator, and memory/sessions sync — all Ed25519-authenticated, with leader election and
+load balancing. Eight topologies, one protocol, no central server.
 
 ```bash
-vole net init my-instance        # Generate Ed25519 identity
-vole net show-key                # Share public key
-vole net trust "vole-ed25519 ..." # Trust a peer
-vole net status                  # Show network status
+vole net init my-instance        # generate an Ed25519 identity
+vole net show-key                # share your public key
+vole net trust "vole-ed25519 ..." # trust a peer
 ```
 
-See [VoleNet documentation](https://openvole.github.io/openvole/volenet) for architecture patterns and setup guide.
-
-### VoleHub
-
-OpenVole's own skill registry. Search, install, and publish skills via CLI:
-
-```bash
-vole skill search summarize          # Search VoleHub
-vole skill install summarize         # Install with SHA-256 verification
-vole skill publish ./my-skill        # Prepare for publishing
-```
-
-### Rate Limiting
-
-Prevent runaway costs with configurable limits on LLM calls, tool executions, and task enqueue rates.
-
-### Tool Profiles
-
-Per-source tool filtering — restrict what Telegram users can trigger:
-
-```json
-{ "toolProfiles": { "paw": { "deny": ["shell_exec", "fs_write"] } } }
-```
-
-### Identity Files
-
-Customize agent behavior with optional markdown files in `.openvole/`:
-
-| File | Purpose |
-|------|---------|
-| `BRAIN.md` | Custom system prompt — **overrides the default system prompt entirely** |
-| `SOUL.md` | Agent personality and tone |
-| `USER.md` | User profile and preferences |
-| `AGENT.md` | Operating rules and constraints |
-
-The Brain Paw loads these on startup and core builds the system prompt from them.
-
-### Workspace
-
-Agent scratch space at `.openvole/workspace/` — for files, drafts, API docs, downloaded content. Path traversal protected. Tools: `workspace_write`, `workspace_read`, `workspace_list`, `workspace_delete`.
-
-### Vault
-
-Encrypted key-value store at `.openvole/vault.json`:
-
-- **AES-256-GCM encryption** when `VOLE_VAULT_KEY` is set
-- **Write-once semantics** — prevents hallucination overwrites
-- **Metadata support** — attach service, handle, URL context to entries
-- `vault_list` never exposes values
-
-### Web Fetch
-
-Lightweight URL fetching via the `web_fetch` core tool — GET/POST with custom headers and body. No browser Paw needed for simple HTTP requests.
-
-### Context Management
-
-Core manages the full context pipeline via `ContextBudgetManager`:
-
-- **Token-aware budget** — estimates tokens (4 chars/token text, 2 chars/token JSON), calculates budget breakdown per iteration
-- **Priority-based trimming** — old tool results, old errors, old messages trimmed in order; never trims first user message or last 2 brain responses
-- **Compaction trigger** — at 75% token usage, runs `paw-compact` to summarize old messages
-- **System prompt** — built by core from BRAIN.md + identity files + skills + tools + memory (static-first ordering for provider prompt caching)
-- **Image handling** — extracts base64 images from tool results and passes to Brain as provider-native image blocks
-- **Stuck loop detection** — 3-tier escalation (warn at 5, dampen at 10, circuit breaker at 15 identical tool calls)
-
-Configure via `loop.maxContextTokens` (default: 128000) and `loop.responseReserve` (default: 4000).
-
-### Dashboard
-
-`vole serve` starts the built-in **control-plane dashboard** — one web server that manages all your agents ("spaces") from the browser: create / start / stop / switch / delete spaces, edit config & identity, chat, watch live events, and use embedded paw panels (the **Apps** tab). No extra paw, no extra port.
-
-```bash
-npx vole serve
-```
-
-<p align="center">
-  <img src="https://raw.githubusercontent.com/openvole/openvole/main/assets/example/paw-dashboard/paw-dashboard.png" alt="OpenVole Dashboard" width="800">
-</p>
-
-## Official Paws (28)
-
-All paws live in [PawHub](https://github.com/openvole/pawhub) and are installed via npm.
-
-### Brain (1 + 5 legacy)
-
-| Paw | Purpose |
-|-----|---------|
-| `paw-brain` | **Unified multi-provider brain** (Anthropic, OpenAI, Gemini, xAI, Ollama) |
-| `paw-ollama` | *(deprecated)* Local LLM via Ollama |
-| `paw-claude` | *(deprecated)* Anthropic Claude models |
-| `paw-openai` | *(deprecated)* OpenAI models |
-| `paw-gemini` | *(deprecated)* Google Gemini models |
-| `paw-xai` | *(deprecated)* xAI Grok models |
-
-### Channel
-
-| Paw | Purpose |
-|-----|---------|
-| `paw-telegram` | Telegram bot channel |
-| `paw-slack` | Slack bot channel |
-| `paw-discord` | Discord bot channel |
-| `paw-whatsapp` | WhatsApp bot channel |
-| `paw-msteams` | Microsoft Teams channel |
-| `paw-voice-call` | Voice calls via Twilio (inbound + outbound) |
-
-### Tool
-
-| Paw | Purpose |
-|-----|---------|
-| `paw-browser` | Browser automation (Puppeteer) |
-| `paw-shell` | Shell command execution |
-| `paw-filesystem` | File system operations |
-| `paw-mcp` | MCP server bridge |
-| `paw-email` | Email sending (SMTP/IMAP) |
-| `paw-resend` | Email via Resend API |
-| `paw-github` | GitHub integration |
-| `paw-calendar` | Google Calendar integration |
-| `paw-tts` | Text-to-speech (ElevenLabs, OpenAI) |
-| `paw-stt` | Speech-to-text (OpenAI Whisper) |
-| `paw-computer` | Desktop automation (mouse, keyboard, screen) |
-| `paw-database` | PostgreSQL, MySQL, SQLite queries |
-| `paw-scraper` | Structured web data extraction |
-| `paw-pdf` | Read, merge, split PDFs |
-| `paw-image` | Resize, crop, watermark, compress images |
-| `paw-social` | Twitter/X and LinkedIn posting |
-
-### Infrastructure
-
-| Paw | Purpose |
-|-----|---------|
-| `paw-memory` | Persistent memory with source isolation + hybrid semantic/keyword search |
-| `paw-session` | Session/conversation management |
-| `paw-compact` | Context compaction — heuristic (default) + optional LLM summarization |
-| `paw-dashboard` | Real-time web dashboard *(deprecated — use `vole serve`)* |
-
-Install from npm:
-
-```bash
-npx vole paw add @openvole/paw-telegram
-npx vole paw add @openvole/paw-browser
-```
-
-## CLI
-
-```bash
-npx vole serve                             # Control-plane dashboard for all your agents (spaces)
-npx vole space create <name>               # Create a new space (agent)
-
-npx vole paw add @openvole/paw-telegram    # Install a Paw
-npx vole paw list                          # List loaded Paws
-
-npx vole skill create email-triage         # Create a local skill
-npx vole skill search summarize            # Search VoleHub
-npx vole skill install summarize           # Install from VoleHub
-npx vole clawhub install summarize         # Install from ClawHub
-npx vole clawhub search email              # Search ClawHub
-
-npx vole tool list                         # List all tools
-npx vole tool call list_schedules          # Call a tool directly (no Brain)
-```
+Architecture patterns & setup → [VoleNet docs](https://openvole.github.io/openvole/volenet).
 
 ## Security
 
-### Filesystem Sandbox
+Sandboxed by default. Every Paw runs as a subprocess under Node's permission model — network,
+filesystem, and child-process access are denied unless you grant them, and effective permissions
+are the *intersection* of what a Paw requests and what you approve. Optional Docker isolation, and
+an AES-256 encrypted vault for secrets.
 
-**Enabled by default.** Every subprocess Paw runs with Node.js permission model restrictions:
-
-- **Read access**: Paw's own package directory, project root, `.openvole/`, `node_modules/`, OS temp directory, parent directories (for module resolution)
-- **Write access**: `.openvole/paws/<paw-name>/` (paw's own data directory), OS temp directory
-- **Network**: Blocked by default — allowed when paw has `network` or `listen` permissions granted
-- **Child processes**: Blocked by default — allowed only when user grants `childProcess: true` in config
-- **Additional paths**: Grant via `allow.filesystem` in paw config or `security.allowedPaths` globally
-- **Opt-out**: Set `security.sandboxFilesystem: false` to disable (not recommended)
-
-```json
-{
-  "security": {
-    "sandboxFilesystem": true,
-    "allowedPaths": ["/home/user/projects"]
-  },
-  "paws": [
-    {
-      "name": "@openvole/paw-shell",
-      "allow": {
-        "filesystem": ["./"],
-        "env": ["VOLE_SHELL_ALLOWED_DIRS"],
-        "childProcess": true
-      }
-    }
-  ]
-}
-```
-
-Paws that need child process access (paw-shell, paw-browser, paw-mcp) must have it explicitly granted — this prevents arbitrary code execution from untrusted paws.
-
-**Important:** Non-Node child processes (shell commands, Chrome, etc.) are not restricted by the filesystem sandbox — Node's permission model only applies to Node processes. Granting `childProcess: true` effectively gives the paw unrestricted filesystem access through spawned commands. Only grant this to paws you trust.
-
-### For Paw Developers
-
-If your Paw spawns external processes — `child_process.exec()`, `spawn()`, launching binaries (e.g. Puppeteer spawning Chrome), or starting server processes (e.g. MCP servers) — users will need to grant `childProcess: true` in their config for your Paw. Document this in your Paw's README so users know to add it. Paws that only make HTTP requests, read/write files, or communicate over IPC do not need it.
-
-### Capability-Based Permissions
-
-Every Paw declares what it needs in its manifest. The user grants permissions in config. Effective permissions are the **intersection** — a Paw can only access what it requested AND what the user approved.
-
-| Layer | What it controls |
-|-------|-----------------|
-| `network` | Outbound network domains |
-| `listen` | Port binding |
-| `filesystem` | File/directory access paths |
-| `env` | Environment variables passed to subprocess |
-| `childProcess` | Ability to spawn child processes |
-
-### Additional Safeguards
-
-| Concern | Approach |
-|---------|----------|
-| Paw isolation | Subprocess sandbox with Node.js `--permission` flags |
-| Credentials | Each Paw owns its secrets — core never sees them |
-| Runaway agent | `maxIterations` + rate limiting + `confirmBeforeAct` |
-| Channel safety | Tool profiles restrict which tools each task source can use |
-| Vault | AES-256-GCM encryption, write-once semantics |
-
-## Configuration
-
-Single `vole.config.json` — plain JSON, no imports:
-
-```json
-{
-  "brain": "@openvole/paw-brain",
-  "paws": ["@openvole/paw-brain", "@openvole/paw-memory"],
-  "skills": ["clawhub/summarize"],
-  "loop": { "maxIterations": 25, "maxContextTokens": 128000 },
-  "heartbeat": { "enabled": false, "cron": "*/30 * * * *" },
-  "toolProfiles": { "paw": { "deny": ["shell_exec"] } }
-}
-```
-
-## OpenClaw Compatibility
-
-OpenVole loads [OpenClaw](https://openclaw.ai) skills natively — same `SKILL.md` format, same `metadata.openclaw.requires` fields. Install directly from [ClawHub](https://clawhub.ai):
-
-```bash
-npx vole clawhub install summarize
-```
-
-## .openvole Directory Structure
-
-```
-.openvole/
-├── paws/
-│   ├── paw-memory/          ← memory data
-│   │   ├── MEMORY.md
-│   │   └── user/, paw/, heartbeat/
-│   ├── paw-session/         ← session transcripts
-│   │   └── cli:default/, telegram:123/
-│   ├── paw-brain/            ← brain paw data
-│   │   └── BRAIN.md          ← system prompt (scaffolded on first run)
-│   └── paw-mcp/             ← MCP config
-│       └── servers.json
-├── workspace/               ← agent scratch space
-├── skills/                  ← local and clawhub skills
-├── vault.json               ← encrypted key-value store
-├── schedules.json           ← persistent cron schedules
-├── SOUL.md                  ← agent personality
-├── USER.md                  ← user profile
-├── AGENT.md                 ← operating rules
-└── HEARTBEAT.md             ← recurring job definitions
-```
+Details → [Security](https://openvole.github.io/openvole/security).
 
 ## OpenVole vs OpenClaw
 
-Both are open-source AI agent frameworks. Different philosophies, many shared concepts.
+Both are open-source agent frameworks with a shared skill format (`SKILL.md`), heartbeat pattern,
+and MCP ecosystem — skills written for one work on the other. The difference is philosophy:
 
 | | OpenVole | OpenClaw |
 |---|---|---|
-| **Philosophy** | Microkernel — empty core, everything is a plugin | Batteries-included — 25 built-in tools |
-| **Core size** | ~60KB | ~8MB |
-| **Skills** | SKILL.md (same format, compatible) | SKILL.md |
-| **Skill marketplace** | ClawHub-compatible (`vole clawhub install`) | ClawHub (13K+ skills) |
-| **Skill loading** | Progressive on-demand | Progressive on-demand |
-| **Brain/LLM** | External Paw — core is LLM-ignorant | Configurable provider in core |
-| **Brain options** | Unified paw-brain (Ollama, Claude, OpenAI, Gemini, xAI) | Multi-provider with fallback chains |
-| **Heartbeat** | HEARTBEAT.md + cron | HEARTBEAT.md + cron |
-| **Memory** | Source-isolated (user/paw/heartbeat scoped) | Shared (no source isolation) |
-| **Identity files** | BRAIN.md, SOUL.md, USER.md, AGENT.md | SOUL.md, USER.md, AGENTS.md |
-| **MCP support** | Via Paw with auto-discovery + late registration | Native in core |
-| **Channels** | 6 (Telegram, Slack, Discord, WhatsApp, Teams, Voice Call) | 20+ (WhatsApp, iMessage, Signal, etc.) |
-| **Plugin isolation** | Node.js permission sandbox (default on) + capability permissions | Optional Docker sandbox |
-| **Tool profiles** | Per-source deny/allow lists | Channel sandboxing |
-| **Scheduling** | Cron-based, persistent, Brain-initiated | Cron + heartbeat |
-| **Sessions** | Per-session transcripts with auto-expiry | Built-in session keys |
-| **Vault** | AES-256 encrypted, write-once, metadata | N/A (env vars) |
-| **Dashboard** | Real-time web UI | Gateway web UI |
-| **CLI** | `vole` (start/run/tool call/clawhub/skill) | `openclaw` |
-| **Config** | Single JSON file | Single JSON file |
+| **Core** | Microkernel — empty, ~60KB, everything is a plugin | Batteries-included — 25 built-in tools, ~8MB |
+| **Brain / LLM** | External Paw; core is LLM-ignorant | Configurable provider in core |
+| **Memory** | Source-isolated (user / paw / heartbeat scoped) | Shared |
+| **Isolation** | Node permission sandbox on by default + capabilities | Optional Docker sandbox |
+| **Networking** | VoleNet P2P mesh across machines | Single machine |
+| **Server** | `vole serve` control plane for a fleet of agents | Gateway web UI |
 
-OpenVole is a newborn — a tiny vole just getting started. We share the same skill format, the same heartbeat pattern, and the same MCP ecosystem as OpenClaw. Skills written for one work on the other.
+If you like the microkernel approach — every piece a Paw you can swap, extend, or build yourself —
+come try it, build a Paw, write a Skill, and help this little vole grow.
 
-We're building something small, modular, and community-driven. If you like the microkernel approach — where every piece is a Paw you can swap, extend, or build yourself — come join us. Try it out, build a Paw, write a Skill, break things, and help this little vole grow.
+## Documentation
 
-## Context Management
-
-See [VOLECONTEXT.md](VOLECONTEXT.md) for how OpenVole builds, enriches, and compresses context — including the lifecycle hooks (bootstrap, perceive, compact, think, act, observe) and how paws inject data into the Brain's prompt.
+Full reference at **[openvole.github.io/openvole](https://openvole.github.io/openvole)**:
+[Getting Started](https://openvole.github.io/openvole/getting-started) ·
+[Configuration](https://openvole.github.io/openvole/configuration) ·
+[CLI](https://openvole.github.io/openvole/cli) ·
+[Dashboard](https://openvole.github.io/openvole/dashboard) ·
+[Paws](https://openvole.github.io/openvole/paws) ·
+[VoleNet](https://openvole.github.io/openvole/volenet)
 
 ## Contributing
 
-We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
-
-For contributing Paws, see the [PawHub CONTRIBUTING.md](https://github.com/openvole/pawhub/blob/main/CONTRIBUTING.md).
-
-## Philosophy
+Contributions welcome — see [CONTRIBUTING.md](CONTRIBUTING.md), and the
+[PawHub guide](https://github.com/openvole/pawhub/blob/main/CONTRIBUTING.md) for building Paws.
 
 > **If it connects to something, it's a Paw.**
 > **If it describes behavior, it's a Skill.**
 > **If the agent calls it, it's a Tool.**
-> **If it's none of these, it probably doesn't belong in OpenVole.**
 
 ## License
 
