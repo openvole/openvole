@@ -136,6 +136,8 @@ export class VoleNetManager {
 	private joinTimestamps = new Map<string, number[]>()
 	/** Per-peer human chat logs (in-memory; keyed by peer instanceId). */
 	private chatLog = new Map<string, ChatEntry[]>()
+	/** Periodically re-attempts configured peers — self-heals start-order races + drops. */
+	private peerConnectTimer?: ReturnType<typeof setInterval>
 
 	constructor(config: VoleNetConfig, projectRoot: string) {
 		this.config = config
@@ -638,6 +640,14 @@ export class VoleNetManager {
 				logger.info(`Connecting to peer: ${peer.url}`)
 				await this.discovery.connectToPeer(peer.url)
 			}
+			// Re-attempt configured peers periodically so the mesh self-heals from
+			// start-order races (a peer not up yet) and transient drops. connectToPeer
+			// pings first and is idempotent, so re-announcing to connected peers is cheap.
+			this.peerConnectTimer = setInterval(() => {
+				for (const peer of this.config.peers ?? []) {
+					this.discovery?.connectToPeer(peer.url).catch(() => {})
+				}
+			}, 15_000)
 		}
 
 		this.started = true
@@ -650,6 +660,8 @@ export class VoleNetManager {
 	async stop(): Promise<void> {
 		if (!this.started) return
 
+		if (this.peerConnectTimer) clearInterval(this.peerConnectTimer)
+		this.peerConnectTimer = undefined
 		this.leader?.stop()
 		this.sync?.dispose()
 		this.remoteTaskMgr?.dispose()

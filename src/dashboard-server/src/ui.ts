@@ -1878,7 +1878,16 @@ function resetVolenet() {
 }
 
 function initVolenetTab() {
-  renderVnPeerList();
+  if (currentSpaceId) {
+    sendCommand('volenet_instances').then(function(list) {
+      if (Array.isArray(list)) {
+        vnPeers = list.map(function(i) { return { id: i.id, name: i.name, role: i.role, lastSeen: i.lastSeen }; });
+      }
+      renderVnPeerList();
+    }).catch(function() { renderVnPeerList(); });
+  } else {
+    renderVnPeerList();
+  }
 }
 
 function renderVolenetTab(volenet) {

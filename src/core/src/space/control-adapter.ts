@@ -65,7 +65,27 @@ function gatherState(engine: VoleEngine): Record<string, unknown> {
 			}
 		}),
 		schedules: engine.scheduler.list(),
-		volenet: { enabled: false },
+		volenet: (() => {
+			const vn = (globalThis as any).__volenet__
+			if (!vn?.isActive?.()) return { enabled: false }
+			const leader = vn.getLeader?.()
+			return {
+				enabled: true,
+				instanceId: vn.getKeyPair?.()?.instanceId?.substring(0, 8) ?? 'unknown',
+				instanceName: vn.config?.instanceName ?? 'vole',
+				isLeader: vn.isLeader?.() ?? false,
+				leaderState: leader?.getState?.() ?? null,
+				// Full peer id (not truncated) — net_message chat keys per-peer sessions by it.
+				peers: (vn.getInstances?.() ?? []).map((i: any) => ({
+					id: i.id,
+					name: i.name,
+					role: i.role,
+					capabilities: i.capabilities?.length ?? 0,
+					lastSeen: i.lastSeen,
+				})),
+				remoteTools: vn.getRemoteTools?.()?.length ?? 0,
+			}
+		})(),
 	}
 }
 

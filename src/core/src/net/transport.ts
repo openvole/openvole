@@ -174,6 +174,10 @@ export class VoleNetTransport {
 		// Attach WebSocket server
 		this.wss = new WebSocketServer({ server: this.server })
 
+		this.wss.on('error', (err) => {
+			logger.warn(`VoleNet WebSocket server error: ${err.message}`)
+		})
+
 		this.wss.on('connection', (ws) => {
 			ws.on('message', (data) => {
 				const message = deserialize(data.toString())
@@ -209,18 +213,58 @@ export class VoleNetTransport {
 			})
 		})
 
-		await new Promise<void>((resolve, reject) => {
-			this.server!.listen(this.config.port, () => {
-				const scheme = this.config.tls ? 'wss' : 'ws'
-				logger.info(
-					`VoleNet server listening on ${scheme}://0.0.0.0:${this.config.port} (HTTP + WebSocket)`,
-				)
-				resolve()
-			})
-			this.server!.on('error', reject)
+		await this.listen()
+
+		// Bound successfully — downgrade the error handler so a transient runtime
+		// socket error is logged instead of crashing the process (unhandled 'error').
+		this.server!.on('error', (err) => {
+			logger.warn(`VoleNet server error: ${(err as Error).message}`)
 		})
 
 		this.started = true
+	}
+
+	/** Bind the listening port, retrying briefly on EADDRINUSE (covers restart races). */
+	private async listen(): Promise<void> {
+		const maxAttempts = 5
+		const retryDelayMs = 300
+		for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+			try {
+				await new Promise<void>((resolve, reject) => {
+					const server = this.server!
+					const onError = (err: Error) => {
+						server.removeListener('listening', onListening)
+						reject(err)
+					}
+					const onListening = () => {
+						server.removeListener('error', onError)
+						const scheme = this.config.tls ? 'wss' : 'ws'
+						logger.info(
+							`VoleNet server listening on ${scheme}://0.0.0.0:${this.config.port} (HTTP + WebSocket)`,
+						)
+						resolve()
+					}
+					server.once('error', onError)
+					server.once('listening', onListening)
+					server.listen(this.config.port)
+				})
+				return
+			} catch (err) {
+				const e = err as NodeJS.ErrnoException
+				if (e.code === 'EADDRINUSE' && attempt < maxAttempts) {
+					logger.warn(
+						`VoleNet port ${this.config.port} in use — retrying (${attempt}/${maxAttempts - 1}) in ${retryDelayMs}ms`,
+					)
+					await new Promise((r) => setTimeout(r, retryDelayMs))
+					continue
+				}
+				throw new Error(
+					e.code === 'EADDRINUSE'
+						? `VoleNet could not bind port ${this.config.port}: still in use after ${maxAttempts} attempts — another instance may be running on this port.`
+						: `VoleNet failed to start on port ${this.config.port}: ${e.message}`,
+				)
+			}
+		}
 	}
 
 	/**
@@ -228,6 +272,7 @@ export class VoleNetTransport {
 	 */
 	async stop(): Promise<void> {
 		if (!this.started) return
+		this.started = false
 
 		for (const [, peer] of this.peers) {
 			if (peer.ws) peer.ws.close()
@@ -235,19 +280,20 @@ export class VoleNetTransport {
 		}
 		this.peers.clear()
 
+		// Close WS clients, then force-drop any lingering keep-alive / upgraded sockets
+		// so the listening port is released promptly. Otherwise server.close() waits on
+		// open connections and a restart races the old listener (EADDRINUSE).
 		if (this.wss) {
-			this.wss.close()
+			await new Promise<void>((resolve) => this.wss!.close(() => resolve()))
 			this.wss = null
 		}
 
 		if (this.server) {
-			await new Promise<void>((resolve) => {
-				this.server!.close(() => resolve())
-			})
+			this.server.closeAllConnections?.()
+			await new Promise<void>((resolve) => this.server!.close(() => resolve()))
 			this.server = null
 		}
 
-		this.started = false
 		logger.info('VoleNet server stopped')
 	}
 
