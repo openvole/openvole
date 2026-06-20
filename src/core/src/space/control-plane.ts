@@ -75,6 +75,11 @@ export class ControlPlane {
 			chatHistory: (sessionId, id) => this.callSpace(id, 'chat_history', { sessionId }),
 			chatSessions: (id) => this.callSpace(id, 'chat_sessions'),
 			chatClear: (sessionId, id) => this.callSpace(id, 'chat_clear', { sessionId }),
+			volenetInstances: (id) => this.callSpace(id, 'volenet_instances'),
+			volenetChatHistory: (peerId, id) => this.callSpace(id, 'volenet_chat_history', { peerId }),
+			volenetChatSend: (peerId, text, id) =>
+				this.callSpace(id, 'volenet_chat_send', { peerId, text }),
+			volenetChatClear: (peerId, id) => this.callSpace(id, 'volenet_chat_clear', { peerId }),
 			getPanelHtml: (spaceId, paw) => this.callSpace(spaceId, 'panel_html', { paw }),
 			callPawTool: (spaceId, name, params) => this.callSpace(spaceId, 'tool', { name, params }),
 		})

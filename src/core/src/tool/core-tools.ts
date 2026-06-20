@@ -680,6 +680,45 @@ export function createCoreTools(
 			},
 		},
 		{
+			name: 'net_message',
+			description:
+				"Send a chat message to another VoleNet node and get its agent's reply. Conversational — the peer's agent sees it as a message from you. Use list_instances to find peers. (Uses the peer's brain, so the peer must allow brain access for you.)",
+			parameters: z.object({
+				to: z.string().describe('Target instance name or ID (see list_instances)'),
+				text: z.string().describe('The message to send'),
+				timeout_ms: z.number().optional().describe('Reply timeout in ms (default 120000)'),
+			}),
+			async execute(params) {
+				const { to, text, timeout_ms } = params as {
+					to: string
+					text: string
+					timeout_ms?: number
+				}
+				const voleNet = (globalThis as any).__volenet__
+				if (!voleNet?.isActive()) {
+					return { ok: false, error: 'VoleNet is not enabled' }
+				}
+				const remoteTaskMgr = voleNet.getRemoteTaskManager()
+				if (!remoteTaskMgr) {
+					return { ok: false, error: 'Remote task manager not initialized' }
+				}
+				const instances = voleNet.getInstances()
+				const target = instances.find((i: any) => i.name === to || i.id.startsWith(to))
+				if (!target) {
+					return { ok: false, error: `No peer found: "${to}". Use list_instances to see peers.` }
+				}
+				const result = await remoteTaskMgr.delegateTask(
+					target.id,
+					{ taskId: '', input: text, fromName: voleNet.getInstanceName() },
+					timeout_ms ?? 120_000,
+				)
+				if (result.status === 'completed') {
+					return { ok: true, from: target.name, reply: result.result }
+				}
+				return { ok: false, from: target.name, status: result.status, error: result.error }
+			},
+		},
+		{
 			name: 'get_remote_result',
 			description: 'Check the status of a remote VoleNet task.',
 			parameters: z.object({

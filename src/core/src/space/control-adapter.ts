@@ -21,6 +21,7 @@ const FORWARDED_EVENTS: Array<keyof BusEvents> = [
 	'task:cancelled',
 	'rate:limited',
 	'volenet:tool:executed',
+	'volenet:chat',
 ]
 
 /** Aggregate engine state for the dashboard (shape matches PawRegistry.handleQuery). */
@@ -174,6 +175,29 @@ export function installControlAdapter(engine: VoleEngine, projectRoot: string): 
 					result = tool
 						? await tool.execute({ sessionId: params.sessionId })
 						: { ok: false, error: 'paw-session is not loaded in this space' }
+					break
+				}
+				case 'volenet_instances': {
+					const vn = (globalThis as any).__volenet__
+					result = vn?.isActive() ? vn.getInstances() : []
+					break
+				}
+				case 'volenet_chat_history': {
+					const vn = (globalThis as any).__volenet__
+					const history = vn?.isActive() ? await vn.getChatHistory(params.peerId as string) : []
+					result = { ok: true, history }
+					break
+				}
+				case 'volenet_chat_send': {
+					const vn = (globalThis as any).__volenet__
+					if (!vn?.isActive()) throw new Error('VoleNet is not active in this space')
+					result = await vn.sendChat(params.peerId as string, params.text as string)
+					break
+				}
+				case 'volenet_chat_clear': {
+					const vn = (globalThis as any).__volenet__
+					if (vn?.isActive()) await vn.clearChat(params.peerId as string)
+					result = { ok: true }
 					break
 				}
 				case 'panel_html': {

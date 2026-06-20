@@ -111,6 +111,15 @@ export interface VoleNetConfig {
 	}
 }
 
+/** A single human-capable peer-chat message, stored per peer for the dashboard. */
+export interface ChatEntry {
+	dir: 'in' | 'out'
+	text: string
+	fromName: string
+	timestamp: number
+	messageId: string
+}
+
 export class VoleNetManager {
 	private keyPair: VoleKeyPair | null = null
 	private transport: VoleNetTransport | null = null
@@ -125,6 +134,8 @@ export class VoleNetManager {
 	private started = false
 	/** Per-IP join timestamps for public-join rate limiting. */
 	private joinTimestamps = new Map<string, number[]>()
+	/** Per-peer human chat logs (in-memory; keyed by peer instanceId). */
+	private chatLog = new Map<string, ChatEntry[]>()
 
 	constructor(config: VoleNetConfig, projectRoot: string) {
 		this.config = config
@@ -439,7 +450,7 @@ export class VoleNetManager {
 		// Handle incoming task:delegate — run task with our brain if allowed
 		this.transport.onMessage(async (message) => {
 			if (message.type === 'task:delegate' && this.keyPair) {
-				const request = message.payload as { taskId: string; input: string; maxIterations?: number }
+				const request = message.payload as { taskId: string; input: string; maxIterations?: number; fromName?: string }
 				if (!request?.input) return
 
 				// Check if this peer is allowed to use our brain
@@ -469,7 +480,14 @@ export class VoleNetManager {
 				// Enqueue the task locally — it will run through our brain
 				const taskQueue = (globalThis as any).__volenet_taskqueue__
 				if (taskQueue) {
-					const task = taskQueue.enqueue(request.input, 'agent', {
+					// Chat messages (net_message) carry fromName — frame as a peer message and
+					// run in a per-peer session for conversational continuity. Tasks stay one-shot.
+					const isChat = typeof request.fromName === 'string' && request.fromName.length > 0
+					const runInput = isChat
+						? `[Message from peer agent "${request.fromName}"] ${request.input}`
+						: request.input
+					const runSource = isChat ? `net:${message.from.substring(0, 8)}` : 'agent'
+					const task = taskQueue.enqueue(runInput, runSource, {
 						metadata: {
 							maxIterations: request.maxIterations ?? 10,
 							remotePeerId: message.from,
@@ -518,6 +536,34 @@ export class VoleNetManager {
 					await this.transport!.sendToPeer(message.from, noQueue)
 				}
 			}
+		})
+
+		// Handle incoming chat:message — human-capable peer chat. Unlike task:delegate,
+		// this does NOT run the brain: it verifies the sender, stores the message, and
+		// emits a bus event so the dashboard can surface it for a human (or brain) reply.
+		this.transport.onMessage((message) => {
+			if (message.type !== 'chat:message') return
+			if (!this.discovery?.verifyMessageFrom(message)) {
+				logger.warn(`Rejected unverified chat message from ${message.from.substring(0, 8)}`)
+				return
+			}
+			const payload = message.payload as { text?: string; fromName?: string }
+			if (!payload?.text) return
+			const fromName = payload.fromName || message.from.substring(0, 8)
+			void this.appendChat(message.from, {
+				dir: 'in',
+				text: payload.text,
+				fromName,
+				timestamp: message.timestamp,
+				messageId: message.id,
+			})
+			messageBus?.emit('volenet:chat', {
+				from: message.from,
+				fromName,
+				text: payload.text,
+				messageId: message.id,
+				timestamp: message.timestamp,
+			})
 		})
 
 		// Initialize remote task manager
@@ -626,6 +672,116 @@ export class VoleNetManager {
 	 */
 	getInstances(): VoleNetInstance[] {
 		return this.discovery?.getInstances() ?? []
+	}
+
+	/** Session ID for a peer's human-chat transcript (persisted via paw-session). */
+	private chatSessionId(peerId: string): string {
+		return `volenet:${peerId}`
+	}
+
+	/**
+	 * Append a chat entry for a peer. Persists via paw-session's session_append tool
+	 * when available; otherwise falls back to an in-memory log (capped at 200).
+	 */
+	private async appendChat(peerId: string, entry: ChatEntry): Promise<void> {
+		const tool = this.toolRegistry?.get('session_append')
+		if (tool) {
+			try {
+				await tool.execute({
+					sessionId: this.chatSessionId(peerId),
+					role: entry.dir,
+					content: entry.text,
+				})
+				return
+			} catch (err) {
+				logger.warn(
+					`session_append failed, using memory: ${err instanceof Error ? err.message : String(err)}`,
+				)
+			}
+		}
+		const log = this.chatLog.get(peerId) ?? []
+		log.push(entry)
+		if (log.length > 200) log.splice(0, log.length - 200)
+		this.chatLog.set(peerId, log)
+	}
+
+	/**
+	 * Get the human-chat history with a peer. Reads from paw-session when available,
+	 * otherwise the in-memory fallback.
+	 */
+	async getChatHistory(peerId: string): Promise<ChatEntry[]> {
+		const tool = this.toolRegistry?.get('session_history')
+		if (tool) {
+			try {
+				const res = (await tool.execute({
+					sessionId: this.chatSessionId(peerId),
+					maxMessages: 500,
+				})) as { ok?: boolean; history?: Array<{ ts?: string; role: string; content: string }> }
+				if (res?.history) {
+					const myName = this.getInstanceName()
+					const peerName =
+						this.getInstances().find((i) => i.id === peerId)?.name ?? peerId.substring(0, 8)
+					return res.history.map((m) => ({
+						dir: m.role === 'out' ? ('out' as const) : ('in' as const),
+						text: m.content,
+						fromName: m.role === 'out' ? myName : peerName,
+						timestamp: m.ts ? Date.parse(m.ts) || 0 : 0,
+						messageId: '',
+					}))
+				}
+			} catch (err) {
+				logger.warn(
+					`session_history failed, using memory: ${err instanceof Error ? err.message : String(err)}`,
+				)
+			}
+		}
+		return this.chatLog.get(peerId) ?? []
+	}
+
+	/** Clear the human-chat history with a peer (paw-session or in-memory). */
+	async clearChat(peerId: string): Promise<void> {
+		const tool = this.toolRegistry?.get('session_clear')
+		if (tool) {
+			try {
+				await tool.execute({ sessionId: this.chatSessionId(peerId) })
+				return
+			} catch {
+				// fall through to in-memory
+			}
+		}
+		this.chatLog.delete(peerId)
+	}
+
+	/**
+	 * Send a human chat message to a peer. Does NOT invoke any brain.
+	 * Resolves the peer by id or name, signs + sends a chat:message, and logs it locally.
+	 */
+	async sendChat(
+		peerId: string,
+		text: string,
+	): Promise<{ ok: boolean; delivered?: boolean; error?: string }> {
+		if (!this.keyPair || !this.transport) return { ok: false, error: 'VoleNet not started' }
+		const target = this.getInstances().find(
+			(i) => i.id === peerId || i.name === peerId || i.id.startsWith(peerId),
+		)
+		if (!target) return { ok: false, error: `No connected peer: "${peerId}"` }
+		const fromName = this.getInstanceName()
+		const msg = createMessage(
+			'chat:message',
+			this.keyPair.instanceId,
+			target.id,
+			{ text, fromName },
+			this.keyPair.privateKey,
+		)
+		const delivered = await this.transport.sendToPeer(target.id, msg)
+		await this.appendChat(target.id, {
+			dir: 'out',
+			text,
+			fromName,
+			timestamp: msg.timestamp,
+			messageId: msg.id,
+		})
+		return { ok: true, delivered }
 	}
 
 	/**
@@ -862,6 +1018,11 @@ export class VoleNetManager {
 	/**
 	 * Get the keypair (for CLI display).
 	 */
+	/** Our instance name (for message framing). */
+	getInstanceName(): string {
+		return this.config.instanceName ?? 'vole'
+	}
+
 	getKeyPair(): VoleKeyPair | null {
 		return this.keyPair
 	}

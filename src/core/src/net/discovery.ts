@@ -154,6 +154,16 @@ export class VoleNetDiscovery {
 	}
 
 	/**
+	 * Verify an inbound message is from an authorized peer (keystore + Ed25519 signature).
+	 * Used by non-discovery handlers (e.g. peer chat) that receive raw transport messages.
+	 */
+	verifyMessageFrom(message: VoleNetMessage): boolean {
+		const authPeer = this.authorizedPeers.get(message.from)
+		if (!authPeer) return false
+		return verifyMessage(message, authPeer.publicKey).valid
+	}
+
+	/**
 	 * Handle discovery announcement from a peer.
 	 */
 	private handleDiscover(message: VoleNetMessage): void {

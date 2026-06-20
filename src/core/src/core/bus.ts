@@ -26,6 +26,13 @@ export type BusEvents = {
 		durationMs: number
 		error?: string
 	}
+	'volenet:chat': {
+		from: string
+		fromName: string
+		text: string
+		messageId: string
+		timestamp: number
+	}
 	'rate:limited': { bucket: string; source?: string }
 	'engine:restart': Record<string, never>
 }

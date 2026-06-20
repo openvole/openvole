@@ -32,6 +32,7 @@ export type VoleNetMessageType =
 	| 'leader:heartbeat'
 	| 'leader:claim'
 	| 'leader:ack'
+	| 'chat:message'
 
 export interface VoleNetMessage {
 	version: number

@@ -18,6 +18,9 @@ export interface RemoteTaskRequest {
 	maxIterations?: number
 	agentProfile?: string
 	context?: string
+	/** Set by net_message — the sender's instance name. Marks this as a chat message
+	 *  (framed as a peer message + run in a per-peer session) rather than a one-shot task. */
+	fromName?: string
 }
 
 export interface RemoteTaskResult {

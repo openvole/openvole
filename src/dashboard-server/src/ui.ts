@@ -751,6 +751,20 @@ export function getDashboardHtml(wsPort: number): string {
   .chat-md .md-hr { border: none; border-top: 1px solid var(--border); margin: 8px 0; }
   .chat-md .md-gap { height: 6px; }
   .chat-md a { color: var(--accent); }
+  /* ── VoleNet tab ── */
+  .vn-page { display: flex; height: calc(100vh - 210px); min-height: 320px; max-width: 1100px; margin: 0 auto; width: 100%; }
+  .vn-peers { flex: 0 0 240px; border-right: 1px solid var(--border); overflow-y: auto; padding: 12px 8px; display: flex; flex-direction: column; gap: 2px; }
+  .vn-peers-head { font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-dim); padding: 4px 10px 8px; }
+  .vn-peer { text-align: left; padding: 8px 10px; border-radius: 6px; background: transparent; border: 1px solid transparent; color: var(--text); font-size: 13px; cursor: pointer; display: flex; align-items: center; gap: 8px; }
+  .vn-peer:hover { background: var(--surface-hover); }
+  .vn-peer.active { background: var(--surface); border-color: var(--border); font-weight: 600; }
+  .vn-dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; background: var(--text-dim); }
+  .vn-dot.online { background: var(--green); }
+  .vn-peer-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .vn-badge { background: var(--accent); color: #fff; font-size: 10px; border-radius: 9px; padding: 1px 6px; min-width: 16px; text-align: center; }
+  .vn-chat { flex: 1; min-width: 0; display: flex; flex-direction: column; padding: 12px 16px; }
+  .vn-chat-head { font-size: 13px; font-weight: 600; color: var(--text); padding-bottom: 8px; border-bottom: 1px solid var(--border); margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
+  .vn-empty { color: var(--text-dim); text-align: center; margin-top: 60px; font-size: 13px; }
 
   /* ── Spaces launcher + view switching ── */
   body[data-view="spaces"] .tab-bar,
@@ -848,6 +862,7 @@ export function getDashboardHtml(wsPort: number): string {
   <button class="tab-btn" data-tab="apps" id="tab-btn-apps" onclick="switchTab('apps')" style="display:none">Apps</button>
   <button class="tab-btn" data-tab="config" onclick="switchTab('config')">Config</button>
   <button class="tab-btn" data-tab="identity" onclick="switchTab('identity')">Identity</button>
+  <button class="tab-btn" data-tab="volenet" onclick="switchTab('volenet')">VoleNet</button>
 </div>
 
 <div class="main">
@@ -932,6 +947,23 @@ export function getDashboardHtml(wsPort: number): string {
       <div class="chat-composer">
         <input type="text" class="form-input" id="chat-input" placeholder="Message the brain&hellip;" onkeydown="if(event.key==='Enter'){sendChat();}">
         <button class="btn-primary" id="chat-send" onclick="sendChat()">Send</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="tab-volenet" class="tab-content" style="display:none">
+    <div class="vn-page">
+      <div class="vn-peers">
+        <div class="vn-peers-head">Connected nodes</div>
+        <div id="vn-peer-list"></div>
+      </div>
+      <div class="vn-chat">
+        <div class="vn-chat-head" id="vn-chat-head">Select a node to chat</div>
+        <div class="chat-messages" id="vn-messages"><div class="vn-empty">Pick a node on the left to start chatting.</div></div>
+        <div class="chat-composer" id="vn-composer" style="display:none">
+          <input type="text" class="form-input" id="vn-input" placeholder="Message this node&hellip;" onkeydown="if(event.key==='Enter'){sendVolenetChat();}">
+          <button class="btn-primary" id="vn-send" onclick="sendVolenetChat()">Send</button>
+        </div>
       </div>
     </div>
   </div>
@@ -1592,6 +1624,7 @@ function selectSpace(id) {
   var changed = currentSpaceId !== id;
   currentSpaceId = id;
   if (changed) resetChat();
+  if (changed) resetVolenet();
   updateSpaceHeader();
   sendCommand('select_space', { spaceId: id })
     .then(function(state) { renderState(state || {}); })
@@ -1645,6 +1678,7 @@ function loadChatSessions() {
       for (var i = 0; i < res.sessions.length; i++) {
         var s = res.sessions[i];
         if (seen[s.sessionId]) continue;
+        if (s.sessionId.indexOf('volenet:') === 0) continue;
         seen[s.sessionId] = true;
         var label = s.sessionId + (s.source ? ' (' + s.source + ')' : '') + ' — ' + (s.messageCount || 0) + ' msgs';
         opts.push('<option value="' + esc(s.sessionId) + '">' + esc(label) + '</option>');
@@ -1825,6 +1859,116 @@ function chatOnTaskEvent(event, data, spaceId) {
   box.scrollTop = box.scrollHeight;
 }
 
+/* ── VoleNet tab (human-capable peer chat) ── */
+var vnPeers = [];
+var vnSelectedPeer = null;
+var vnUnread = {};
+
+function resetVolenet() {
+  vnPeers = [];
+  vnSelectedPeer = null;
+  vnUnread = {};
+  var box = document.getElementById('vn-messages');
+  if (box) box.innerHTML = '<div class="vn-empty">Pick a node on the left to start chatting.</div>';
+  var head = document.getElementById('vn-chat-head');
+  if (head) head.textContent = 'Select a node to chat';
+  var comp = document.getElementById('vn-composer');
+  if (comp) comp.style.display = 'none';
+  renderVnPeerList();
+}
+
+function initVolenetTab() {
+  renderVnPeerList();
+}
+
+function renderVolenetTab(volenet) {
+  vnPeers = (volenet && volenet.enabled && volenet.peers) ? volenet.peers : [];
+  renderVnPeerList();
+}
+
+function renderVnPeerList() {
+  var list = document.getElementById('vn-peer-list');
+  if (!list) return;
+  if (!vnPeers.length) {
+    list.innerHTML = '<div class="vn-empty" style="margin-top:20px;font-size:12px">No connected nodes.</div>';
+    return;
+  }
+  list.innerHTML = vnPeers.map(function(p) {
+    var online = p.lastSeen && (Date.now() - p.lastSeen) < 60000;
+    var unread = vnUnread[p.id] || 0;
+    var active = p.id === vnSelectedPeer ? ' active' : '';
+    return '<button class="vn-peer' + active + '" onclick="selectVnPeer(\\'' + esc(p.id) + '\\')">'
+      + '<span class="vn-dot' + (online ? ' online' : '') + '"></span>'
+      + '<span class="vn-peer-name">' + esc(p.name || p.id) + '</span>'
+      + (unread ? '<span class="vn-badge">' + unread + '</span>' : '')
+      + '</button>';
+  }).join('');
+}
+
+function selectVnPeer(peerId) {
+  vnSelectedPeer = peerId;
+  vnUnread[peerId] = 0;
+  var peer = vnPeers.filter(function(p) { return p.id === peerId; })[0];
+  document.getElementById('vn-chat-head').textContent = peer ? (peer.name || peerId) : peerId;
+  document.getElementById('vn-composer').style.display = '';
+  renderVnPeerList();
+  var box = document.getElementById('vn-messages');
+  box.innerHTML = '<div class="vn-empty">Loading&hellip;</div>';
+  sendCommand('volenet_chat_history', { peerId: peerId }).then(function(res) {
+    box.innerHTML = '';
+    var h = (res && res.history) ? res.history : [];
+    if (!h.length) { box.innerHTML = '<div class="vn-empty">No messages yet — say hi.</div>'; return; }
+    for (var i = 0; i < h.length; i++) addVnBubble(h[i].dir, h[i].text, h[i].fromName);
+    box.scrollTop = box.scrollHeight;
+  }).catch(function() {
+    box.innerHTML = '<div class="vn-empty">Could not load history.</div>';
+  });
+}
+
+function addVnBubble(dir, text) {
+  var box = document.getElementById('vn-messages');
+  var empty = box.querySelector('.vn-empty');
+  if (empty) empty.remove();
+  var el = document.createElement('div');
+  el.className = 'chat-msg chat-msg-' + (dir === 'out' ? 'user' : 'brain');
+  el.textContent = text;
+  box.appendChild(el);
+  box.scrollTop = box.scrollHeight;
+  return el;
+}
+
+function sendVolenetChat() {
+  var input = document.getElementById('vn-input');
+  var text = input.value.trim();
+  if (!text || !vnSelectedPeer) return;
+  input.value = '';
+  var el = addVnBubble('out', text);
+  sendCommand('volenet_chat_send', { peerId: vnSelectedPeer, text: text }).then(function(res) {
+    if (!res || res.ok === false) {
+      el.className = 'chat-msg chat-msg-error';
+      el.textContent = text + '  —  failed: ' + ((res && res.error) || 'unknown');
+    } else if (res.delivered === false) {
+      el.classList.add('chat-msg-pending');
+      el.textContent = text + '  (peer offline — not delivered)';
+    }
+  }).catch(function(e) {
+    el.className = 'chat-msg chat-msg-error';
+    el.textContent = text + '  —  ' + e.message;
+  });
+}
+
+function volenetOnMessage(data, spaceId) {
+  if (!data) return;
+  if (spaceId !== undefined && currentSpaceId && spaceId !== currentSpaceId) return;
+  if (data.from === vnSelectedPeer && currentTab === 'volenet') {
+    addVnBubble('in', data.text);
+  } else {
+    vnUnread[data.from] = (vnUnread[data.from] || 0) + 1;
+    renderVnPeerList();
+    showToast('Message from ' + (data.fromName || 'a node'), 'success');
+  }
+}
+
 /* ── Render aggregated engine state ── */
 function renderState(d) {
   lastStatePaws = d.paws || [];
@@ -1838,6 +1982,7 @@ function renderState(d) {
   renderTasks(d.tasks || []);
   renderSchedules(d.schedules || []);
   renderVoleNet(d.volenet || { enabled: false });
+  renderVolenetTab(d.volenet || { enabled: false });
   document.getElementById('stat-paws').textContent = (d.paws || []).length;
   document.getElementById('stat-tools').textContent = (d.tools || []).length;
   document.getElementById('stat-skills').textContent = (d.skills || []).length;
@@ -1879,7 +2024,9 @@ function switchTab(tabName) {
   document.getElementById('tab-config').style.display = tabName === 'config' ? '' : 'none';
   document.getElementById('tab-identity').style.display = tabName === 'identity' ? '' : 'none';
   document.getElementById('tab-panel').style.display = tabName === 'apps' ? '' : 'none';
+  document.getElementById('tab-volenet').style.display = tabName === 'volenet' ? '' : 'none';
   if (tabName === 'apps') showAppFrame();
+  if (tabName === 'volenet') initVolenetTab();
 
   if (tabName === 'chat') {
     initChatTab();
@@ -2773,6 +2920,9 @@ ws.onmessage = function(evt) {
   } else if (msg.type === 'event') {
     if (msg.event && msg.event.indexOf('task:') === 0) {
       chatOnTaskEvent(msg.event, msg.data, msg.spaceId);
+    }
+    if (msg.event === 'volenet:chat') {
+      volenetOnMessage(msg.data, msg.spaceId);
     }
     if (!currentSpaceId || msg.spaceId === undefined || msg.spaceId === currentSpaceId) {
       addEvent(msg.event, msg.data);

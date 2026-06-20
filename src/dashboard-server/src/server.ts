@@ -36,6 +36,10 @@ export interface DashboardCallbacks {
 	chatHistory?: (sessionId?: string, spaceId?: string) => Promise<unknown>
 	chatSessions?: (spaceId?: string) => Promise<unknown>
 	chatClear?: (sessionId: string, spaceId?: string) => Promise<unknown>
+	volenetInstances?: (spaceId?: string) => Promise<unknown>
+	volenetChatHistory?: (peerId?: string, spaceId?: string) => Promise<unknown>
+	volenetChatSend?: (peerId: string, text: string, spaceId?: string) => Promise<unknown>
+	volenetChatClear?: (peerId: string, spaceId?: string) => Promise<unknown>
 	getPanelHtml?: (spaceId: string, paw: string) => Promise<unknown>
 	callPawTool?: (spaceId: string, name: string, params: unknown) => Promise<unknown>
 	/** Per-space; spaceId is undefined in single-engine mode. */
@@ -208,6 +212,24 @@ export function createDashboardServer(
 				case 'chat_clear': {
 					const p = cmd.params as { sessionId: string }
 					respond(await callbacks.chatClear?.(p?.sessionId, sel()))
+					break
+				}
+				case 'volenet_instances':
+					respond(await callbacks.volenetInstances?.(sel()))
+					break
+				case 'volenet_chat_history': {
+					const p = cmd.params as { peerId?: string }
+					respond(await callbacks.volenetChatHistory?.(p?.peerId, sel()))
+					break
+				}
+				case 'volenet_chat_send': {
+					const p = cmd.params as { peerId: string; text: string }
+					respond(await callbacks.volenetChatSend?.(p?.peerId, p?.text, sel()))
+					break
+				}
+				case 'volenet_chat_clear': {
+					const p = cmd.params as { peerId: string }
+					respond(await callbacks.volenetChatClear?.(p?.peerId, sel()))
 					break
 				}
 				case 'select_space': {
