@@ -117,14 +117,27 @@ export function installControlAdapter(engine: VoleEngine, projectRoot: string): 
 				case 'read_config':
 					result = await readConfigFile(projectRoot)
 					break
-				case 'write_config':
+				case 'write_config': {
+					const onDisk = await readConfigFile(projectRoot)
+					if (onDisk.demo === true) {
+						throw new Error(
+							'This space is in demo mode — configuration is read-only from the dashboard. Edit vole.config.json on the server to change it.',
+						)
+					}
 					await writeConfigFile(projectRoot, params.config as Record<string, unknown>)
 					result = { ok: true }
 					break
+				}
 				case 'read_identity':
 					result = await readIdentityFiles(projectRoot, brainPawName(current))
 					break
-				case 'write_identity':
+				case 'write_identity': {
+					const onDisk = await readConfigFile(projectRoot)
+					if (onDisk.demo === true) {
+						throw new Error(
+							'This space is in demo mode — identity files are read-only from the dashboard.',
+						)
+					}
 					result = await writeIdentityFile(
 						projectRoot,
 						params.filename as string,
@@ -132,6 +145,7 @@ export function installControlAdapter(engine: VoleEngine, projectRoot: string): 
 						brainPawName(current),
 					)
 					break
+				}
 				case 'submit':
 					result = {
 						ok: true,

@@ -4,12 +4,20 @@
  * Starts/stops with the engine.
  */
 
+import * as fs from 'node:fs/promises'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { createLogger } from '../core/logger.js'
 import type { ToolRegistry } from '../tool/registry.js'
 import { type DiscoveryConfig, VoleNetDiscovery } from './discovery.js'
-import { type VoleKeyPair, generateKeyPair, loadKeyPair } from './keys.js'
+import {
+	type VoleKeyPair,
+	generateKeyPair,
+	loadAuthorizedVoles,
+	loadKeyPair,
+	parsePublicKey,
+	trustPeer,
+} from './keys.js'
 import { VoleNetLeader } from './leader.js'
 import { type RemoteToolInfo, type VoleNetInstance, createMessage } from './protocol.js'
 import { RemoteTaskManager } from './remote-task.js'
@@ -83,6 +91,24 @@ export interface VoleNetConfig {
 
 	/** Max queued tasks before overflow triggers (default: 10) */
 	maxQueuedTasks?: number
+
+	/**
+	 * Public self-join — let unknown peers register over HTTP and join at a restricted
+	 * "guest" trust level (for a public mesh hub). Off by default. Guests are NEVER 'full'.
+	 */
+	publicJoin?: {
+		enabled?: boolean
+		/** Trust granted to self-joined guests. Never 'full'. Default 'tool'. */
+		trustLevel?: 'read' | 'tool'
+		/** Let guests use OUR Brain (LLM cost on us). Default false. */
+		allowBrain?: boolean
+		/** Max trusted peers before new joins are refused. Default 200. */
+		maxPeers?: number
+		/** Join requests allowed per minute per IP. Default 5. */
+		ratePerMinute?: number
+		/** Queue joins to pending_joins.jsonl for manual `vole net trust` instead of auto-trusting. */
+		requireApproval?: boolean
+	}
 }
 
 export class VoleNetManager {
@@ -97,6 +123,8 @@ export class VoleNetManager {
 	private projectRoot: string
 	private toolRegistry: ToolRegistry | null = null
 	private started = false
+	/** Per-IP join timestamps for public-join rate limiting. */
+	private joinTimestamps = new Map<string, number[]>()
 
 	constructor(config: VoleNetConfig, projectRoot: string) {
 		this.config = config
@@ -153,6 +181,14 @@ export class VoleNetManager {
 		}
 		this.discovery = new VoleNetDiscovery(this.transport, discoveryConfig)
 		await this.discovery.start()
+
+		// Public self-join: accept HTTP join requests from unknown peers (restricted guest trust).
+		if (this.config.publicJoin?.enabled) {
+			this.transport.setJoinHandler((body, ip) => this.handlePublicJoin(body, ip))
+			logger.info(
+				`Public join enabled — guests get '${this.config.publicJoin.trustLevel ?? 'tool'}' trust, allowBrain=${this.config.publicJoin.allowBrain ?? false}`,
+			)
+		}
 
 		// Handle tool:list requests — respond with our local tools
 		this.transport.onMessage((message) => {
@@ -701,13 +737,66 @@ export class VoleNetManager {
 		return target?.id ?? null
 	}
 
+	/** Handle a public self-join request (HTTP POST /volenet/join). Returns status + JSON body. */
+	async handlePublicJoin(body: unknown, ip: string): Promise<{ status: number; json: unknown }> {
+		const pj = this.config.publicJoin
+		if (!pj?.enabled) return { status: 404, json: { error: 'public join disabled' } }
+
+		const { publicKey, name } = (body ?? {}) as { publicKey?: string; name?: string }
+		if (!publicKey || !parsePublicKey(publicKey)) {
+			return { status: 400, json: { error: 'invalid public key' } }
+		}
+
+		// Rate limit per IP.
+		const now = Date.now()
+		const rpm = pj.ratePerMinute ?? 5
+		const recent = (this.joinTimestamps.get(ip) ?? []).filter((t) => now - t < 60_000)
+		if (recent.length >= rpm) return { status: 429, json: { error: 'rate limited' } }
+		recent.push(now)
+		this.joinTimestamps.set(ip, recent)
+
+		const netDir = this.getNetDir()
+		await fs.mkdir(netDir, { recursive: true })
+		const safeName = (name ?? 'guest').slice(0, 64)
+
+		// Manual-approval mode: queue the request, do not auto-trust.
+		if (pj.requireApproval) {
+			await fs.appendFile(
+				path.join(netDir, 'pending_joins.jsonl'),
+				`${JSON.stringify({ publicKey, name: safeName, ip, at: new Date().toISOString() })}\n`,
+				'utf-8',
+			)
+			return {
+				status: 202,
+				json: { ok: true, pending: true, message: 'Join request received — pending approval.' },
+			}
+		}
+
+		// Peer cap.
+		const existing = await loadAuthorizedVoles(netDir)
+		if (existing.size >= (pj.maxPeers ?? 200)) {
+			return { status: 503, json: { error: 'mesh is full' } }
+		}
+
+		await trustPeer(netDir, publicKey)
+		await this.discovery?.reloadAuthorized()
+		logger.info(`Public join: trusted guest "${safeName}" from ${ip}`)
+		return {
+			status: 200,
+			json: {
+				ok: true,
+				hubPublicKey: this.keyPair?.publicKeyString,
+				instanceName: this.config.instanceName ?? 'vole',
+				port: this.config.port ?? 9700,
+			},
+		}
+	}
+
 	/**
 	 * Check if a specific peer is allowed to use our brain.
 	 */
 	isPeerAllowedBrain(peerId: string): boolean {
-		if (!this.config.peers) return false
-		const peerTrust = this.matchPeerConfig(peerId)
-		return peerTrust?.allowBrain === true
+		return this.getPeerTrust(peerId)?.allowBrain === true
 	}
 
 	/**
@@ -753,13 +842,21 @@ export class VoleNetManager {
 		peerId: string,
 	): { trust: string; allowTools?: string[]; denyTools?: string[]; allowBrain?: boolean } | null {
 		const peerConfig = this.matchPeerConfig(peerId)
-		if (!peerConfig) return null
-		return {
-			trust: peerConfig.trust ?? 'full',
-			allowTools: peerConfig.allowTools,
-			denyTools: peerConfig.denyTools,
-			allowBrain: peerConfig.allowBrain,
+		if (peerConfig) {
+			return {
+				trust: peerConfig.trust ?? 'full',
+				allowTools: peerConfig.allowTools,
+				denyTools: peerConfig.denyTools,
+				allowBrain: peerConfig.allowBrain,
+			}
 		}
+		// Self-joined guest: authenticated (a known discovery instance) but not in static
+		// peers config. Grant the restricted publicJoin trust — never 'full'.
+		const pj = this.config.publicJoin
+		if (pj?.enabled && this.discovery?.getInstances().some((i) => i.id === peerId)) {
+			return { trust: pj.trustLevel ?? 'tool', allowBrain: pj.allowBrain ?? false }
+		}
+		return null
 	}
 
 	/**

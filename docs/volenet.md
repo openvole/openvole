@@ -382,12 +382,62 @@ The `allowBrain` flag is separate — it controls whether a peer can delegate ta
 - **WebSocket preferred** — persistent bidirectional connections. HTTP POST fallback available.
 - **TLS** — optional encrypted transport via `tls.cert` and `tls.key`.
 
+## Public mesh hub
+
+Normally peers trust each other **manually** (`vole net trust` on both sides). A **public hub**
+instead lets unknown peers **self-register** over HTTP and join at a restricted **guest** trust
+level — so you can run an internet-wide mesh that your community joins with one command.
+
+Enable it on the hub's space config:
+
+```jsonc
+"net": {
+  "enabled": true, "instanceName": "hub", "role": "coordinator", "port": 9700,
+  "publicJoin": {
+    "enabled": true,
+    "trustLevel": "tool",      // guest trust — 'read' or 'tool'. NEVER 'full'.
+    "allowBrain": false,       // guests cannot use the hub's brain (no LLM cost to you)
+    "maxPeers": 200,           // refuse new joins past this many trusted peers
+    "ratePerMinute": 5,        // join requests per minute per IP
+    "requireApproval": false   // true → queue to pending_joins.jsonl for manual `vole net trust`
+  }
+}
+```
+
+| Field | Default | Purpose |
+|-------|---------|---------|
+| `enabled` | `false` | Turn on the public-join endpoint (`POST /volenet/join`). |
+| `trustLevel` | `tool` | Trust granted to self-joined guests. Never `full`. |
+| `allowBrain` | `false` | Whether guests may delegate thinking to the hub's brain (LLM cost). |
+| `maxPeers` | `200` | Hard cap on trusted peers. |
+| `ratePerMinute` | `5` | Per-IP join rate limit. |
+| `requireApproval` | `false` | Queue joins for manual approval instead of auto-trusting. |
+
+**Security:** guests are never `full`; pair `publicJoin` with `"demo": true` so the hub's config
+can't be edited from the dashboard, and keep `allowBrain: false` unless you intend to pay for
+guests' LLM usage.
+
+### Joining a hub (followers)
+
+From a space that has its own brain (your own LLM key):
+
+```bash
+vole net join http://hub-host:9700 --name your-name
+```
+
+This registers your public key with the hub, trusts the hub's key locally, and adds the hub as a
+peer in your `vole.config.json`. Start your space and you're on the mesh.
+
+A ready-to-host hub (with `demo` lockdown) lives in
+[`examples/public-hub`](https://github.com/openvole/openvole/tree/main/examples/public-hub).
+
 ## CLI Commands
 
 ```bash
 vole net init <name>         # Generate Ed25519 keypair and set instance name
 vole net show-key            # Display public key for sharing
 vole net trust "<key>"       # Add a peer's public key to authorized_voles
+vole net join <hub-url>      # Join a public hub: register your key, trust it, add it as a peer
 vole net revoke "<key>"      # Remove a peer's trust
 vole net peers               # List connected peers and their status
 vole net status              # Show VoleNet status (instance, leader, peers, tools)

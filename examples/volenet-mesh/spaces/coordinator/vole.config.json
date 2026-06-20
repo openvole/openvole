@@ -1,0 +1,34 @@
+{
+  "brain": "@openvole/paw-brain",
+  "paws": [
+    {
+      "name": "@openvole/paw-brain",
+      "allow": {
+        "network": ["*"],
+        "env": [
+          "BRAIN_PROVIDER", "BRAIN_API_KEY", "BRAIN_MODEL",
+          "GEMINI_API_KEY", "GEMINI_MODEL",
+          "OPENAI_API_KEY", "OPENAI_MODEL",
+          "ANTHROPIC_API_KEY", "ANTHROPIC_MODEL",
+          "OLLAMA_HOST", "OLLAMA_MODEL"
+        ]
+      }
+    },
+    { "name": "@openvole/paw-session", "allow": { "env": ["VOLE_SESSION_TTL"] } },
+    { "name": "@openvole/paw-memory", "allow": { "network": ["*"], "env": ["VOLE_MEMORY_DIR"] } },
+    { "name": "@openvole/paw-compact", "allow": { "network": ["*"] } }
+  ],
+  "loop": { "maxIterations": 25, "confirmBeforeAct": false, "maxContextTokens": 128000 },
+  "net": {
+    "enabled": true,
+    "instanceName": "coordinator",
+    "role": "coordinator",
+    "port": 9700,
+    "peers": [
+      { "url": "http://localhost:9701", "trust": "full" },
+      { "url": "http://localhost:9702", "trust": "full" }
+    ],
+    "share": { "tools": false, "memory": false },
+    "routing": { "shell_*": "worker-shell", "fs_*": "worker-files" }
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "paws": [
+    {
+      "name": "@openvole/paw-filesystem",
+      "allow": { "filesystem": ["./", "/tmp"], "env": ["VOLE_FS_ALLOWED_DIRS"] }
+    }
+  ],
+  "loop": { "maxIterations": 10, "maxContextTokens": 128000 },
+  "heartbeat": { "enabled": false },
+  "net": {
+    "enabled": true,
+    "instanceName": "worker-files",
+    "role": "worker",
+    "port": 9702,
+    "peers": [ { "url": "http://localhost:9700", "trust": "full" } ],
+    "share": { "tools": true, "memory": false }
+  }
+}

@@ -1,0 +1,5 @@
+{
+  "dependencies": {
+    "@openvole/paw-filesystem": "^2.0.0"
+  }
+}

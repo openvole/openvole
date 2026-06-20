@@ -31,6 +31,7 @@ export interface TransportConfig {
 }
 
 export type MessageHandler = (message: VoleNetMessage, peerId: string) => void
+export type JoinHandler = (body: unknown, ip: string) => Promise<{ status: number; json: unknown }>
 
 interface PeerConnection {
 	peerId: string
@@ -51,11 +52,17 @@ export class VoleNetTransport {
 	private wss: WebSocketServer | null = null
 	private peers = new Map<string, PeerConnection>()
 	private messageHandlers: MessageHandler[] = []
+	private joinHandler: JoinHandler | null = null
 	private config: TransportConfig
 	private started = false
 
 	constructor(config: TransportConfig) {
 		this.config = config
+	}
+
+	/** Register a handler for public self-join requests (HTTP POST /volenet/join). */
+	setJoinHandler(handler: JoinHandler): void {
+		this.joinHandler = handler
 	}
 
 	/**
@@ -111,6 +118,40 @@ export class VoleNetTransport {
 						websocketConnections: peerList.filter((p) => p.transport === 'websocket').length,
 					}),
 				)
+				return
+			}
+
+			if (req.url === '/volenet/join' && req.method === 'POST') {
+				let body = ''
+				req.on('data', (chunk: Buffer) => {
+					body += chunk
+					if (body.length > 8192) req.destroy()
+				})
+				req.on('end', () => {
+					if (!this.joinHandler) {
+						res.writeHead(404)
+						res.end()
+						return
+					}
+					let parsed: unknown
+					try {
+						parsed = JSON.parse(body)
+					} catch {
+						res.writeHead(400, { 'Content-Type': 'application/json' })
+						res.end(JSON.stringify({ error: 'invalid json' }))
+						return
+					}
+					const ip = req.socket.remoteAddress ?? 'unknown'
+					this.joinHandler(parsed, ip)
+						.then(({ status, json }) => {
+							res.writeHead(status, { 'Content-Type': 'application/json' })
+							res.end(JSON.stringify(json))
+						})
+						.catch((e) => {
+							res.writeHead(500, { 'Content-Type': 'application/json' })
+							res.end(JSON.stringify({ error: e instanceof Error ? e.message : 'join failed' }))
+						})
+				})
 				return
 			}
 

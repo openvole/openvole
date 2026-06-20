@@ -2025,11 +2025,44 @@ function installPawIntoSpace(name, btn) {
     if (btn) { btn.textContent = 'Add'; btn.disabled = false; }
   });
 }
+var IS_DEMO = false;
+function setDemoBanner(host, id, on, beforeNode) {
+  if (!host) return;
+  var b = document.getElementById(id);
+  if (on && !b) {
+    b = document.createElement('div');
+    b.id = id;
+    b.style.cssText = 'margin:0 0 14px;padding:10px 14px;border:1px solid #d29922;border-radius:8px;background:rgba(210,153,34,0.12);color:#d29922;font-size:13px';
+    b.textContent = 'Demo mode — read-only. Edit vole.config.json on the server to change config or identity.';
+    host.insertBefore(b, beforeNode || host.firstChild);
+  } else if (!on && b) {
+    b.remove();
+  }
+}
+function applyDemoLock(on) {
+  IS_DEMO = on;
+  var cc = document.getElementById('config-content');
+  if (cc) {
+    var fields = cc.querySelectorAll('input, select, textarea, button');
+    for (var i = 0; i < fields.length; i++) fields[i].disabled = on;
+    setDemoBanner(cc, 'config-demo-banner', on, cc.firstChild);
+  }
+  var cfgSave = document.getElementById('btn-save-config');
+  if (cfgSave) cfgSave.style.display = on ? 'none' : '';
+  var idEd = document.getElementById('identity-editor');
+  if (idEd) {
+    idEd.readOnly = on;
+    setDemoBanner(idEd.parentNode, 'identity-demo-banner', on, idEd);
+  }
+  var idSave = document.getElementById('btn-save-identity');
+  if (idSave) idSave.style.display = on ? 'none' : '';
+}
 function loadConfig() {
   sendCommand('read_config').then(function(data) {
     cachedConfig = data || {};
     populateConfig(cachedConfig);
     configLoaded = true;
+    applyDemoLock(!!cachedConfig.demo);
     showToast('Config loaded', 'success');
   }).catch(function(err) {
     showToast('Failed to load config: ' + err.message, 'error');
@@ -2594,6 +2627,7 @@ function readConfigFromForm() {
 }
 
 function saveConfig() {
+  if (IS_DEMO) { showToast('Demo mode — configuration is read-only.', 'error'); return; }
   var cfg;
   try {
     cfg = readConfigFromForm();
@@ -2660,6 +2694,7 @@ function loadIdentity() {
     }
     identityLoaded = true;
     document.getElementById('identity-editor').value = identityFiles[currentIdentityFile] || '';
+    applyDemoLock(IS_DEMO);
     showToast('Identity files loaded', 'success');
   }).catch(function(err) {
     showToast('Failed to load identity files: ' + err.message, 'error');
@@ -2667,6 +2702,7 @@ function loadIdentity() {
 }
 
 function saveIdentity() {
+  if (IS_DEMO) { showToast('Demo mode — identity files are read-only.', 'error'); return; }
   var filename = currentIdentityFile;
   var content = document.getElementById('identity-editor').value;
   identityFiles[filename] = content;

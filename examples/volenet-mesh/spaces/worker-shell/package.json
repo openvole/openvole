@@ -1,0 +1,5 @@
+{
+  "dependencies": {
+    "@openvole/paw-shell": "^2.0.0"
+  }
+}

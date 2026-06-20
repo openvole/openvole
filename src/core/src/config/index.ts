@@ -113,6 +113,10 @@ export interface VoleConfig {
 	agents?: Record<string, AgentProfile>
 	/** VoleNet distributed networking */
 	net?: import('../net/index.js').VoleNetConfig
+	/** Demo lockdown. When true, the dashboard cannot edit config or identity files
+	 *  (they become read-only). Settable only by editing vole.config.json on the
+	 *  server — there is no UI toggle, so it cannot be turned off from the dashboard. */
+	demo?: boolean
 }
 
 /** Default configuration values */

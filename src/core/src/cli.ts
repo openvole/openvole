@@ -1328,6 +1328,67 @@ async function handleNetCommand(args: string[], projectRoot: string): Promise<vo
 			break
 		}
 
+		case 'join': {
+			const url = args[1]
+			if (!url || url.startsWith('--')) {
+				logger.error('Usage: vole net join <hub-url> [--name <name>]')
+				process.exit(1)
+			}
+			const nameIdx = args.indexOf('--name')
+			const name = nameIdx >= 0 ? args[nameIdx + 1] : path.basename(projectRoot) || 'guest'
+			const { loadKeyPair, generateKeyPair, trustPeer } = await import('./net/index.js')
+			let keyPair = await loadKeyPair(netDir)
+			if (!keyPair) keyPair = await generateKeyPair(netDir, name)
+			const base = url.replace(/\/$/, '')
+			logger.info(`Joining VoleNet mesh at ${base} ...`)
+			let resp: {
+				ok?: boolean
+				pending?: boolean
+				hubPublicKey?: string
+				instanceName?: string
+				error?: string
+				message?: string
+			}
+			try {
+				const r = await fetch(`${base}/volenet/join`, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ publicKey: keyPair.publicKeyString, name }),
+				})
+				resp = (await r.json()) as typeof resp
+				if (!r.ok) {
+					logger.error(`Join failed (${r.status}): ${resp?.error ?? 'unknown error'}`)
+					process.exit(1)
+				}
+			} catch (err) {
+				logger.error(`Could not reach hub: ${err instanceof Error ? err.message : String(err)}`)
+				process.exit(1)
+				return
+			}
+			if (resp.pending) {
+				logger.info(resp.message ?? 'Join request submitted — pending approval by the hub operator.')
+				break
+			}
+			if (!resp.hubPublicKey) {
+				logger.error('Hub did not return its public key.')
+				process.exit(1)
+			}
+			await trustPeer(netDir, resp.hubPublicKey)
+			const { readConfigFile, writeConfigFile } = await import('./config/index.js')
+			const cfg = await readConfigFile(projectRoot)
+			const net = (cfg.net ?? {}) as Record<string, unknown>
+			net.enabled = true
+			if (!net.instanceName) net.instanceName = name
+			const peers = (net.peers ?? []) as Array<{ url: string; trust?: string }>
+			if (!peers.some((p) => p.url === base)) peers.push({ url: base, trust: 'full' })
+			net.peers = peers
+			cfg.net = net
+			await writeConfigFile(projectRoot, cfg)
+			logger.info(`Joined! Trusted hub "${resp.instanceName ?? 'hub'}" and added it as a peer.`)
+			logger.info('Start your agent with "vole serve" and you are on the mesh.')
+			break
+		}
+
 		case 'trust': {
 			const key = args.slice(1).join(' ')
 			if (!key) {

@@ -1,0 +1,38 @@
+{
+  "demo": true,
+  "brain": "@openvole/paw-brain",
+  "paws": [
+    {
+      "name": "@openvole/paw-brain",
+      "allow": {
+        "network": ["*"],
+        "env": [
+          "BRAIN_PROVIDER", "BRAIN_API_KEY", "BRAIN_MODEL",
+          "GEMINI_API_KEY", "GEMINI_MODEL",
+          "OPENAI_API_KEY", "OPENAI_MODEL",
+          "ANTHROPIC_API_KEY", "ANTHROPIC_MODEL",
+          "OLLAMA_HOST", "OLLAMA_MODEL"
+        ]
+      }
+    },
+    { "name": "@openvole/paw-session", "allow": { "env": ["VOLE_SESSION_TTL"] } },
+    { "name": "@openvole/paw-memory", "allow": { "network": ["*"], "env": ["VOLE_MEMORY_DIR"] } },
+    { "name": "@openvole/paw-compact", "allow": { "network": ["*"] } }
+  ],
+  "loop": { "maxIterations": 25, "confirmBeforeAct": false, "maxContextTokens": 128000 },
+  "net": {
+    "enabled": true,
+    "instanceName": "hub",
+    "role": "coordinator",
+    "port": 9710,
+    "share": { "tools": false, "memory": false },
+    "publicJoin": {
+      "enabled": true,
+      "trustLevel": "tool",
+      "allowBrain": false,
+      "maxPeers": 200,
+      "ratePerMinute": 5,
+      "requireApproval": false
+    }
+  }
+}
