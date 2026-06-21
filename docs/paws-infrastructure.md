@@ -26,7 +26,7 @@ vole paw add @openvole/paw-memory
 
 Memory is scoped by task source — CLI conversations, channel messages, and heartbeat tasks each get their own daily logs. This prevents cross-contamination between sources.
 
-**Tools**: `memory_search` — BM25 ranked search over all memory files.
+**Tools**: `memory_read` (read a memory file), `memory_write` (append an entry), `memory_search` (BM25 ranked search), `memory_list` (list memory files).
 
 ### paw-session
 
@@ -48,6 +48,8 @@ Session data lives in `.openvole/paws/paw-session/`, organized by session ID:
 ```
 
 The session paw loads previous messages from the current session during bootstrap, giving the Brain conversation context.
+
+**Tools**: `session_history` (read a session's transcript), `session_list` (list active sessions), `session_clear` (remove a session), and `session_append` — append a single transcript entry *outside* the Brain loop (e.g. peer-to-peer human chat). `session_append` takes an optional `maxMessages` retention cap that trims the transcript to the last N messages after writing.
 
 ### paw-compact
 

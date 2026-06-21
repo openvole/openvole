@@ -162,6 +162,7 @@ VoleNet (distributed networking):
   vole net init [name]                   Generate Ed25519 keypair
   vole net show-key                      Display public key (share with peers)
   vole net trust <key>                   Trust a peer's public key
+  vole net join <url>                    Join a public hub (register, trust, add as peer)
   vole net revoke <id>                   Remove trust for a peer
   vole net peers                         List trusted peers
   vole net status                        Network status overview

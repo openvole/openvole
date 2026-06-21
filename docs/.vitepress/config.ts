@@ -64,8 +64,7 @@ export default defineConfig({
 			{ icon: 'npm', link: 'https://www.npmjs.com/package/openvole' },
 		],
 		footer: {
-			message: 'Released under the MIT License.',
-			copyright: 'Copyright © 2026 OpenVole',
+			message: '🐹 built by <a href="https://shyble.github.io">Kürşat Kutlu Aydemir</a>',
 		},
 		search: {
 			provider: 'local',

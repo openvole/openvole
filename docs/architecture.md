@@ -171,7 +171,7 @@ Skills activate based on available tools — a skill requiring `email_send` only
 
 ## VoleNet
 
-**Distributed agent networking.** Connects multiple OpenVole instances across machines with Ed25519 authenticated communication.
+**Distributed agent networking.** Connects multiple OpenVole instances across machines. Every message is signed and authorized per peer, with hybrid post-quantum signatures (Ed25519 + ML-DSA-65 when the runtime supports it) and optional TLS for the transport.
 
 Key capabilities:
 - **Remote tool execution** — tools on remote peers appear in the local registry

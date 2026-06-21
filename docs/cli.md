@@ -185,6 +185,66 @@ Call a tool directly without going through the Brain. Useful for debugging.
 vole tool call list_schedules
 ```
 
+## VoleNet
+
+Distributed agent networking. See [Configuration → `net`](/configuration#net-volenet) for the config fields.
+
+### `vole net init`
+
+Generate an Ed25519 keypair for this instance. Pass an optional name.
+
+```bash
+vole net init my-instance
+```
+
+### `vole net show-key`
+
+Display this instance's public key — share it with peers so they can trust you.
+
+```bash
+vole net show-key
+```
+
+### `vole net trust`
+
+Trust a peer's public key (paste the string from their `vole net show-key`).
+
+```bash
+vole net trust "vole-ed25519 ..."
+```
+
+### `vole net join`
+
+Join a public mesh hub: registers with the hub over HTTP, trusts its key, and adds it as a peer in `vole.config.json`. Use `--name` to set the name advertised to the hub.
+
+```bash
+vole net join https://hub.example.com:9700 --name my-laptop
+```
+
+### `vole net revoke`
+
+Remove trust for a peer by instance ID or key.
+
+```bash
+vole net revoke <instance-id-or-key>
+```
+
+### `vole net peers`
+
+List trusted peers.
+
+```bash
+vole net peers
+```
+
+### `vole net status`
+
+Show a network status overview.
+
+```bash
+vole net status
+```
+
 ## Utility Commands
 
 ### `vole upgrade`
