@@ -1,5 +1,12 @@
 # Changelog
 
+## v4.2.0 (2026-06-21)
+
+### VoleNet — NAT traversal for followers + hardened socket handling
+- **Followers behind NAT now work both ways.** A peer joining a hub from behind a router could reach the hub, but the hub couldn't reach back (it dialed the follower's announced LAN address), so the follower never registered the hub. The hub now returns its `discover:response` **inline in the follower's own discover request**, and all hub→follower traffic rides the follower's **persistent WebSocket** — no port-forwarding required.
+- **Authenticated socket binding (security fix).** An inbound WebSocket is now bound to a peer id only after a signed message from it **verifies against the keystore**. Previously the binding trusted the unverified `from` field, which — for a peer with no active socket (exactly the NAT case) — could let an attacker claim a victim's id and capture its hub→peer traffic. A socket is also locked to a single identity once authenticated.
+- **DoS hardening.** New `net.maxConnections` (cap concurrent inbound WebSockets, default 1000), `net.authTimeoutMs` (close sockets that never authenticate, default 10s), and `net.maxMessagesPerSecond` (global inbound message ceiling / load-shed, default 5000) — on top of the existing per-connection rate limit (1200/min) and 1 MB body cap.
+
 ## v4.1.1 (2026-06-21)
 
 ### Fixed

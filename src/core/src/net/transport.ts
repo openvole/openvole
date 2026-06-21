@@ -23,6 +23,9 @@ const WS_RECONNECT_INTERVAL_MS = 5_000
 const WS_RECONNECT_MAX_RETRIES = 10
 const MAX_MESSAGES_PER_MINUTE = 1200 // per source (IP / WS connection); generous — normal mesh traffic is well below
 const MAX_MESSAGE_BYTES = 1_000_000 // cap inbound HTTP message bodies (1 MB)
+const DEFAULT_MAX_CONNECTIONS = 1000 // cap concurrent inbound WebSocket connections (DoS)
+const DEFAULT_AUTH_TIMEOUT_MS = 10_000 // close inbound sockets that never send a verified message (DoS)
+const DEFAULT_MAX_MESSAGES_PER_SECOND = 5000 // global inbound message ceiling across all sources (load shed)
 
 export interface TransportConfig {
 	port: number
@@ -32,6 +35,12 @@ export interface TransportConfig {
 	}
 	/** Max inbound messages per minute per source (IP / WS connection). Default 1200. */
 	maxMessagesPerMinute?: number
+	/** Max concurrent inbound WebSocket connections (DoS). Default 1000. */
+	maxConnections?: number
+	/** Close an inbound WS that doesn't send a verified message within this window, ms (DoS). Default 10000. */
+	authTimeoutMs?: number
+	/** Global inbound message ceiling per second across all sources (load shed). Default 5000. */
+	maxMessagesPerSecond?: number
 }
 
 export type MessageHandler = (message: VoleNetMessage, peerId: string) => void
@@ -62,6 +71,10 @@ export class VoleNetTransport {
 	private wsConnSeq = 0
 	private config: TransportConfig
 	private started = false
+	private wsConnections = 0
+	private globalWindow: number[] = []
+	private verifyFn?: (message: VoleNetMessage) => boolean
+	private responder?: (message: VoleNetMessage) => VoleNetMessage | null
 
 	constructor(config: TransportConfig) {
 		this.config = config
@@ -70,6 +83,34 @@ export class VoleNetTransport {
 	/** Register a handler for public self-join requests (HTTP POST /volenet/join). */
 	setJoinHandler(handler: JoinHandler): void {
 		this.joinHandler = handler
+	}
+
+	/**
+	 * Inject a signature verifier. An inbound WebSocket is bound to a peer id ONLY after a
+	 * message from it verifies — so an attacker can't claim a victim's id and hijack its
+	 * downstream traffic.
+	 */
+	setVerifier(fn: (message: VoleNetMessage) => boolean): void {
+		this.verifyFn = fn
+	}
+
+	/**
+	 * Inject a request responder for request/response messages (e.g. `discover` over HTTP).
+	 * The returned message is delivered inline in the HTTP response body, so a peer behind NAT
+	 * learns the responder's identity without the responder having to dial it back.
+	 */
+	setResponder(fn: (message: VoleNetMessage) => VoleNetMessage | null): void {
+		this.responder = fn
+	}
+
+	/** Global sliding-window message ceiling across all sources (load shed). False when over. */
+	private globalRateAllow(): boolean {
+		const now = Date.now()
+		const max = this.config.maxMessagesPerSecond ?? DEFAULT_MAX_MESSAGES_PER_SECOND
+		this.globalWindow = this.globalWindow.filter((t) => now - t < 1000)
+		if (this.globalWindow.length >= max) return false
+		this.globalWindow.push(now)
+		return true
 	}
 
 	/** Sliding-window rate limit per source (IP or WS connection). Returns false when over. */
@@ -101,7 +142,7 @@ export class VoleNetTransport {
 
 			if (req.url === '/volenet/message' && req.method === 'POST') {
 				const ip = req.socket.remoteAddress ?? 'unknown'
-				if (!this.rateAllow(`ip:${ip}`)) {
+				if (!this.rateAllow(`ip:${ip}`) || !this.globalRateAllow()) {
 					res.writeHead(429, { 'Content-Type': 'application/json' })
 					res.end(JSON.stringify({ error: 'rate limited' }))
 					return
@@ -121,8 +162,11 @@ export class VoleNetTransport {
 					for (const handler of this.messageHandlers) {
 						handler(message, message.from)
 					}
+					// Inline reply (e.g. discover:response) so a NAT'd sender learns our identity
+					// from its own request — we don't have to dial it back.
+					const reply = this.responder ? this.responder(message) : null
 					res.writeHead(200, { 'Content-Type': 'application/json' })
-					res.end(JSON.stringify({ ok: true }))
+					res.end(JSON.stringify(reply ? { ok: true, response: reply } : { ok: true }))
 				})
 				return
 			}
@@ -207,18 +251,58 @@ export class VoleNetTransport {
 		})
 
 		this.wss.on('connection', (ws) => {
+			// Connection cap (DoS): refuse new sockets past the limit.
+			const maxConns = this.config.maxConnections ?? DEFAULT_MAX_CONNECTIONS
+			if (this.wsConnections >= maxConns) {
+				ws.close(1013, 'too many connections')
+				return
+			}
+			this.wsConnections++
+
 			const connKey = `ws:${++this.wsConnSeq}`
+			let authedPeerId: string | null = null
+
+			// Auth timeout (DoS): drop sockets that never send a verified message.
+			const authTimer = setTimeout(() => {
+				if (!authedPeerId) {
+					logger.warn('Closing unauthenticated WebSocket (auth timeout)')
+					ws.close(1008, 'auth timeout')
+				}
+			}, this.config.authTimeoutMs ?? DEFAULT_AUTH_TIMEOUT_MS)
+
 			ws.on('message', (data) => {
-				if (!this.rateAllow(connKey)) return
+				if (!this.rateAllow(connKey)) return // per-connection rate limit
+				if (!this.globalRateAllow()) return // global load shed
 				const message = deserialize(data.toString())
 				if (!message) return
 
-				// Associate WS with peer on first message
-				const peer = this.peers.get(message.from)
-				if (peer && !peer.ws) {
-					peer.ws = ws
-					peer.connected = true
-					logger.info(`WebSocket associated with peer ${message.from.substring(0, 8)}`)
+				if (!authedPeerId) {
+					// Bind the socket to a peer id ONLY after a signed message from it verifies.
+					// This blocks an attacker from claiming a victim's id and capturing its
+					// hub→peer traffic (the binding is what sendToPeer routes over).
+					if (!this.verifyFn || !this.verifyFn(message)) return
+					authedPeerId = message.from
+					clearTimeout(authTimer)
+					const existing = this.peers.get(message.from)
+					if (existing) {
+						existing.ws = ws
+						existing.connected = true
+					} else {
+						this.peers.set(message.from, {
+							peerId: message.from,
+							endpoint: '',
+							connected: true,
+							lastSeen: Date.now(),
+							ws,
+							reconnectTimer: null,
+							reconnectAttempts: 0,
+							connecting: false,
+						})
+					}
+					logger.info(`WebSocket authenticated + bound to peer ${message.from.substring(0, 8)}`)
+				} else if (message.from !== authedPeerId) {
+					// A socket authenticated as one peer cannot later speak for another.
+					return
 				}
 
 				for (const handler of this.messageHandlers) {
@@ -227,6 +311,8 @@ export class VoleNetTransport {
 			})
 
 			ws.on('close', () => {
+				this.wsConnections--
+				clearTimeout(authTimer)
 				this.msgWindow.delete(connKey)
 				for (const [peerId, peer] of this.peers) {
 					if (peer.ws === ws) {

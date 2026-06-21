@@ -122,6 +122,16 @@ export class VoleNetDiscovery {
 
 			if (response.ok) {
 				logger.info(`Discovery sent to ${endpoint}`)
+				// The peer may inline its discover:response in the body (NAT-friendly — it can't
+				// dial us back). Process it so we register them even when unreachable from their side.
+				try {
+					const data = (await response.json()) as { response?: VoleNetMessage }
+					if (data?.response?.type === 'discover:response') {
+						this.handleMessage(data.response, data.response.from)
+					}
+				} catch {
+					/* no inline response body */
+				}
 				return message.from
 			}
 		} catch (err) {
@@ -169,6 +179,38 @@ export class VoleNetDiscovery {
 	/**
 	 * Handle discovery announcement from a peer.
 	 */
+	/**
+	 * Build a signed discover:response for an inbound discover, with NO side effects.
+	 * Wired as the transport's HTTP responder so a peer behind NAT receives our identity
+	 * inline in its own request's response — it can't be reached by a dial-back. Returns
+	 * null unless the discover is from an authorized peer with a valid signature.
+	 */
+	buildDiscoverResponse(message: VoleNetMessage): VoleNetMessage | null {
+		if (message.type !== 'discover') return null
+		const info = message.payload as Partial<VoleNetInstance>
+		if (!info.publicKey || !info.name) return null
+		const parsed = parsePublicKey(info.publicKey)
+		if (!parsed) return null
+		const authPeer = this.authorizedPeers.get(parsed.instanceId)
+		if (!authPeer) return null
+		const result = verifyMessage(message, authPeer.publicKey, authPeer.pqPublicKey)
+		if (!result.valid) return null
+		return createMessage(
+			'discover:response',
+			this.config.instanceId,
+			parsed.instanceId,
+			{
+				name: this.config.instanceName,
+				publicKey: this.config.publicKeyString,
+				endpoint: this.config.endpoint,
+				capabilities: this.config.capabilities,
+				role: this.config.role,
+				version: '3.0.0',
+			},
+			this.config.privateKey,
+		)
+	}
+
 	private handleDiscover(message: VoleNetMessage): void {
 		const info = message.payload as Partial<VoleNetInstance>
 		if (!info.publicKey || !info.name) return

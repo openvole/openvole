@@ -84,6 +84,12 @@ export interface VoleNetConfig {
 		cert: string
 		key: string
 	}
+	/** Max concurrent inbound VoleNet WebSocket connections (DoS). Default 1000. */
+	maxConnections?: number
+	/** Close inbound WS that don't send a verified message within this many ms (DoS). Default 10000. */
+	authTimeoutMs?: number
+	/** Global inbound message ceiling per second across all sources (load shed). Default 5000. */
+	maxMessagesPerSecond?: number
 	discovery?: 'manual' | 'mdns'
 	routing?: Record<string, string>
 
@@ -203,6 +209,9 @@ export class VoleNetManager {
 		const transportConfig: TransportConfig = {
 			port,
 			tls: this.config.tls,
+			maxConnections: this.config.maxConnections,
+			authTimeoutMs: this.config.authTimeoutMs,
+			maxMessagesPerSecond: this.config.maxMessagesPerSecond,
 		}
 		this.transport = new VoleNetTransport(transportConfig)
 		await this.transport.start()
@@ -224,6 +233,13 @@ export class VoleNetManager {
 		}
 		this.discovery = new VoleNetDiscovery(this.transport, discoveryConfig)
 		await this.discovery.start()
+
+		// Bind the transport's WS authentication + inline HTTP discovery reply to discovery's
+		// keystore: sockets are only bound to a peer id after a verified message, and NAT'd peers
+		// learn our identity from their own discover request's response body.
+		const discovery = this.discovery
+		this.transport.setVerifier((m) => discovery.verifyMessageFrom(m))
+		this.transport.setResponder((m) => discovery.buildDiscoverResponse(m))
 
 		// Public self-join: accept HTTP join requests from unknown peers (restricted guest trust).
 		if (this.config.publicJoin?.enabled) {
