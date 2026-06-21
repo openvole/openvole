@@ -757,7 +757,11 @@ export class VoleNetManager {
 	 * otherwise the in-memory fallback.
 	 */
 	async getChatHistory(peerId: string): Promise<ChatEntry[]> {
-		const tool = this.toolRegistry?.get('session_history')
+		// Only read from the session store when writes also go there (session_append present),
+		// so a half-upgraded paw-session can't shadow the in-memory log with an empty session.
+		const tool = this.toolRegistry?.get('session_append')
+			? this.toolRegistry?.get('session_history')
+			: undefined
 		if (tool) {
 			try {
 				const res = (await tool.execute({
@@ -787,7 +791,9 @@ export class VoleNetManager {
 
 	/** Clear the human-chat history with a peer (paw-session or in-memory). */
 	async clearChat(peerId: string): Promise<void> {
-		const tool = this.toolRegistry?.get('session_clear')
+		const tool = this.toolRegistry?.get('session_append')
+			? this.toolRegistry?.get('session_clear')
+			: undefined
 		if (tool) {
 			try {
 				await tool.execute({ sessionId: this.chatSessionId(peerId) })
