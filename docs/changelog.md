@@ -1,5 +1,10 @@
 # Changelog
 
+## v4.1.1 (2026-06-21)
+
+### Fixed
+- **Paw sandbox crashed network-using paws on Node < 25.** The paw sandbox passed Node a `--allow-net` permission flag for any paw with network/listen access, but that flag only exists in Node 25+. On Node 20–24 the subprocess exited with `bad option: --allow-net` (code 9), so paws like `paw-brain` and `paw-memory` failed to load ("running in no-op Think mode"). The flag is now gated to Node 25+; on older Node network isn't permission-gated (as before), but paws load correctly.
+
 ## v4.1.0 (2026-06-21)
 
 ### Node-to-node messaging

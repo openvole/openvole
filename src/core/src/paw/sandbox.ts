@@ -205,9 +205,14 @@ export function buildPermissionFlags(
 		flags.push(`--allow-fs-write=${path.join(homeDir, '.npm')}`)
 		flags.push(`--allow-fs-write=${path.join(homeDir, '.cache')}`)
 	}
-	// Network access: outbound connections and port binding
+	// Network access: outbound connections and port binding.
+	// `--allow-net` only exists in Node 25+. On older Node the permission model has no
+	// network control, so passing it crashes the paw subprocess with "bad option:
+	// --allow-net" (code 9). Omit it there — network simply isn't permission-gated on
+	// those versions, which matches their behavior anyway.
 	if (permissions.network.length > 0 || permissions.listen.length > 0) {
-		flags.push('--allow-net')
+		const nodeMajor = Number.parseInt(process.versions.node.split('.')[0], 10)
+		if (nodeMajor >= 25) flags.push('--allow-net')
 	}
 	return flags
 }
