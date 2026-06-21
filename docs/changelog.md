@@ -32,6 +32,7 @@
 ### Onboarding & packaging
 - The CLI is now also runnable as **`openvole`** (bin alias), so `npx openvole` works without a global install and avoids the unrelated `vole` package on npm; install docs lead with `npm install -g openvole`
 - `vole serve` now hints to run `bash setup.sh` first when the directory isn't an initialized root
+- Bumped the optional `dockerode` dependency to `^5.0.0`, which drops the deprecated transitive `uuid@10` — a clean `npm install -g openvole` no longer prints a deprecation warning
 - Ships with **paw-brain 2.2.0** (mock provider), **paw-session 2.2.0** (`session_append`, retention), and **@openvole/dashboard-server 0.3.0** (VoleNet tab)
 
 ## v4.0.1 (2026-06-17)

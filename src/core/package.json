@@ -33,7 +33,7 @@
     "zod": "^3.23.0"
   },
   "optionalDependencies": {
-    "dockerode": "^4.0.0"
+    "dockerode": "^5.0.0"
   },
   "devDependencies": {
     "@types/dockerode": "^3.3.0",
