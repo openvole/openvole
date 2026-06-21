@@ -262,12 +262,29 @@ export class VoleNetDiscovery {
 	 * Handle discovery response.
 	 */
 	private handleDiscoverResponse(message: VoleNetMessage): void {
-		// Same as discover but don't send response back (avoid loop)
+		// Same as discover but don't send a response back (avoid loop)
 		const info = message.payload as Partial<VoleNetInstance>
 		if (!info.publicKey || !info.name) return
 
 		const parsed = parsePublicKey(info.publicKey)
-		if (!parsed || !this.authorizedPeers.has(parsed.instanceId)) return
+		if (!parsed) return
+		const authPeer = this.authorizedPeers.get(parsed.instanceId)
+		if (!authPeer) return
+
+		// Verify the signature before trusting the payload (and before any auto-upgrade).
+		const result = verifyMessage(message, authPeer.publicKey, authPeer.pqPublicKey)
+		if (!result.valid) {
+			logger.warn(`Discover-response verification failed from ${info.name}: ${result.error}`)
+			return
+		}
+
+		// Auto-upgrade trust to hybrid PQ when this known peer announces an ML-DSA key
+		// (its discover-response was just verified, so the announced PQ key is authentic).
+		if (parsed.pqPublicKey && !authPeer.pqPublicKey) {
+			authPeer.pqPublicKey = parsed.pqPublicKey
+			void trustPeer(this.config.netDir, info.publicKey).catch(() => {})
+			logger.info(`Auto-upgraded peer to hybrid PQ: ${info.name} (${parsed.instanceId.substring(0, 8)})`)
+		}
 
 		const instance: VoleNetInstance = {
 			id: parsed.instanceId,
