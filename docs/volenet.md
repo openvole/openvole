@@ -409,7 +409,7 @@ VoleNet **authenticates then authorizes** every remote action — see the [Secur
 > Don't expose the VoleNet port to the public internet raw. Traffic is **signed but not encrypted** by default (eavesdropping), and the message endpoint has **no rate limit** (DoS). Keep it on a trusted network, behind a firewall allowlist or a VPN overlay (WireGuard/Tailscale), or enable TLS — and use `publicJoin` for intentional public meshes.
 
 > [!NOTE]
-> Identity keys are Ed25519 (not quantum-resistant). A hybrid Ed25519 + ML-DSA (post-quantum) migration is on the roadmap.
+> Signatures are **hybrid Ed25519 + ML-DSA-65** (post-quantum) when the runtime supports it (Node 24+ / OpenSSL 3.5+). Keypairs auto-upgrade with a PQ key on start; between PQ-capable peers both signatures are required (downgrade-resistant), and older Ed25519-only nodes stay interoperable.
 
 ## Public mesh hub
 

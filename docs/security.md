@@ -91,7 +91,7 @@ The VoleNet port has **no transport encryption by default** (traffic is signed, 
 :::
 
 ::: tip Post-quantum
-Identity keys are Ed25519 (classically strong, not quantum-resistant). A hybrid Ed25519 + ML-DSA (FIPS 204) migration is on the roadmap.
+Message signatures are **hybrid Ed25519 + ML-DSA-65** (FIPS 204) when the runtime supports it (Node 24+ / OpenSSL 3.5+ — native, no extra dependency). Existing keypairs auto-upgrade with a PQ key on start; between PQ-capable peers both signatures are required and verified (so an attacker can't strip the PQ signature to downgrade), while older Ed25519-only nodes remain interoperable.
 :::
 
 ## Additional Safeguards
