@@ -471,6 +471,26 @@ Let **unknown** peers self-register over HTTP and join at a restricted guest tru
 | `ratePerMinute` | `number` | `5` | Join requests allowed per minute per IP. |
 | `requireApproval` | `boolean` | `false` | Queue joins for manual `vole net trust` instead of auto-trusting. |
 
+#### Chat Retention
+
+Retention for node-to-node **chat** sessions (the `volenet:<peer>` transcripts persisted via paw-session). Unlike brain sessions these have no TTL, so this bounds their growth.
+
+```json
+{
+  "net": {
+    "chatRetention": {
+      "maxMessages": 1000,
+      "maxAgeDays": 90
+    }
+  }
+}
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `maxMessages` | `number` | `1000` | Max messages kept per peer transcript; the oldest are trimmed on each new message. |
+| `maxAgeDays` | `number` | `90` | Chat sessions idle longer than this are cleared (swept ~every 6h). `0` disables age pruning. |
+
 #### Routing
 
 Route tool calls to specific peers by glob pattern:

@@ -26,6 +26,10 @@ import { type TransportConfig, VoleNetTransport } from './transport.js'
 
 const logger = createLogger('volenet')
 
+const DEFAULT_CHAT_MAX_MESSAGES = 1000
+const DEFAULT_CHAT_MAX_AGE_DAYS = 90
+const CHAT_PRUNE_INTERVAL_MS = 6 * 60 * 60_000 // prune stale chat sessions every 6h
+
 /** Glob-ish tool-name match: exact, '*' wildcard, or 'prefix*'. */
 function matchToolPattern(pattern: string, name: string): boolean {
 	if (pattern === '*' || pattern === name) return true
@@ -52,6 +56,13 @@ export interface VoleNetConfig {
 		tools?: boolean
 		memory?: boolean
 		session?: boolean
+	}
+	/** Retention for node-to-node chat sessions (volenet:<peer>). */
+	chatRetention?: {
+		/** Max messages kept per peer transcript (oldest trimmed). Default 1000. */
+		maxMessages?: number
+		/** Clear chat sessions idle longer than this many days. Default 90; 0 disables. */
+		maxAgeDays?: number
 	}
 
 	/**
@@ -145,6 +156,8 @@ export class VoleNetManager {
 	private chatLog = new Map<string, ChatEntry[]>()
 	/** Periodically re-attempts configured peers — self-heals start-order races + drops. */
 	private peerConnectTimer?: ReturnType<typeof setInterval>
+	/** Periodic chat-session retention prune. */
+	private chatPruneTimer?: ReturnType<typeof setInterval>
 
 	constructor(config: VoleNetConfig, projectRoot: string) {
 		this.config = config
@@ -684,6 +697,10 @@ export class VoleNetManager {
 			}, 15_000)
 		}
 
+		// Periodically prune stale node-chat sessions (retention).
+		void this.pruneChatSessions()
+		this.chatPruneTimer = setInterval(() => void this.pruneChatSessions(), CHAT_PRUNE_INTERVAL_MS)
+
 		this.started = true
 		logger.info(`VoleNet started — ${this.config.role ?? 'peer'} mode, port ${port}`)
 	}
@@ -696,6 +713,8 @@ export class VoleNetManager {
 
 		if (this.peerConnectTimer) clearInterval(this.peerConnectTimer)
 		this.peerConnectTimer = undefined
+		if (this.chatPruneTimer) clearInterval(this.chatPruneTimer)
+		this.chatPruneTimer = undefined
 		this.leader?.stop()
 		this.sync?.dispose()
 		this.remoteTaskMgr?.dispose()
@@ -738,6 +757,7 @@ export class VoleNetManager {
 					sessionId: this.chatSessionId(peerId),
 					role: entry.dir,
 					content: entry.text,
+					maxMessages: this.config.chatRetention?.maxMessages ?? DEFAULT_CHAT_MAX_MESSAGES,
 				})
 				return
 			} catch (err) {
@@ -803,6 +823,31 @@ export class VoleNetManager {
 			}
 		}
 		this.chatLog.delete(peerId)
+	}
+
+	/** Clear chat sessions (volenet:*) idle longer than the retention age cap. */
+	private async pruneChatSessions(): Promise<void> {
+		const maxAgeDays = this.config.chatRetention?.maxAgeDays ?? DEFAULT_CHAT_MAX_AGE_DAYS
+		if (!maxAgeDays || maxAgeDays <= 0) return
+		const listTool = this.toolRegistry?.get('session_list')
+		const clearTool = this.toolRegistry?.get('session_clear')
+		if (!listTool || !clearTool) return
+		try {
+			const res = (await listTool.execute({})) as {
+				sessions?: Array<{ sessionId: string; lastActive?: string | null }>
+			}
+			const cutoff = Date.now() - maxAgeDays * 86_400_000
+			for (const s of res.sessions ?? []) {
+				if (!s.sessionId.startsWith('volenet:')) continue
+				const last = s.lastActive ? Date.parse(s.lastActive) : 0
+				if (last && last < cutoff) {
+					await clearTool.execute({ sessionId: s.sessionId })
+					logger.info(`Pruned stale chat session (idle > ${maxAgeDays}d): ${s.sessionId}`)
+				}
+			}
+		} catch (err) {
+			logger.warn(`Chat retention prune failed: ${err instanceof Error ? err.message : String(err)}`)
+		}
 	}
 
 	/**

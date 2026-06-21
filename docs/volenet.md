@@ -350,7 +350,7 @@ The peer receives it framed as a peer message and runs it through its own Brain 
 
 ### Human-to-human — the dashboard VoleNet tab
 
-[`vole serve`](/dashboard)'s **VoleNet tab** lists connected peers and lets a **human** chat with another node directly. The message lands in that node's VoleNet tab for a person to answer — the Brain is never invoked, so there's **no LLM cost**. Transcripts persist via paw-session (per-peer `volenet:<peerId>` sessions). Useful for operators of different nodes to talk, or to exercise the mesh for free with the [mock brain](/paws-brain#mock-provider-testing).
+[`vole serve`](/dashboard)'s **VoleNet tab** lists connected peers and lets a **human** chat with another node directly. The message lands in that node's VoleNet tab for a person to answer — the Brain is never invoked, so there's **no LLM cost**. Transcripts persist via paw-session (per-peer `volenet:<peerId>` sessions), capped and pruned by [`net.chatRetention`](/configuration#chat-retention) (default: last 1000/peer, cleared after 90 days idle). Useful for operators of different nodes to talk, or to exercise the mesh for free with the [mock brain](/paws-brain#mock-provider-testing).
 
 ## Memory Sync
 
