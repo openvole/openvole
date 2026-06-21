@@ -382,6 +382,7 @@ Distributed agent networking — connect multiple OpenVole instances across mach
 | `instanceName` | `string` | `"vole"` | Human-readable name for this instance. |
 | `role` | `string` | `"peer"` | `"coordinator"`, `"worker"`, or `"peer"`. |
 | `port` | `number` | `9700` | WebSocket/HTTP port for peer communication. |
+| `hostname` | `string` | first non-internal IPv4 | Host advertised to peers in the discovery endpoint. Set to your public domain when using TLS so it matches the cert (env override: `VOLE_NET_HOSTNAME`). |
 | `keyPath` | `string` | `.openvole/net/vole_key` | Path to Ed25519 keypair. |
 | `peers` | `array` | `[]` | Peer connections (see below). |
 | `share` | `object` | — | What to share with peers. |
@@ -392,7 +393,7 @@ Distributed agent networking — connect multiple OpenVole instances across mach
 | `brainMode` | `string` | `"local"` | `"local"`: handle own tasks. `"loadbalance"`: route to least-loaded brain. |
 | `taskOverflow` | `string` | `"reject"` | `"reject"`: reject when queue full. `"forward"`: forward to least-loaded peer. |
 | `maxQueuedTasks` | `number` | `10` | Max queued tasks before overflow triggers. |
-| `tls` | `object` | — | TLS certificate for encrypted transport. |
+| `tls` | `object` | — | `{ cert, key }` file paths — enables `https`/`wss` transport. Pair with `hostname`. See [Transport encryption](/volenet#transport-encryption-tls). |
 | `discovery` | `string` | `"manual"` | Peer discovery method: `"manual"` or `"mdns"`. |
 
 #### Peer Configuration

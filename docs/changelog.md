@@ -6,6 +6,7 @@
 - **`net_message` core tool** — your Brain can message a peer agent; the peer's Brain replies. Gated by the receiver's `allowBrain` (off by default, even for `trust: "full"`)
 - **Human VoleNet-tab chat** — message a connected peer directly from the dashboard's VoleNet tab. Unlike `net_message`, human chat does **not** invoke any Brain; messages are signed, delivered, and persisted via paw-session (per-peer transcript), with an in-memory fallback
 - New paw-session `session_append` tool for appending a single entry to a session transcript (backs chat persistence)
+- **Chat retention** — VoleNet chat sessions are message-capped (default 1000 per peer) and age-pruned (default 90 days), configurable via `net.chatRetention`; backed by paw-session's new `trimToLast` / `maxMessages`
 
 ### VoleNet security hardening
 - All remote actions — `tool:call`, `tool:list`, and `task:delegate` — now require an Ed25519-signed message from an authorized peer; unverified messages are rejected. This closes an unauthenticated remote-tool-execution gap
@@ -13,6 +14,10 @@
 - New `net.publicJoin` — let unknown peers self-register over HTTP at a restricted guest trust level (never `"full"`), with peer cap, per-IP rate limiting, and optional manual approval. Off by default
 - **Hybrid post-quantum signatures** — messages are signed with Ed25519 **and** ML-DSA-65 (FIPS 204) when the runtime supports it (Node 24+ / OpenSSL 3.5+, native). Zero-touch migration: keypairs auto-upgrade on start and existing trust auto-upgrades when peers reconnect; both signatures are required between PQ-capable peers (downgrade-resistant), and Ed25519-only nodes stay interoperable
 - The `/volenet/message` endpoint is now rate-limited per source and body-size-capped (DoS mitigation)
+
+### Transport encryption (TLS)
+- **Native TLS** — set `net.tls.cert`/`net.tls.key` to serve VoleNet over `https`/`wss`; the discovery endpoint, WebSocket upgrade, and HTTP fallback all switch automatically
+- New **`net.hostname`** (and `VOLE_NET_HOSTNAME`) advertises a public domain that matches your certificate — required so peers connecting over TLS don't hit a name mismatch. See the [Transport encryption guide](/volenet#transport-encryption-tls)
 
 ### Mesh resilience
 - VoleNet releases its port cleanly on restart and retries the bind on `EADDRINUSE`
@@ -23,6 +28,11 @@
 
 ### Brain
 - paw-brain **mock provider** (`BRAIN_PROVIDER=mock`) for testing — deterministic replies via `BRAIN_MOCK_REPLY` or `BRAIN_MOCK_SCRIPT`
+
+### Onboarding & packaging
+- The CLI is now also runnable as **`openvole`** (bin alias), so `npx openvole` works without a global install and avoids the unrelated `vole` package on npm; install docs lead with `npm install -g openvole`
+- `vole serve` now hints to run `bash setup.sh` first when the directory isn't an initialized root
+- Ships with **paw-brain 2.2.0** (mock provider), **paw-session 2.2.0** (`session_append`, retention), and **@openvole/dashboard-server 0.3.0** (VoleNet tab)
 
 ## v4.0.1 (2026-06-17)
 

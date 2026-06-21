@@ -403,13 +403,55 @@ VoleNet **authenticates then authorizes** every remote action — see the [Secur
 - **Authorization, not just authentication** — a trusted peer still can't act unless granted: tool calls need `tool`/`full` trust **or** `share.tools: true` (honoring `allowTools`/`denyTools`); brain delegation needs `allowBrain: true`. Both **off by default**.
 - **Replay protection** — messages older than 60 seconds are rejected.
 - **Authorized keys** — only peers whose key is in `authorized_voles` can connect (`vole net trust`, or self-join on a public hub).
-- **Transport** — WebSocket preferred (persistent, bidirectional), HTTP POST fallback. **TLS** (`wss`) is optional via `tls.cert`/`tls.key`.
+- **Transport** — WebSocket preferred (persistent, bidirectional), HTTP POST fallback. Plaintext by default; turn on **TLS** (`https`/`wss`) for anything public — see [Transport encryption](#transport-encryption-tls).
 
 > [!WARNING]
-> Don't expose the VoleNet port to the public internet raw. Traffic is **signed but not encrypted** by default (eavesdropping), and the message endpoint has **no rate limit** (DoS). Keep it on a trusted network, behind a firewall allowlist or a VPN overlay (WireGuard/Tailscale), or enable TLS — and use `publicJoin` for intentional public meshes.
+> Don't expose the VoleNet port to the public internet raw. Traffic is **signed but not encrypted** by default (eavesdropping). The message endpoint *is* rate-limited (1200/min) and body-capped (1 MB), but for public exposure enable [TLS](#transport-encryption-tls) and use `publicJoin` for intentional public meshes — otherwise keep it on a trusted network, behind a firewall allowlist or a VPN overlay (WireGuard/Tailscale).
 
 > [!NOTE]
 > Signatures are **hybrid Ed25519 + ML-DSA-65** (post-quantum) when the runtime supports it (Node 24+ / OpenSSL 3.5+). Migration is **zero-touch**: keypairs auto-upgrade with a PQ key on start, and trust upgrades automatically when peers reconnect (the PQ key rides the Ed25519-signed discovery) — so existing meshes migrate with just a restart. Between PQ-capable peers both signatures are required (downgrade-resistant); older Ed25519-only nodes stay interoperable.
+
+## Transport encryption (TLS)
+
+Messages are **signed**, but by default the transport is **plaintext** (`http`/`ws`) — anyone on the path can read traffic (they can't forge it). For anything exposed to the public internet — **a public hub especially** — turn on TLS so the transport is `https`/`wss`.
+
+VoleNet terminates TLS itself: point it at a certificate and key, and the discovery endpoint, WebSocket upgrade, and HTTP fallback all switch to `https`/`wss` automatically.
+
+```jsonc
+"net": {
+  "enabled": true, "instanceName": "hub", "role": "coordinator", "port": 9710,
+  "hostname": "hub.example.com",            // MUST match the certificate's domain
+  "tls": {
+    "cert": "/etc/letsencrypt/live/hub.example.com/fullchain.pem",
+    "key":  "/etc/letsencrypt/live/hub.example.com/privkey.pem"
+  }
+}
+```
+
+> [!IMPORTANT]
+> The `hostname` is the host VoleNet **advertises** to peers. Without it the instance advertises its raw IP, which won't match a domain certificate — followers would reject the connection on a name mismatch. Set it to the same domain the cert was issued for. (Overridable at runtime with `VOLE_NET_HOSTNAME`.)
+
+**Get a certificate** (one-time — needs a domain pointed at your server's IP via an A record):
+
+```bash
+# Let's Encrypt, standalone — free, auto-trusted by all clients
+sudo certbot certonly --standalone -d hub.example.com
+# → /etc/letsencrypt/live/hub.example.com/{fullchain.pem,privkey.pem}
+```
+
+**Followers** then join over `https` (note the scheme):
+
+```bash
+vole net join https://hub.example.com:9710 --name your-name
+```
+
+**Firewall** — open only the VoleNet port (e.g. `9710`); the control-plane dashboard port (`3000`) stays local.
+
+> [!NOTE]
+> The cert is read **once at startup**. After `certbot` renews, restart the hub so it picks up the new cert (e.g. a certbot `--deploy-hook` that restarts the service).
+
+> [!WARNING]
+> A **self-signed** cert encrypts traffic but isn't trusted by clients (they'd reject it) and gives no protection against an active man-in-the-middle — fine for a closed LAN test, **not for a public hub**. For anything public, use a real CA cert as above. As an alternative to native TLS you can terminate TLS at a reverse proxy (Caddy/nginx) or wrap the mesh in a VPN overlay (WireGuard/Tailscale) and leave VoleNet on plaintext behind it.
 
 ## Public mesh hub
 
@@ -444,7 +486,8 @@ Enable it on the hub's space config:
 
 **Security:** guests are never `full`; pair `publicJoin` with `"demo": true` so the hub's config
 can't be edited from the dashboard, and keep `allowBrain: false` unless you intend to pay for
-guests' LLM usage.
+guests' LLM usage. For a public hub, also turn on [TLS](#transport-encryption-tls) so join requests
+and chat aren't sent in the clear.
 
 ### Joining a hub (followers)
 

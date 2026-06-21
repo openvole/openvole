@@ -42,6 +42,14 @@ export interface VoleNetConfig {
 	instanceName?: string
 	role?: 'coordinator' | 'worker' | 'peer'
 	port?: number
+	/**
+	 * Hostname this instance advertises to peers (the host in its discovery endpoint).
+	 * Defaults to the first non-internal IPv4 address. Set this to your public domain
+	 * (e.g. "hub.example.com") when running with TLS so the advertised endpoint matches
+	 * the certificate — otherwise peers connecting over wss/https hit a name mismatch.
+	 * Overridable at runtime via the VOLE_NET_HOSTNAME env var.
+	 */
+	hostname?: string
 	keyPath?: string
 	peers?: Array<{
 		url: string
@@ -1169,6 +1177,9 @@ export class VoleNetManager {
 	}
 
 	private getHostname(): string {
+		// Explicit override wins — required for TLS so the advertised host matches the cert.
+		const override = this.config.hostname ?? process.env.VOLE_NET_HOSTNAME
+		if (override?.trim()) return override.trim()
 		const nets = os.networkInterfaces()
 		if (!nets) return 'localhost'
 		// Find first non-internal IPv4 address

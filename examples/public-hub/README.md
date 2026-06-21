@@ -26,15 +26,41 @@ echo 'GEMINI_API_KEY=your-key' >> spaces/hub/.env
 vole serve
 ```
 
-Expose the **VoleNet port `9700`** to the internet (the dashboard on `3000` can stay local).
+Expose the **VoleNet port `9710`** to the internet (the dashboard on `3000` can stay local).
 Watch peers arrive with `vole net peers`.
+
+## Encrypt the transport (TLS)
+
+For a real public hub, turn on TLS so joins and chat aren't sent in the clear. Point a domain at
+your server, get a certificate, and add `hostname` + `tls` to `spaces/hub/vole.config.json` → `net`:
+
+```bash
+sudo certbot certonly --standalone -d hub.example.com   # free, auto-trusted cert
+```
+
+```jsonc
+"net": {
+  "enabled": true, "instanceName": "hub", "role": "coordinator", "port": 9710,
+  "hostname": "hub.example.com",   // must match the cert domain
+  "tls": {
+    "cert": "/etc/letsencrypt/live/hub.example.com/fullchain.pem",
+    "key":  "/etc/letsencrypt/live/hub.example.com/privkey.pem"
+  },
+  "publicJoin": { "enabled": true, "trustLevel": "tool", "allowBrain": false }
+}
+```
+
+Followers then join over `https`. Full guide: [Transport encryption](https://openvole.github.io/openvole/volenet#transport-encryption-tls).
 
 ## Join the hub (followers)
 
 From a space that has **its own brain** (your own LLM key):
 
 ```bash
-vole net join http://YOUR_HUB_HOST:9700 --name your-name
+# plaintext hub
+vole net join http://YOUR_HUB_HOST:9710 --name your-name
+# TLS hub
+vole net join https://hub.example.com:9710 --name your-name
 ```
 
 This registers your public key with the hub, trusts the hub back, and adds it as a peer in your
