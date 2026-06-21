@@ -481,10 +481,10 @@ vole net status              # Show VoleNet status (instance, leader, peers, too
 
 ```bash
 # Coordinator (brain) — run inside its space directory
-npx vole net init coordinator
+vole net init coordinator
 
 # Worker (shell) — run inside its space directory
-npx vole net init worker
+vole net init worker
 ```
 
 > [!NOTE]
@@ -494,16 +494,16 @@ npx vole net init worker
 
 ```bash
 # On coordinator
-npx vole net show-key
+vole net show-key
 # Copy the output: vole-ed25519 AAAA... coordinator
 
 # On worker — paste coordinator's key
-npx vole net trust "vole-ed25519 AAAA... coordinator"
+vole net trust "vole-ed25519 AAAA... coordinator"
 
 # On worker
-npx vole net show-key
+vole net show-key
 # Copy output, paste on coordinator
-npx vole net trust "vole-ed25519 BBBB... worker"
+vole net trust "vole-ed25519 BBBB... worker"
 ```
 
 ### 3. Configure
@@ -545,10 +545,10 @@ Worker `vole.config.json`:
 
 ```bash
 # Terminal 1
-cd coordinator && npx vole serve
+cd coordinator && vole serve
 
 # Terminal 2
-cd worker && npx vole serve
+cd worker && vole serve
 ```
 
 The coordinator's Brain can now call `shell_exec` — the call routes to the worker transparently.

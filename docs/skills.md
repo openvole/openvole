@@ -38,14 +38,14 @@ This keeps the context window lean — only relevant skills are loaded.
 [ClawHub](https://clawhub.ai) has 13,000+ community skills:
 
 ```bash
-npx vole clawhub install summarize
-npx vole clawhub search email
+vole clawhub install summarize
+vole clawhub search email
 ```
 
 ### Create Local Skills
 
 ```bash
-npx vole skill create email-triage
+vole skill create email-triage
 ```
 
 This creates a new skill directory in `.openvole/skills/email-triage/` with a template `SKILL.md`.
@@ -53,9 +53,9 @@ This creates a new skill directory in `.openvole/skills/email-triage/` with a te
 ### Manage Skills
 
 ```bash
-npx vole skill list          # List loaded skills
-npx vole skill add my-skill  # Add a local skill
-npx vole skill remove my-skill
+vole skill list          # List loaded skills
+vole skill add my-skill  # Add a local skill
+vole skill remove my-skill
 ```
 
 ## OpenClaw Compatibility

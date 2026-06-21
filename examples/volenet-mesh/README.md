@@ -34,7 +34,7 @@ on other nodes — transparently, over [VoleNet](https://openvole.github.io/open
 
 ## Prerequisites
 
-- OpenVole installed (`npm i -g openvole`, or use `npx vole`).
+- OpenVole installed (`npm i -g openvole`, or `npx openvole`).
 - A model for the coordinator: a cloud key, or a local Ollama (then nothing leaves your machine).
 
 ## Run it

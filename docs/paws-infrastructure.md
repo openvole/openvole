@@ -9,7 +9,7 @@ Infrastructure Paws provide lifecycle hooks and internal services. Unlike Tool P
 Persistent memory with source-isolated daily logs and BM25 ranked search.
 
 ```bash
-npx vole paw add @openvole/paw-memory
+vole paw add @openvole/paw-memory
 ```
 
 **Hooks**: `bootstrap`, `observe`
@@ -33,7 +33,7 @@ Memory is scoped by task source — CLI conversations, channel messages, and hea
 Conversation continuity across messages. Auto-expiring transcripts per session ID.
 
 ```bash
-npx vole paw add @openvole/paw-session
+vole paw add @openvole/paw-session
 ```
 
 **Hooks**: `bootstrap`, `observe`
@@ -54,7 +54,7 @@ The session paw loads previous messages from the current session during bootstra
 Context compaction — summarizes old messages when context grows too large.
 
 ```bash
-npx vole paw add @openvole/paw-compact
+vole paw add @openvole/paw-compact
 ```
 
 **Hooks**: `compact`
@@ -75,7 +75,7 @@ No LLM needed — pure extraction. Fast and free.
 The legacy single-engine web **control panel** — monitor *and operate* one agent from your browser: paws (with health), tools, skills, tasks, schedules, and live events, plus editing config and identity files and restarting the engine.
 
 ```bash
-npx vole paw add @openvole/paw-dashboard
+vole paw add @openvole/paw-dashboard
 ```
 
 | Env Variable | Purpose |

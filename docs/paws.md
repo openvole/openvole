@@ -7,9 +7,9 @@ All paws live in [PawHub](https://github.com/openvole/pawhub) and are installed 
 ## Installing Paws
 
 ```bash
-npx vole paw add @openvole/paw-telegram
-npx vole paw add @openvole/paw-browser
-npx vole paw list
+vole paw add @openvole/paw-telegram
+vole paw add @openvole/paw-browser
+vole paw list
 ```
 
 ## Build an Embedded App

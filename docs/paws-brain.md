@@ -7,7 +7,7 @@ The Brain is a Paw — the core is LLM-ignorant. Swap models by swapping Brain P
 Use `@openvole/paw-brain` — a single unified brain paw that supports all LLM providers:
 
 ```bash
-npx vole paw add @openvole/paw-brain
+vole paw add @openvole/paw-brain
 ```
 
 Set the provider via `BRAIN_PROVIDER` env var, or let it auto-detect from available API keys:

@@ -24,9 +24,9 @@ A fresh OpenVole installation has zero tools, zero skills, zero opinions. This i
 ## Quick Start
 
 ```bash
+npm install -g openvole          # package is "openvole"; gives you the `vole` command
 mkdir my-agents && cd my-agents
-npm install openvole
-npx vole serve
+vole serve
 ```
 
 Open the dashboard, click **New space**, and the onboarding installs the essential paws (brain, session, memory, compact, shell). Each space has its own `vole.config.json`:
@@ -65,7 +65,7 @@ OLLAMA_MODEL=qwen3:latest
 Run and manage your agents from the control-plane dashboard:
 
 ```bash
-npx vole serve
+vole serve
 ```
 
 This opens a dashboard at `http://localhost:3000` that manages all your agents ("spaces") — create, start, stop, configure, and chat with each from the browser.
@@ -141,7 +141,7 @@ Perceive → Think → Act → Observe → loop
 **Paws are tool providers.** They connect OpenVole to the outside world — APIs, databases, browsers, messaging platforms. Each Paw runs in an isolated subprocess with capability-based permissions.
 
 ```bash
-npx vole paw add @openvole/paw-telegram
+vole paw add @openvole/paw-telegram
 ```
 
 ### Skills
@@ -149,7 +149,7 @@ npx vole paw add @openvole/paw-telegram
 **Skills are behavioral recipes.** A skill is a folder with a `SKILL.md` file — no code, no build step. Compatible with [ClawHub](https://clawhub.ai) (13,000+ skills).
 
 ```bash
-npx vole clawhub install summarize
+vole clawhub install summarize
 ```
 
 ```markdown
@@ -317,7 +317,7 @@ When context grows too large, `paw-compact` summarizes old messages while preser
 Run `vole serve` to start the **control-plane dashboard** — one web server that manages all your agents ("spaces") from the browser:
 
 ```bash
-npx vole serve   # http://localhost:3000
+vole serve   # http://localhost:3000
 ```
 
 Each space is an isolated agent with its own config, paws, identity, and data. The dashboard has Overview, Chat, Apps, Config, and Identity tabs, plus a space switcher to create / start / stop / delete spaces. Any paw can also contribute an embedded UI panel (declared via a `panel` field in its manifest) that appears under the **Apps** tab — no per-paw servers, no extra ports.
@@ -377,25 +377,25 @@ All paws live in [PawHub](https://github.com/openvole/pawhub) and are installed 
 Install from npm:
 
 ```bash
-npx vole paw add @openvole/paw-telegram
-npx vole paw add @openvole/paw-browser
+vole paw add @openvole/paw-telegram
+vole paw add @openvole/paw-browser
 ```
 
 ## CLI
 
 ```bash
-npx vole serve                             # Control-plane dashboard for all your agents (spaces)
-npx vole space create <name>               # Create a new space (agent)
+vole serve                             # Control-plane dashboard for all your agents (spaces)
+vole space create <name>               # Create a new space (agent)
 
-npx vole paw add @openvole/paw-telegram    # Install a Paw
-npx vole paw list                          # List loaded Paws
+vole paw add @openvole/paw-telegram    # Install a Paw
+vole paw list                          # List loaded Paws
 
-npx vole skill create email-triage         # Create a local skill
-npx vole clawhub install summarize         # Install from ClawHub
-npx vole clawhub search email              # Search ClawHub
+vole skill create email-triage         # Create a local skill
+vole clawhub install summarize         # Install from ClawHub
+vole clawhub search email              # Search ClawHub
 
-npx vole tool list                         # List all tools
-npx vole tool call list_schedules          # Call a tool directly (no Brain)
+vole tool list                         # List all tools
+vole tool call list_schedules          # Call a tool directly (no Brain)
 ```
 
 ## Security
@@ -433,7 +433,7 @@ Single `vole.config.json` — plain JSON, no imports:
 OpenVole loads [OpenClaw](https://openclaw.ai) skills natively — same `SKILL.md` format, same `metadata.openclaw.requires` fields. Install directly from [ClawHub](https://clawhub.ai):
 
 ```bash
-npx vole clawhub install summarize
+vole clawhub install summarize
 ```
 
 ## .openvole Directory Structure

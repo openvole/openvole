@@ -6,12 +6,12 @@ Channel Paws receive messages from external platforms and route them into the ag
 
 | Paw | Platform | Install |
 |-----|----------|---------|
-| `paw-telegram` | Telegram | `npx vole paw add @openvole/paw-telegram` |
-| `paw-slack` | Slack | `npx vole paw add @openvole/paw-slack` |
-| `paw-discord` | Discord | `npx vole paw add @openvole/paw-discord` |
-| `paw-whatsapp` | WhatsApp | `npx vole paw add @openvole/paw-whatsapp` |
-| `paw-msteams` | Microsoft Teams | `npx vole paw add @openvole/paw-msteams` |
-| `paw-voice-call` | Voice calls (Twilio) | `npx vole paw add @openvole/paw-voice-call` |
+| `paw-telegram` | Telegram | `vole paw add @openvole/paw-telegram` |
+| `paw-slack` | Slack | `vole paw add @openvole/paw-slack` |
+| `paw-discord` | Discord | `vole paw add @openvole/paw-discord` |
+| `paw-whatsapp` | WhatsApp | `vole paw add @openvole/paw-whatsapp` |
+| `paw-msteams` | Microsoft Teams | `vole paw add @openvole/paw-msteams` |
+| `paw-voice-call` | Voice calls (Twilio) | `vole paw add @openvole/paw-voice-call` |
 
 ## How Channels Work
 

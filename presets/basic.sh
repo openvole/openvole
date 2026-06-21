@@ -78,6 +78,6 @@ echo "✅ OpenVole (basic) ready — space \"$SPACE_NAME\" with Brain + Memory +
 echo ""
 echo "   Make sure your LLM is reachable (Ollama by default), then start the dashboard:"
 echo ""
-echo "       cd $ROOT && npx vole serve"
+echo "       cd $ROOT && npx openvole serve"
 echo ""
 echo "   Open http://localhost:3000, select the \"$SPACE_NAME\" space, and Start it."

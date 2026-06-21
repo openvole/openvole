@@ -10,16 +10,14 @@ This guide walks you through creating your first OpenVole agent in under five mi
 
 ## Installation
 
-Create a new directory and install OpenVole:
+Install OpenVole globally — this puts the `vole` command on your PATH:
 
 ```bash
-mkdir my-agent && cd my-agent
-npm init -y
-npm install openvole
+npm install -g openvole
 ```
 
-::: tip Global Install
-For easier access, install globally with `npm install -g openvole` — then use `vole` directly instead of `npx vole`.
+::: warning
+The npm package is **`openvole`** (it provides the `vole` command). Don't run `npx vole` or `npm i vole` — `vole` is an unrelated package. To run without a global install, use `npx openvole <command>`.
 :::
 
 ## Start the Dashboard
@@ -28,7 +26,7 @@ OpenVole runs as a server. Pick a directory to hold your agents and start the **
 
 ```bash
 mkdir ~/agents && cd ~/agents
-npx vole serve
+vole serve
 ```
 
 An empty directory becomes a new OpenVole **root**. `vole serve` prints the resolved root and a URL (default `http://localhost:3000`); set `VOLE_HOME` to pin a fixed root from anywhere. Then click **New space** to create your first agent — the onboarding step installs the essential paws for you. See the [Dashboard guide](/dashboard).
@@ -38,8 +36,8 @@ An empty directory becomes a new OpenVole **root**. `vole serve` prints the reso
 The new-space onboarding installs the essentials. To add more paws, use the space's **Config** tab — or run `vole paw add` inside the space's directory:
 
 ```bash
-npx vole paw add @openvole/paw-brain
-npx vole paw add @openvole/paw-memory
+vole paw add @openvole/paw-brain
+vole paw add @openvole/paw-memory
 ```
 
 ## Configure
@@ -82,13 +80,13 @@ OLLAMA_MODEL=qwen3:latest
 The primary way to run and operate OpenVole is the **control-plane dashboard** — one web server that manages all your agents from the browser:
 
 ```bash
-npx vole serve
+vole serve
 ```
 
 This opens a dashboard at `http://localhost:3000` where you create, start, stop, and chat with your agents — each an isolated "space" with its own config, paws, and data. See the [Dashboard guide](/dashboard) for spaces, root resolution, and embedded Apps panels.
 
 ::: tip Where does it run?
-`vole serve` uses the current directory as your OpenVole root if it's empty (or already a root). Pick a home for your agents and run it there — e.g. `mkdir ~/agents && cd ~/agents && npx vole serve`. Set `VOLE_HOME` to pin a fixed root from anywhere.
+`vole serve` uses the current directory as your OpenVole root if it's empty (or already a root). Pick a home for your agents and run it there — e.g. `mkdir ~/agents && cd ~/agents && vole serve`. Set `VOLE_HOME` to pin a fixed root from anywhere.
 :::
 
 ## Presets

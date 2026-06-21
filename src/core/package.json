@@ -6,7 +6,8 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "bin": {
-    "vole": "./dist/cli.js"
+    "vole": "./dist/cli.js",
+    "openvole": "./dist/cli.js"
   },
   "exports": {
     ".": {

@@ -9,7 +9,7 @@ Tool Paws provide capabilities the Brain can call during the Act phase. Each run
 Browser automation via Puppeteer. Navigate pages, click elements, extract content, take screenshots.
 
 ```bash
-npx vole paw add @openvole/paw-browser
+vole paw add @openvole/paw-browser
 ```
 
 Requires `childProcess: true` (Puppeteer spawns Chrome).
@@ -19,7 +19,7 @@ Requires `childProcess: true` (Puppeteer spawns Chrome).
 Shell command execution. Run arbitrary commands in the system shell.
 
 ```bash
-npx vole paw add @openvole/paw-shell
+vole paw add @openvole/paw-shell
 ```
 
 | Env Variable | Purpose |
@@ -33,7 +33,7 @@ Requires `childProcess: true`.
 File system operations — read, write, list, delete files and directories.
 
 ```bash
-npx vole paw add @openvole/paw-filesystem
+vole paw add @openvole/paw-filesystem
 ```
 
 ### paw-mcp
@@ -41,7 +41,7 @@ npx vole paw add @openvole/paw-filesystem
 Bridge MCP (Model Context Protocol) servers into the tool registry. MCP tools appear alongside Paw tools — the Brain doesn't know the difference.
 
 ```bash
-npx vole paw add @openvole/paw-mcp
+vole paw add @openvole/paw-mcp
 ```
 
 - MCP tools are **auto-discovered at runtime** as MCP servers connect
@@ -70,7 +70,7 @@ Example `.openvole/paws/paw-mcp/servers.json`:
 Email sending and reading via SMTP/IMAP.
 
 ```bash
-npx vole paw add @openvole/paw-email
+vole paw add @openvole/paw-email
 ```
 
 | Env Variable | Purpose |
@@ -85,7 +85,7 @@ npx vole paw add @openvole/paw-email
 Email sending via the Resend API — simpler alternative to SMTP.
 
 ```bash
-npx vole paw add @openvole/paw-resend
+vole paw add @openvole/paw-resend
 ```
 
 | Env Variable | Purpose |
@@ -97,7 +97,7 @@ npx vole paw add @openvole/paw-resend
 GitHub integration — create issues, PRs, read repos, manage workflows.
 
 ```bash
-npx vole paw add @openvole/paw-github
+vole paw add @openvole/paw-github
 ```
 
 | Env Variable | Purpose |
@@ -109,7 +109,7 @@ npx vole paw add @openvole/paw-github
 Google Calendar integration — create events, list upcoming events, manage calendars.
 
 ```bash
-npx vole paw add @openvole/paw-calendar
+vole paw add @openvole/paw-calendar
 ```
 
 | Env Variable | Purpose |
@@ -121,7 +121,7 @@ npx vole paw add @openvole/paw-calendar
 Text-to-speech via ElevenLabs or OpenAI.
 
 ```bash
-npx vole paw add @openvole/paw-tts
+vole paw add @openvole/paw-tts
 ```
 
 | Env Variable | Purpose |
@@ -134,7 +134,7 @@ npx vole paw add @openvole/paw-tts
 Speech-to-text via OpenAI Whisper.
 
 ```bash
-npx vole paw add @openvole/paw-stt
+vole paw add @openvole/paw-stt
 ```
 
 | Env Variable | Purpose |
@@ -146,7 +146,7 @@ npx vole paw add @openvole/paw-stt
 Desktop automation — mouse control, keyboard input, screen capture. Enables the agent to interact with desktop applications.
 
 ```bash
-npx vole paw add @openvole/paw-computer
+vole paw add @openvole/paw-computer
 ```
 
 Requires `childProcess: true` and `--allow-addons` for native addon support.

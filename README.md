@@ -22,7 +22,7 @@
 ## What is OpenVole?
 
 OpenVole is a **self-hosted server for running and managing AI agents**. One command —
-`npx vole serve` — gives you a dashboard where you create, configure, and chat with a whole
+`vole serve` — gives you a dashboard where you create, configure, and chat with a whole
 fleet of agents, each isolated with its own tools, memory, and identity.
 
 - **Model-agnostic** — Gemini, OpenAI, Claude, xAI, or local Ollama. Your choice, swappable per agent.
@@ -37,9 +37,9 @@ opinions: you assemble exactly the agent you want.
 ## Quick start
 
 ```bash
+npm install -g openvole          # package is "openvole"; gives you the `vole` command
 mkdir my-agents && cd my-agents
-npm install openvole
-npx vole serve
+vole serve
 ```
 
 Open the dashboard at `http://localhost:3000`, click **New space**, and onboarding installs the
@@ -56,7 +56,7 @@ GEMINI_API_KEY=your-api-key
 curl -fsSL https://raw.githubusercontent.com/openvole/openvole/main/presets/basic.sh | bash
 ```
 
-> Install globally (`npm install -g openvole`) to use `vole` directly instead of `npx vole`.
+> The npm package is **`openvole`** (it provides the `vole` command). To run without installing: `npx openvole <command>` — **not** `npx vole`, which is an unrelated package.
 
 Full walkthrough → [Getting Started](https://openvole.github.io/openvole/getting-started).
 
@@ -120,7 +120,7 @@ sandboxed by default:
 - **Infrastructure** · Memory (hybrid semantic + keyword), Session, Compact
 
 ```bash
-npx vole paw add @openvole/paw-telegram
+vole paw add @openvole/paw-telegram
 ```
 
 Full list & docs → [Paws](https://openvole.github.io/openvole/paws).

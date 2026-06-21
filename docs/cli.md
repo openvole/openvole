@@ -3,7 +3,7 @@
 The `vole` CLI is the primary interface for managing your OpenVole agent.
 
 ::: tip
-Install globally with `npm install -g openvole` to use `vole` directly instead of `npx vole`.
+Install with `npm install -g openvole` (the package is **openvole**; the command is `vole`). To run without installing: `npx openvole <command>` — **not** `npx vole`, which is an unrelated package.
 :::
 
 ::: warning Removed commands
@@ -17,7 +17,7 @@ The single-engine commands `vole init`, `vole start`, and `vole run` have been r
 Start the **control-plane dashboard** — one web server that manages all your agents ("spaces") from the browser. This is the primary way to run and operate OpenVole.
 
 ```bash
-npx vole serve
+vole serve
 ```
 
 By default it listens on `http://localhost:3000`; set `VOLE_DASHBOARD_PORT` to change the port.
@@ -31,10 +31,10 @@ By default it listens on `http://localhost:3000`; set `VOLE_DASHBOARD_PORT` to c
 
 ```bash
 # Use a dedicated directory as your root
-mkdir ~/agents && cd ~/agents && npx vole serve
+mkdir ~/agents && cd ~/agents && vole serve
 
 # Or pin a fixed root from anywhere
-VOLE_HOME=~/agents npx vole serve
+VOLE_HOME=~/agents vole serve
 ```
 
 > [!NOTE]
@@ -58,9 +58,9 @@ Manage spaces from the CLI. (The dashboard's space switcher does the same things
 | `vole space remove <name> [--purge]` | Remove a space. Add `--purge` to delete its files on disk. |
 
 ```bash
-npx vole space create research
-npx vole space start research
-npx vole space list
+vole space create research
+vole space start research
+vole space list
 ```
 
 > [!WARNING]
@@ -73,8 +73,8 @@ npx vole space list
 Install a Paw from npm and add it to your config.
 
 ```bash
-npx vole paw add @openvole/paw-telegram
-npx vole paw add @openvole/paw-browser
+vole paw add @openvole/paw-telegram
+vole paw add @openvole/paw-browser
 ```
 
 ### `vole paw remove`
@@ -82,7 +82,7 @@ npx vole paw add @openvole/paw-browser
 Remove an installed Paw.
 
 ```bash
-npx vole paw remove @openvole/paw-telegram
+vole paw remove @openvole/paw-telegram
 ```
 
 ### `vole paw list`
@@ -90,7 +90,7 @@ npx vole paw remove @openvole/paw-telegram
 List all loaded Paws.
 
 ```bash
-npx vole paw list
+vole paw list
 ```
 
 ### `vole paw create`
@@ -98,7 +98,7 @@ npx vole paw list
 Scaffold a new Paw project.
 
 ```bash
-npx vole paw create my-custom-paw
+vole paw create my-custom-paw
 ```
 
 ## Skill Management
@@ -108,7 +108,7 @@ npx vole paw create my-custom-paw
 Add a local skill.
 
 ```bash
-npx vole skill add my-skill
+vole skill add my-skill
 ```
 
 ### `vole skill remove`
@@ -116,7 +116,7 @@ npx vole skill add my-skill
 Remove a skill.
 
 ```bash
-npx vole skill remove my-skill
+vole skill remove my-skill
 ```
 
 ### `vole skill list`
@@ -124,7 +124,7 @@ npx vole skill remove my-skill
 List all loaded skills.
 
 ```bash
-npx vole skill list
+vole skill list
 ```
 
 ### `vole skill create`
@@ -132,7 +132,7 @@ npx vole skill list
 Create a new local skill with a template SKILL.md.
 
 ```bash
-npx vole skill create email-triage
+vole skill create email-triage
 ```
 
 ## ClawHub
@@ -142,7 +142,7 @@ npx vole skill create email-triage
 Install a skill from [ClawHub](https://clawhub.ai).
 
 ```bash
-npx vole clawhub install summarize
+vole clawhub install summarize
 ```
 
 ### `vole clawhub remove`
@@ -150,7 +150,7 @@ npx vole clawhub install summarize
 Remove an installed ClawHub skill.
 
 ```bash
-npx vole clawhub remove summarize
+vole clawhub remove summarize
 ```
 
 ### `vole clawhub search`
@@ -158,7 +158,7 @@ npx vole clawhub remove summarize
 Search for skills on ClawHub.
 
 ```bash
-npx vole clawhub search email
+vole clawhub search email
 ```
 
 ## Tool Commands
@@ -168,13 +168,13 @@ npx vole clawhub search email
 List all registered tools (from manifests, no paw spawning).
 
 ```bash
-npx vole tool list
+vole tool list
 ```
 
 Use `--live` to boot the full engine and discover MCP tools:
 
 ```bash
-npx vole tool list --live
+vole tool list --live
 ```
 
 ### `vole tool call`
@@ -182,7 +182,7 @@ npx vole tool list --live
 Call a tool directly without going through the Brain. Useful for debugging.
 
 ```bash
-npx vole tool call list_schedules
+vole tool call list_schedules
 ```
 
 ## Utility Commands
@@ -192,7 +192,7 @@ npx vole tool call list_schedules
 Upgrade OpenVole and all installed paws to their latest versions.
 
 ```bash
-npx vole upgrade
+vole upgrade
 ```
 
 ### `vole --version`
@@ -200,5 +200,5 @@ npx vole upgrade
 Show the installed OpenVole version.
 
 ```bash
-npx vole --version
+vole --version
 ```
