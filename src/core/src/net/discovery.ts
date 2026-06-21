@@ -36,7 +36,10 @@ export class VoleNetDiscovery {
 	private transport: VoleNetTransport
 	private config: DiscoveryConfig
 	private healthTimer: ReturnType<typeof setInterval> | undefined
-	private authorizedPeers = new Map<string, { publicKey: KeyObject; name: string }>()
+	private authorizedPeers = new Map<
+		string,
+		{ publicKey: KeyObject; name: string; pqPublicKey?: KeyObject }
+	>()
 	private onPeerChanged?: () => void
 
 	constructor(transport: VoleNetTransport, config: DiscoveryConfig) {
@@ -160,7 +163,7 @@ export class VoleNetDiscovery {
 	verifyMessageFrom(message: VoleNetMessage): boolean {
 		const authPeer = this.authorizedPeers.get(message.from)
 		if (!authPeer) return false
-		return verifyMessage(message, authPeer.publicKey).valid
+		return verifyMessage(message, authPeer.publicKey, authPeer.pqPublicKey).valid
 	}
 
 	/**
@@ -186,7 +189,7 @@ export class VoleNetDiscovery {
 
 		// Verify message signature
 		const authPeer = this.authorizedPeers.get(parsed.instanceId)!
-		const result = verifyMessage(message, authPeer.publicKey)
+		const result = verifyMessage(message, authPeer.publicKey, authPeer.pqPublicKey)
 		if (!result.valid) {
 			logger.warn(`Message verification failed from ${info.name}: ${result.error}`)
 			return

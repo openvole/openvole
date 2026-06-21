@@ -19,7 +19,7 @@ import {
 	trustPeer,
 } from './keys.js'
 import { VoleNetLeader } from './leader.js'
-import { type RemoteToolInfo, type VoleNetInstance, createMessage } from './protocol.js'
+import { type RemoteToolInfo, type VoleNetInstance, createMessage, setPqSigningKey } from './protocol.js'
 import { RemoteTaskManager } from './remote-task.js'
 import { type SyncConfig, VoleNetSync } from './sync.js'
 import { type TransportConfig, VoleNetTransport } from './transport.js'
@@ -174,6 +174,8 @@ export class VoleNetManager {
 
 		logger.info(`Instance ID: ${this.keyPair.instanceId}`)
 		logger.info(`Public key: ${this.keyPair.publicKeyString}`)
+		// Activate the post-quantum signing key (when this keypair has one) for hybrid signatures.
+		setPqSigningKey(this.keyPair.pqPrivateKey)
 
 		// Start transport
 		const port = this.config.port ?? 9700
@@ -706,6 +708,7 @@ export class VoleNetManager {
 		this.discovery = null
 		this.transport = null
 		this.started = false
+		setPqSigningKey(undefined)
 		;(globalThis as any).__volenet__ = undefined
 
 		logger.info('VoleNet stopped')

@@ -19,6 +19,28 @@ export interface VoleKeyPair {
 	privateKey: crypto.KeyObject
 	publicKeyString: string
 	instanceId: string
+	/** Post-quantum (ML-DSA-65) keys — present when the runtime supports it (OpenSSL 3.5+ / Node 24+). */
+	pqPublicKey?: crypto.KeyObject
+	pqPrivateKey?: crypto.KeyObject
+}
+
+/** Generate an ML-DSA-65 keypair if the runtime supports it, else null. */
+function generateMlDsa(): crypto.KeyPairKeyObjectResult | null {
+	try {
+		// 'ml-dsa-65' needs OpenSSL 3.5+; cast since older @types/node lack the literal.
+		return crypto.generateKeyPairSync('ml-dsa-65' as 'ed25519')
+	} catch {
+		return null
+	}
+}
+
+/** Parse an ML-DSA-65 SPKI public key from base64, or null if unsupported/invalid. */
+function parseMlDsaPublic(b64: string): crypto.KeyObject | undefined {
+	try {
+		return crypto.createPublicKey({ key: Buffer.from(b64, 'base64'), format: 'der', type: 'spki' })
+	} catch {
+		return undefined
+	}
 }
 
 /**
@@ -34,7 +56,20 @@ export async function generateKeyPair(netDir: string, instanceName: string): Pro
 	const privatePem = privateKey.export({ type: 'pkcs8', format: 'pem' }) as string
 	const publicRaw = publicKey.export({ type: 'spki', format: 'der' })
 	const publicB64 = Buffer.from(publicRaw).toString('base64')
-	const publicKeyString = `vole-ed25519 ${publicB64} ${instanceName}`
+	// Post-quantum (ML-DSA-65) keypair — best effort; appended to the key string as a 4th token.
+	const pq = generateMlDsa()
+	let pqB64 = ''
+	if (pq) {
+		pqB64 = Buffer.from(pq.publicKey.export({ type: 'spki', format: 'der' })).toString('base64')
+		await fs.writeFile(
+			path.join(netDir, 'vole_key.pq'),
+			pq.privateKey.export({ type: 'pkcs8', format: 'pem' }) as string,
+			{ mode: 0o600 },
+		)
+	}
+	const publicKeyString = pq
+		? `vole-ed25519 ${publicB64} ${instanceName} ${pqB64}`
+		: `vole-ed25519 ${publicB64} ${instanceName}`
 
 	// Save private key (owner-only permissions)
 	const privateKeyPath = path.join(netDir, 'vole_key')
@@ -53,9 +88,18 @@ export async function generateKeyPair(netDir: string, instanceName: string): Pro
 	}
 
 	const instanceId = deriveInstanceId(publicB64)
-	logger.info(`Generated keypair — instance ID: ${instanceId}`)
+	logger.info(
+		`Generated keypair — instance ID: ${instanceId}${pq ? ' (hybrid Ed25519 + ML-DSA)' : ' (Ed25519)'}`,
+	)
 
-	return { publicKey, privateKey, publicKeyString, instanceId }
+	return {
+		publicKey,
+		privateKey,
+		publicKeyString,
+		instanceId,
+		pqPublicKey: pq?.publicKey,
+		pqPrivateKey: pq?.privateKey,
+	}
 }
 
 /**
@@ -80,7 +124,43 @@ export async function loadKeyPair(netDir: string): Promise<VoleKeyPair | null> {
 
 		const instanceId = deriveInstanceId(parts[1])
 
-		return { publicKey, privateKey, publicKeyString, instanceId }
+		// Load the post-quantum key if present; auto-upgrade legacy keypairs when supported.
+		let pqPrivateKey: crypto.KeyObject | undefined
+		let pqPublicKey: crypto.KeyObject | undefined
+		let finalPublicKeyString = publicKeyString
+		try {
+			const pqPem = await fs.readFile(path.join(netDir, 'vole_key.pq'), 'utf-8')
+			pqPrivateKey = crypto.createPrivateKey(pqPem)
+			pqPublicKey = crypto.createPublicKey(pqPrivateKey)
+		} catch {
+			const pq = generateMlDsa()
+			if (pq) {
+				pqPrivateKey = pq.privateKey
+				pqPublicKey = pq.publicKey
+				await fs.writeFile(
+					path.join(netDir, 'vole_key.pq'),
+					pq.privateKey.export({ type: 'pkcs8', format: 'pem' }) as string,
+					{ mode: 0o600 },
+				)
+				if (parts.length < 4) {
+					const pqB64 = Buffer.from(pq.publicKey.export({ type: 'spki', format: 'der' })).toString(
+						'base64',
+					)
+					finalPublicKeyString = `vole-ed25519 ${parts[1]} ${parts[2] ?? instanceId.substring(0, 8)} ${pqB64}`
+					await fs.writeFile(path.join(netDir, 'vole_key.pub'), finalPublicKeyString + '\n', 'utf-8')
+					logger.info('Upgraded keypair with a post-quantum (ML-DSA) key')
+				}
+			}
+		}
+
+		return {
+			publicKey,
+			privateKey,
+			publicKeyString: finalPublicKeyString,
+			instanceId,
+			pqPublicKey,
+			pqPrivateKey,
+		}
 	} catch (err) {
 		if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
 			return null
@@ -117,6 +197,7 @@ export function parsePublicKey(keyString: string): {
 	publicKey: crypto.KeyObject
 	instanceId: string
 	name: string
+	pqPublicKey?: crypto.KeyObject
 } | null {
 	const parts = keyString.trim().split(' ')
 	if (parts[0] !== 'vole-ed25519' || parts.length < 2) return null
@@ -126,7 +207,9 @@ export function parsePublicKey(keyString: string): {
 		const publicKey = crypto.createPublicKey({ key: der, format: 'der', type: 'spki' })
 		const instanceId = deriveInstanceId(parts[1])
 		const name = parts[2] ?? instanceId.substring(0, 8)
-		return { publicKey, instanceId, name }
+		// Optional 4th token: ML-DSA-65 public key (hybrid). Ignored on runtimes without PQ.
+		const pqPublicKey = parts[3] ? parseMlDsaPublic(parts[3]) : undefined
+		return { publicKey, instanceId, name, pqPublicKey }
 	} catch {
 		return null
 	}
@@ -141,11 +224,15 @@ export async function loadAuthorizedVoles(netDir: string): Promise<
 		{
 			publicKey: crypto.KeyObject
 			name: string
+			pqPublicKey?: crypto.KeyObject
 		}
 	>
 > {
 	const authorizedPath = path.join(netDir, 'authorized_voles')
-	const trusted = new Map<string, { publicKey: crypto.KeyObject; name: string }>()
+	const trusted = new Map<
+		string,
+		{ publicKey: crypto.KeyObject; name: string; pqPublicKey?: crypto.KeyObject }
+	>()
 
 	try {
 		const content = await fs.readFile(authorizedPath, 'utf-8')
@@ -158,6 +245,7 @@ export async function loadAuthorizedVoles(netDir: string): Promise<
 				trusted.set(parsed.instanceId, {
 					publicKey: parsed.publicKey,
 					name: parsed.name,
+					pqPublicKey: parsed.pqPublicKey,
 				})
 			}
 		}

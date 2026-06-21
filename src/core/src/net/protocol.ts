@@ -10,6 +10,16 @@ import { sign, verify } from './keys.js'
 export const VOLENET_VERSION = 1
 export const MAX_MESSAGE_AGE_MS = 60_000 // reject messages older than 60s
 
+/**
+ * The local node's post-quantum (ML-DSA) signing key, set once at VoleNet start.
+ * Module-level because there is exactly one signing identity per process — this lets
+ * createMessage dual-sign without threading the key through every call site.
+ */
+let activePqSigningKey: KeyObject | undefined
+export function setPqSigningKey(key: KeyObject | undefined): void {
+	activePqSigningKey = key
+}
+
 export type VoleNetMessageType =
 	| 'ping'
 	| 'pong'
@@ -42,6 +52,7 @@ export interface VoleNetMessage {
 	to: string | '*' // target instance or broadcast
 	timestamp: number
 	signature: string // Ed25519 signature of payload
+	sigPq?: string // optional ML-DSA-65 (post-quantum) signature of the same canonical data
 	payload: unknown
 }
 
@@ -79,9 +90,10 @@ export function createMessage(
 	const id = crypto.randomUUID()
 	const timestamp = Date.now()
 
-	// Sign the canonical payload representation
+	// Sign the canonical payload representation (Ed25519, plus ML-DSA when available — hybrid).
 	const dataToSign = canonicalize(type, from, to, timestamp, payload)
 	const signature = sign(privateKey, dataToSign)
+	const sigPq = activePqSigningKey ? sign(activePqSigningKey, dataToSign) : undefined
 
 	return {
 		version: VOLENET_VERSION,
@@ -91,6 +103,7 @@ export function createMessage(
 		to,
 		timestamp,
 		signature,
+		...(sigPq ? { sigPq } : {}),
 		payload,
 	}
 }
@@ -101,6 +114,7 @@ export function createMessage(
 export function verifyMessage(
 	message: VoleNetMessage,
 	publicKey: KeyObject,
+	pqPublicKey?: KeyObject,
 ): { valid: boolean; error?: string } {
 	// Version check
 	if (message.version !== VOLENET_VERSION) {
@@ -127,6 +141,17 @@ export function verifyMessage(
 	const valid = verify(publicKey, dataToSign, message.signature)
 	if (!valid) {
 		return { valid: false, error: 'Invalid signature' }
+	}
+
+	// Hybrid post-quantum: if we know the peer's ML-DSA key, the PQ signature is required
+	// and must verify (downgrade-resistant). Legacy peers (no PQ key) stay Ed25519-only.
+	if (pqPublicKey) {
+		if (!message.sigPq) {
+			return { valid: false, error: 'Missing post-quantum signature' }
+		}
+		if (!verify(pqPublicKey, dataToSign, message.sigPq)) {
+			return { valid: false, error: 'Invalid post-quantum signature' }
+		}
 	}
 
 	return { valid: true }
