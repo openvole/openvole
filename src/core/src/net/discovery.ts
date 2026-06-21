@@ -4,7 +4,7 @@
 
 import type { KeyObject } from 'node:crypto'
 import { createLogger } from '../core/logger.js'
-import { loadAuthorizedVoles, parsePublicKey } from './keys.js'
+import { loadAuthorizedVoles, parsePublicKey, trustPeer } from './keys.js'
 import {
 	type RemoteToolInfo,
 	type VoleNetInstance,
@@ -193,6 +193,15 @@ export class VoleNetDiscovery {
 		if (!result.valid) {
 			logger.warn(`Message verification failed from ${info.name}: ${result.error}`)
 			return
+		}
+
+		// Auto-upgrade trust to hybrid PQ when a known peer announces an ML-DSA key. The discover
+		// was Ed25519-verified above, so the announced PQ key is authentic (vouched by the peer's
+		// existing key) — existing meshes migrate with no manual re-trust.
+		if (parsed.pqPublicKey && !authPeer.pqPublicKey && info.publicKey) {
+			authPeer.pqPublicKey = parsed.pqPublicKey
+			void trustPeer(this.config.netDir, info.publicKey).catch(() => {})
+			logger.info(`Auto-upgraded peer to hybrid PQ: ${info.name} (${parsed.instanceId.substring(0, 8)})`)
 		}
 
 		// Register the peer

@@ -259,7 +259,11 @@ export async function loadAuthorizedVoles(netDir: string): Promise<
 /**
  * Add a peer's public key to authorized_voles.
  */
-export async function trustPeer(netDir: string, publicKeyString: string): Promise<string> {
+export async function trustPeer(
+	netDir: string,
+	publicKeyString: string,
+	opts?: { allowUpgrade?: boolean },
+): Promise<string> {
 	const parsed = parsePublicKey(publicKeyString)
 	if (!parsed) throw new Error('Invalid public key format. Expected: vole-ed25519 <base64> <name>')
 
@@ -267,7 +271,16 @@ export async function trustPeer(netDir: string, publicKeyString: string): Promis
 
 	// Check if already trusted
 	const existing = await loadAuthorizedVoles(netDir)
-	if (existing.has(parsed.instanceId)) {
+	const current = existing.get(parsed.instanceId)
+	if (current) {
+		// Same identity (Ed25519) already trusted. Auto-upgrade an Ed25519-only entry to hybrid
+		// when it gains a post-quantum key. Disabled (add-only) for untrusted self-join paths,
+		// so a guest can never overwrite another peer's PQ key.
+		const allowUpgrade = opts?.allowUpgrade !== false
+		if (allowUpgrade && !current.pqPublicKey && parsed.pqPublicKey) {
+			await replaceAuthorizedLine(netDir, parsed.instanceId, publicKeyString.trim())
+			logger.info(`Upgraded peer to hybrid PQ: ${parsed.name} (${parsed.instanceId.substring(0, 8)})`)
+		}
 		return parsed.instanceId
 	}
 
@@ -276,6 +289,29 @@ export async function trustPeer(netDir: string, publicKeyString: string): Promis
 	logger.info(`Trusted peer: ${parsed.name} (${parsed.instanceId.substring(0, 8)})`)
 
 	return parsed.instanceId
+}
+
+/** Replace the authorized_voles line for an instance ID with a new key string (in place). */
+async function replaceAuthorizedLine(
+	netDir: string,
+	instanceId: string,
+	newLine: string,
+): Promise<void> {
+	const authorizedPath = path.join(netDir, 'authorized_voles')
+	const content = await fs.readFile(authorizedPath, 'utf-8').catch(() => '')
+	let replaced = false
+	const out = content.split('\n').map((line) => {
+		const trimmed = line.trim()
+		if (!trimmed || trimmed.startsWith('#')) return line
+		const parsed = parsePublicKey(trimmed)
+		if (parsed && parsed.instanceId === instanceId) {
+			replaced = true
+			return newLine
+		}
+		return line
+	})
+	if (!replaced) out.push(newLine)
+	await fs.writeFile(authorizedPath, out.join('\n'), 'utf-8')
 }
 
 /**

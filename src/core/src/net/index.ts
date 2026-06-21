@@ -981,7 +981,7 @@ export class VoleNetManager {
 			return { status: 503, json: { error: 'mesh is full' } }
 		}
 
-		await trustPeer(netDir, publicKey)
+		await trustPeer(netDir, publicKey, { allowUpgrade: false })
 		await this.discovery?.reloadAuthorized()
 		logger.info(`Public join: trusted guest "${safeName}" from ${ip}`)
 		return {
