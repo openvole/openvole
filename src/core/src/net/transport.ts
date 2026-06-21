@@ -45,6 +45,7 @@ interface PeerConnection {
 	ws: WebSocket | null
 	reconnectTimer: ReturnType<typeof setTimeout> | null
 	reconnectAttempts: number
+	connecting: boolean
 }
 
 /**
@@ -384,7 +385,18 @@ export class VoleNetTransport {
 	 * Register a peer and initiate WebSocket connection.
 	 */
 	addPeer(peerId: string, endpoint: string): void {
-		if (this.peers.has(peerId)) return
+		const existing = this.peers.get(peerId)
+		if (existing) {
+			// Peer re-announced (e.g. after a restart). Refresh endpoint, reset backoff, and
+			// re-open the WebSocket if it has dropped — this is what heals the send path so a
+			// reconnect/restart doesn't leave the peer un-sendable.
+			if (endpoint) existing.endpoint = endpoint
+			existing.reconnectAttempts = 0
+			if (!existing.connecting && existing.ws?.readyState !== WebSocket.OPEN) {
+				this.connectWebSocket(peerId)
+			}
+			return
+		}
 
 		this.peers.set(peerId, {
 			peerId,
@@ -394,6 +406,7 @@ export class VoleNetTransport {
 			ws: null,
 			reconnectTimer: null,
 			reconnectAttempts: 0,
+			connecting: false,
 		})
 
 		this.connectWebSocket(peerId)
@@ -452,16 +465,21 @@ export class VoleNetTransport {
 	private connectWebSocket(peerId: string): void {
 		const peer = this.peers.get(peerId)
 		if (!peer) return
+		// Don't open a second socket while one is connecting or already open.
+		if (peer.connecting || peer.ws?.readyState === WebSocket.OPEN) return
+		if (!peer.endpoint) return
 
 		const scheme = peer.endpoint.startsWith('https') ? 'wss' : 'ws'
 		const wsUrl = peer.endpoint.replace(/^https?/, scheme)
 
+		peer.connecting = true
 		try {
 			const ws = new WebSocket(wsUrl)
 
 			ws.on('open', () => {
 				peer.ws = ws
 				peer.connected = true
+				peer.connecting = false
 				peer.reconnectAttempts = 0
 				logger.info(`WebSocket connected to ${peerId.substring(0, 8)}`)
 			})
@@ -475,17 +493,20 @@ export class VoleNetTransport {
 			})
 
 			ws.on('close', () => {
+				peer.connecting = false
 				if (peer.ws === ws) {
 					peer.ws = null
 					peer.connected = false
-					this.scheduleReconnect(peerId)
 				}
+				// Reschedule on any close, including a failed initial connect (peer.ws never set).
+				this.scheduleReconnect(peerId)
 			})
 
 			ws.on('error', () => {
 				// close event fires after error — reconnect handled there
 			})
 		} catch {
+			peer.connecting = false
 			this.scheduleReconnect(peerId)
 		}
 	}
