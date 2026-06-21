@@ -1877,16 +1877,24 @@ function resetVolenet() {
   renderVnPeerList();
 }
 
-function initVolenetTab() {
-  if (currentSpaceId) {
-    sendCommand('volenet_instances').then(function(list) {
-      if (Array.isArray(list)) {
-        vnPeers = list.map(function(i) { return { id: i.id, name: i.name, role: i.role, lastSeen: i.lastSeen }; });
-      }
-      renderVnPeerList();
-    }).catch(function() { renderVnPeerList(); });
-  } else {
+function refreshVnPeers() {
+  if (!currentSpaceId) { renderVnPeerList(); return; }
+  sendCommand('volenet_instances').then(function(list) {
+    if (Array.isArray(list)) {
+      vnPeers = list.map(function(i) { return { id: i.id, name: i.name, role: i.role, lastSeen: i.lastSeen }; });
+    }
     renderVnPeerList();
+  }).catch(function() { renderVnPeerList(); });
+}
+var vnPollTimer = null;
+function initVolenetTab() {
+  refreshVnPeers();
+  // Peer connect/disconnect isn't a bus event, so poll while the tab is open to keep
+  // the list live (dead peers drop, new peers appear, online dots stay fresh).
+  if (!vnPollTimer) {
+    vnPollTimer = setInterval(function() {
+      if (currentTab === 'volenet' && currentSpaceId) refreshVnPeers();
+    }, 5000);
   }
 }
 
@@ -1903,7 +1911,7 @@ function renderVnPeerList() {
     return;
   }
   list.innerHTML = vnPeers.map(function(p) {
-    var online = p.lastSeen && (Date.now() - p.lastSeen) < 60000;
+    var online = p.lastSeen && (Date.now() - p.lastSeen) < 30000;
     var unread = vnUnread[p.id] || 0;
     var active = p.id === vnSelectedPeer ? ' active' : '';
     return '<button class="vn-peer' + active + '" onclick="selectVnPeer(\\'' + esc(p.id) + '\\')">'
