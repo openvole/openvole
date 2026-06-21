@@ -102,3 +102,12 @@ To add a panel to your own paw, see **[Build an Embedded App](/paws#build-an-emb
 ### Reference example
 
 `@openvole/paw-markets` is a US-stock tracking paw whose **Markets** panel embeds this way. Install it into a space from the Config tab and start the space — its panel appears under the Apps tab.
+
+## VoleNet Tab
+
+The **VoleNet** tab is for talking to the *humans* behind your connected peer nodes. It has two parts:
+
+- **Peer list** — every connected peer node, refreshed live (about every 5 seconds) with an online dot so dead peers drop off and new ones appear as they connect.
+- **Per-peer chat** — pick a peer and chat with the person operating that node. Replies are answered by a **human**, not the brain, so there is **no LLM cost**. Each conversation is persisted in its own `volenet:<peerId>` [paw-session](/paws-infrastructure#paw-session) (with an in-memory fallback), so transcripts survive restarts.
+
+This is the human-to-human messaging mode. Cross-node chat where the peer's *brain* replies automatically is a separate, brain-callable tool — the `net_message` tool — described under [VoleNet](/volenet).

@@ -1,5 +1,27 @@
 # Changelog
 
+## v4.1.0 (2026-06-21)
+
+### Node-to-node messaging
+- **`net_message` core tool** — your Brain can message a peer agent; the peer's Brain replies. Gated by the receiver's `allowBrain` (off by default, even for `trust: "full"`)
+- **Human VoleNet-tab chat** — message a connected peer directly from the dashboard's VoleNet tab. Unlike `net_message`, human chat does **not** invoke any Brain; messages are signed, delivered, and persisted via paw-session (per-peer transcript), with an in-memory fallback
+- New paw-session `session_append` tool for appending a single entry to a session transcript (backs chat persistence)
+
+### VoleNet security hardening
+- All remote actions — `tool:call`, `tool:list`, and `task:delegate` — now require an Ed25519-signed message from an authorized peer; unverified messages are rejected. This closes an unauthenticated remote-tool-execution gap
+- A peer may call your tools only with explicit `trust: "tool"`/`"full"` in `net.peers`, or when you set `share.tools: true`; per-peer `allowTools`/`denyTools` (glob like `shell_*`) refine it. Tools are not exposed by default
+- New `net.publicJoin` — let unknown peers self-register over HTTP at a restricted guest trust level (never `"full"`), with peer cap, per-IP rate limiting, and optional manual approval. Off by default
+
+### Mesh resilience
+- VoleNet releases its port cleanly on restart and retries the bind on `EADDRINUSE`
+- Configured peers are re-attempted every ~15s, self-healing start-order races, late joiners, and transient drops
+
+### Dashboard
+- Live VoleNet peer list in the dashboard's VoleNet tab
+
+### Brain
+- paw-brain **mock provider** (`BRAIN_PROVIDER=mock`) for testing — deterministic replies via `BRAIN_MOCK_REPLY` or `BRAIN_MOCK_SCRIPT`
+
 ## v4.0.1 (2026-06-17)
 
 ### Docs & site

@@ -132,6 +132,11 @@ registry (the Brain can't tell the difference), brainless workers delegate think
 coordinator, and memory/sessions sync — all Ed25519-authenticated, with leader election and
 load balancing. Eight topologies, one protocol, no central server.
 
+Agents talk to each other, too: one Brain can message a peer agent (`net_message`), or you can
+chat with a connected peer directly from the dashboard's VoleNet tab. Every remote action — tool
+calls, brain delegation, chat — requires a signed message from an authorized peer; tools and brain
+are never exposed to peers unless you explicitly grant them.
+
 ```bash
 vole net init my-instance        # generate an Ed25519 identity
 vole net show-key                # share your public key

@@ -47,6 +47,21 @@ Generic env vars (`BRAIN_API_KEY`, `BRAIN_MODEL`) work across all providers. Pro
 
 **A provider must be configured.** If none is set — no `BRAIN_PROVIDER`, no provider API key, and no `OLLAMA_HOST`/`OLLAMA_MODEL` — paw-brain exits with a clear error instead of silently defaulting to Ollama (changed in 2.1.0).
 
+### Mock provider (testing)
+
+Set `BRAIN_PROVIDER=mock` (`echo` and `test` are aliases) for a free, deterministic brain that makes **no network calls and no LLM calls** — ideal for testing the dashboard chat, the VoleNet mesh, or the agent loop, and for CI. It has two modes:
+
+- **echo** (default) — replies with the incoming message. Set `BRAIN_MOCK_REPLY` for a fixed reply instead.
+  ```bash
+  BRAIN_PROVIDER=mock BRAIN_MOCK_REPLY="pong"
+  ```
+- **scripted** — set `BRAIN_MOCK_SCRIPT` to a JSON array of steps, walked one per `think()` call. Each step is either `{"tool":"name","params":{...}}` to emit a tool call or `{"response":"text"}` for a final reply.
+  ```bash
+  BRAIN_PROVIDER=mock BRAIN_MOCK_SCRIPT='[{"tool":"shell","params":{"command":"date"}},{"response":"done"}]'
+  ```
+
+To pass the sandbox, add any mock env vars you use to the paw's `allow.env`, e.g. `"BRAIN_MOCK_SCRIPT"`, `"BRAIN_MOCK_REPLY"`.
+
 ## BRAIN.md
 
 The Brain Paw scaffolds a `BRAIN.md` file in its local config directory on first run:

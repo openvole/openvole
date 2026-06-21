@@ -1,6 +1,6 @@
 # VoleNet
 
-VoleNet is OpenVole's distributed agent networking layer. It connects multiple OpenVole instances across machines, enabling remote tool execution, memory synchronization, brain sharing, and leader election — all authenticated with Ed25519 signatures.
+VoleNet is OpenVole's distributed agent networking layer. It connects multiple OpenVole instances across machines, enabling remote tool execution, node-to-node messaging, memory synchronization, brain sharing, and leader election — every remote action authenticated and authorized per message with Ed25519 signatures.
 
 ## How It Works
 
@@ -23,6 +23,7 @@ VoleNet is OpenVole's distributed agent networking layer. It connects multiple O
 3. On startup, peers connect via WebSocket and discover each other's tools
 4. Remote tools appear in the coordinator's tool registry — the Brain calls them like local tools
 5. All messages are signed with Ed25519 and include replay protection (60s window)
+6. Configured peers are re-attempted every ~15s, so the mesh self-heals from start-order races, late joiners, and transient drops
 
 ## Architecture Patterns
 
@@ -333,6 +334,24 @@ Route tool calls to specific peers by glob pattern without the Brain needing to 
 }
 ```
 
+## Node Messaging
+
+Two ways for nodes to talk to each other — one answered by a Brain, one by a human. Both ride the same signed, authorized transport (see [Security](#security)).
+
+### Brain-to-brain — the `net_message` tool
+
+The Brain can message another node and get *its Brain's* reply:
+
+```
+net_message({ to: "research-vole", text: "what are you working on?" })
+```
+
+The peer receives it framed as a peer message and runs it through its own Brain in a per-peer session, then replies — conversational, unlike the one-shot `spawn_remote_agent`. Use `list_instances` to find reachable peers. Gated by the **receiver's** `allowBrain` (off by default): a node only answers with its Brain for peers it has explicitly granted brain access.
+
+### Human-to-human — the dashboard VoleNet tab
+
+[`vole serve`](/dashboard)'s **VoleNet tab** lists connected peers and lets a **human** chat with another node directly. The message lands in that node's VoleNet tab for a person to answer — the Brain is never invoked, so there's **no LLM cost**. Transcripts persist via paw-session (per-peer `volenet:<peerId>` sessions). Useful for operators of different nodes to talk, or to exercise the mesh for free with the [mock brain](/paws-brain#mock-provider-testing).
+
 ## Memory Sync
 
 When `share.memory` is enabled:
@@ -365,22 +384,32 @@ One instance is elected leader. The leader runs heartbeat schedules and coordina
 
 ## Trust Levels
 
+`authorized_voles` decides **who may connect**; the per-peer trust in `net.peers` decides **what they may do** — like SSH `authorized_keys` vs. sudoers.
+
 | Level | Description |
 |-------|-------------|
-| `full` | Can use all our tools, search our memory, delegate tasks. |
-| `tool` | Can use specific tools only (configured via `allowTools`/`denyTools`). |
+| `full` | Can use our tools, search our memory, and (with `allowBrain`) delegate to our Brain. |
+| `tool` | Can call tools only (refine with `allowTools`/`denyTools`, globs like `shell_*`). |
 | `read` | Can search our memory only. No tool execution. |
 
-The `allowBrain` flag is separate — it controls whether a peer can delegate tasks to our Brain (which costs LLM tokens).
+- **Tools aren't exposed by default.** A peer may call your tools only with `tool`/`full` trust **or** if you set `share.tools: true`. `denyTools` always wins; an `allowTools` list is authoritative.
+- **`allowBrain`** is separate (default `false`) — it controls whether a peer can delegate to our Brain (LLM cost), off even for `full`-trust peers unless explicitly set.
 
 ## Security
 
-- **Ed25519 signatures** on every message. Unsigned or invalid messages are rejected.
+VoleNet **authenticates then authorizes** every remote action — see the [Security guide](/security#volenet-distributed-mesh) for the full model.
+
+- **Signed + verified** — every message is Ed25519-signed; remote actions (tool calls, task/brain delegation, chat) are verified against the sender's key in `.openvole/net/authorized_voles` *before anything runs*. Forged or unauthorized messages are dropped.
+- **Authorization, not just authentication** — a trusted peer still can't act unless granted: tool calls need `tool`/`full` trust **or** `share.tools: true` (honoring `allowTools`/`denyTools`); brain delegation needs `allowBrain: true`. Both **off by default**.
 - **Replay protection** — messages older than 60 seconds are rejected.
-- **Authorized keys** — only peers in `.openvole/net/authorized_voles` can connect.
-- **Trust levels** — granular control over what each peer can do.
-- **WebSocket preferred** — persistent bidirectional connections. HTTP POST fallback available.
-- **TLS** — optional encrypted transport via `tls.cert` and `tls.key`.
+- **Authorized keys** — only peers whose key is in `authorized_voles` can connect (`vole net trust`, or self-join on a public hub).
+- **Transport** — WebSocket preferred (persistent, bidirectional), HTTP POST fallback. **TLS** (`wss`) is optional via `tls.cert`/`tls.key`.
+
+> [!WARNING]
+> Don't expose the VoleNet port to the public internet raw. Traffic is **signed but not encrypted** by default (eavesdropping), and the message endpoint has **no rate limit** (DoS). Keep it on a trusted network, behind a firewall allowlist or a VPN overlay (WireGuard/Tailscale), or enable TLS — and use `publicJoin` for intentional public meshes.
+
+> [!NOTE]
+> Identity keys are Ed25519 (not quantum-resistant). A hybrid Ed25519 + ML-DSA (post-quantum) migration is on the roadmap.
 
 ## Public mesh hub
 
@@ -447,8 +476,8 @@ vole net status              # Show VoleNet status (instance, leader, peers, too
 
 ### 1. Set Up Two Instances
 
-> [!WARNING]
-> This quickstart predates the server model and is being updated. Create each instance as a **space** (`vole serve` → New space scaffolds its `vole.config.json` and installs paws), then run `vole net init <name>` inside that space's directory. VoleNet-over-spaces is still being finalized.
+> [!NOTE]
+> Each instance is a **space**: run [`vole serve`](/dashboard) → New space to scaffold its `vole.config.json` and install paws, then `vole net init <name>` in that space's directory. For ready-to-run meshes, see [`examples/volenet-mesh`](https://github.com/openvole/openvole/tree/main/examples/volenet-mesh) and [`examples/public-hub`](https://github.com/openvole/openvole/tree/main/examples/public-hub).
 
 ```bash
 # Coordinator (brain) — run inside its space directory

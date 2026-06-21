@@ -75,6 +75,25 @@ Prevent runaway costs with configurable limits on:
 - Tool executions
 - Task enqueue rates
 
+## VoleNet (Distributed Mesh)
+
+When [VoleNet](/volenet) is enabled, nodes exchange signed messages over a shared port. Security is **authenticate, then authorize** on every remote action:
+
+- **Authentication** — every message is Ed25519-signed. Remote actions (`tool:call`, task/brain delegation, chat) are verified against the sender's public key in `.openvole/net/authorized_voles` before anything runs; forged or unknown senders are dropped. Messages older than 60s are rejected (replay protection).
+- **Authorization** — an authenticated peer still can't act unless granted:
+  - **Tools** — callable only with `tool`/`full` trust in `net.peers`, or `share.tools: true`. `denyTools` wins; an `allowTools` list (globs like `shell_*`) is authoritative. **Off by default.**
+  - **Brain** — delegation requires `allowBrain: true` per peer. **Off by default**, even for `full` trust.
+- **Trust model** — `authorized_voles` = who may connect (like `~/.ssh/authorized_keys`); per-peer `trust`/`allowTools`/`denyTools`/`allowBrain` = what they may do (like sudoers).
+- **Public hubs** — `net.publicJoin` lets strangers self-register at a restricted **guest** trust (never `full`, `allowBrain: false`, rate-limited, peer-capped). Pair with `"demo": true` to lock the hub's config from the dashboard. See [VoleNet › Public mesh hub](/volenet#public-mesh-hub).
+
+::: warning Network exposure
+The VoleNet port has **no transport encryption by default** (traffic is signed, not encrypted → eavesdropping) and **no rate limit** on the message endpoint (DoS). Don't expose it raw to the public internet — keep it on a trusted network, behind a firewall allowlist or a VPN overlay (WireGuard/Tailscale), or enable TLS (`tls.cert`/`tls.key`). Use `publicJoin` for intentional public meshes.
+:::
+
+::: tip Post-quantum
+Identity keys are Ed25519 (classically strong, not quantum-resistant). A hybrid Ed25519 + ML-DSA (FIPS 204) migration is on the roadmap.
+:::
+
 ## Additional Safeguards
 
 | Concern | Approach |

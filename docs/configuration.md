@@ -292,7 +292,7 @@ Controls the subprocess sandbox and isolation.
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `sandboxFilesystem` | `boolean` | `true` | Enable Node.js `--permission` sandbox for paw subprocesses. |
-| `allowedPaths` | `string[]` | `[]` | Additional filesystem paths paws can access beyond `.openvole/`. |
+| `allowedPaths` | `string[]` | `[]` | Extra absolute filesystem paths granted (read + write) to sandboxed paw subprocesses, beyond the space dir / `.openvole/`. |
 | `docker` | `object` | — | Docker container sandbox (optional, stronger isolation). |
 
 ```json
@@ -417,9 +417,11 @@ Distributed agent networking — connect multiple OpenVole instances across mach
 |-------|------|-------------|
 | `url` | `string` | Peer endpoint URL. |
 | `trust` | `string` | `"full"`: all access. `"tool"`: specific tools only. `"read"`: memory search only. |
-| `allowTools` | `string[]` | Tools this peer can execute on our instance (with `trust: "tool"`). |
-| `denyTools` | `string[]` | Tools this peer cannot use on our instance. |
-| `allowBrain` | `boolean` | Allow this peer to delegate tasks to our Brain (LLM cost on us). |
+| `allowTools` | `string[]` | Tools this peer can execute on our instance. Glob patterns supported (`shell_*`). If set, only matching tools are allowed. |
+| `denyTools` | `string[]` | Tools this peer cannot use on our instance. Glob patterns supported. Takes precedence over `allowTools`. |
+| `allowBrain` | `boolean` | Allow this peer to delegate thinking to our Brain (LLM cost on us). **Default: `false`** — off even for `trust: "full"`. |
+
+A peer may call our tools at all only if it has explicit `trust: "tool"` or `trust: "full"` in `peers`, **or** we set `share.tools: true` (below). Per-peer `allowTools`/`denyTools` then refine which tools. By default tools are **not** exposed to peers.
 
 #### Sharing
 
@@ -437,9 +439,37 @@ Distributed agent networking — connect multiple OpenVole instances across mach
 
 | Field | Description |
 |-------|-------------|
-| `tools` | Share our local tools with connected peers. |
+| `tools` | Advertise our local tools to peers **and** accept remote tool calls from them. This is a blanket grant — a peer with explicit `trust: "tool"`/`"full"` in `peers` can call our tools even without it. Default: tools not exposed. |
 | `memory` | Propagate memory writes to peers and accept remote memory searches. |
 | `session` | Sync session transcripts between peers (shared conversation). |
+
+#### Public Join
+
+Let **unknown** peers self-register over HTTP and join at a restricted guest trust level — for running a public mesh hub that anyone can connect to. Off by default. Self-joined guests are never granted `"full"` trust.
+
+```json
+{
+  "net": {
+    "publicJoin": {
+      "enabled": false,
+      "trustLevel": "tool",
+      "allowBrain": false,
+      "maxPeers": 200,
+      "ratePerMinute": 5,
+      "requireApproval": false
+    }
+  }
+}
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | `boolean` | `false` | Accept HTTP self-join requests from unknown peers. |
+| `trustLevel` | `string` | `"tool"` | Trust granted to self-joined guests: `"read"` or `"tool"`. Never `"full"`. |
+| `allowBrain` | `boolean` | `false` | Let guests delegate thinking to our Brain (LLM cost on us). |
+| `maxPeers` | `number` | `200` | Max trusted peers before new joins are refused. |
+| `ratePerMinute` | `number` | `5` | Join requests allowed per minute per IP. |
+| `requireApproval` | `boolean` | `false` | Queue joins for manual `vole net trust` instead of auto-trusting. |
 
 #### Routing
 
