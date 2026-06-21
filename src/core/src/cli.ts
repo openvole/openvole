@@ -1625,6 +1625,17 @@ async function runServe(projectRoot: string): Promise<void> {
 			logger.info(
 				'Run `vole serve` in an empty directory (it becomes a new root) or in an existing root (one that has spaces.json).',
 			)
+			// A setup.sh sitting here almost always means this is an example template not yet initialized.
+			if (
+				await fs
+					.access(path.join(projectRoot, 'setup.sh'))
+					.then(() => true)
+					.catch(() => false)
+			) {
+				logger.info(
+					'This looks like an example — run `bash setup.sh` first (it installs paws, generates the key, and writes spaces.json).',
+				)
+			}
 			const legacy = path.join(os.homedir(), '.openvole')
 			if (await hasRegistry(legacy)) {
 				logger.info(`Your existing spaces live at ${legacy} — manage them with:`)
