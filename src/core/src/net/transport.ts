@@ -21,6 +21,8 @@ const logger = createLogger('volenet-transport')
 
 const WS_RECONNECT_INTERVAL_MS = 5_000
 const WS_RECONNECT_MAX_RETRIES = 10
+const MAX_MESSAGES_PER_MINUTE = 1200 // per source (IP / WS connection); generous — normal mesh traffic is well below
+const MAX_MESSAGE_BYTES = 1_000_000 // cap inbound HTTP message bodies (1 MB)
 
 export interface TransportConfig {
 	port: number
@@ -28,6 +30,8 @@ export interface TransportConfig {
 		cert: string
 		key: string
 	}
+	/** Max inbound messages per minute per source (IP / WS connection). Default 1200. */
+	maxMessagesPerMinute?: number
 }
 
 export type MessageHandler = (message: VoleNetMessage, peerId: string) => void
@@ -53,6 +57,8 @@ export class VoleNetTransport {
 	private peers = new Map<string, PeerConnection>()
 	private messageHandlers: MessageHandler[] = []
 	private joinHandler: JoinHandler | null = null
+	private msgWindow = new Map<string, number[]>()
+	private wsConnSeq = 0
 	private config: TransportConfig
 	private started = false
 
@@ -63,6 +69,20 @@ export class VoleNetTransport {
 	/** Register a handler for public self-join requests (HTTP POST /volenet/join). */
 	setJoinHandler(handler: JoinHandler): void {
 		this.joinHandler = handler
+	}
+
+	/** Sliding-window rate limit per source (IP or WS connection). Returns false when over. */
+	private rateAllow(key: string): boolean {
+		const max = this.config.maxMessagesPerMinute ?? MAX_MESSAGES_PER_MINUTE
+		const now = Date.now()
+		const win = (this.msgWindow.get(key) ?? []).filter((t) => now - t < 60_000)
+		if (win.length >= max) {
+			this.msgWindow.set(key, win)
+			return false
+		}
+		win.push(now)
+		this.msgWindow.set(key, win)
+		return true
 	}
 
 	/**
@@ -79,9 +99,16 @@ export class VoleNetTransport {
 			}
 
 			if (req.url === '/volenet/message' && req.method === 'POST') {
+				const ip = req.socket.remoteAddress ?? 'unknown'
+				if (!this.rateAllow(`ip:${ip}`)) {
+					res.writeHead(429, { 'Content-Type': 'application/json' })
+					res.end(JSON.stringify({ error: 'rate limited' }))
+					return
+				}
 				let body = ''
 				req.on('data', (chunk: Buffer) => {
 					body += chunk
+					if (body.length > MAX_MESSAGE_BYTES) req.destroy()
 				})
 				req.on('end', () => {
 					const message = deserialize(body)
@@ -179,7 +206,9 @@ export class VoleNetTransport {
 		})
 
 		this.wss.on('connection', (ws) => {
+			const connKey = `ws:${++this.wsConnSeq}`
 			ws.on('message', (data) => {
+				if (!this.rateAllow(connKey)) return
 				const message = deserialize(data.toString())
 				if (!message) return
 
@@ -197,6 +226,7 @@ export class VoleNetTransport {
 			})
 
 			ws.on('close', () => {
+				this.msgWindow.delete(connKey)
 				for (const [peerId, peer] of this.peers) {
 					if (peer.ws === ws) {
 						peer.ws = null
