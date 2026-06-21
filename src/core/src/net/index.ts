@@ -26,6 +26,13 @@ import { type TransportConfig, VoleNetTransport } from './transport.js'
 
 const logger = createLogger('volenet')
 
+/** Glob-ish tool-name match: exact, '*' wildcard, or 'prefix*'. */
+function matchToolPattern(pattern: string, name: string): boolean {
+	if (pattern === '*' || pattern === name) return true
+	if (pattern.endsWith('*')) return name.startsWith(pattern.slice(0, -1))
+	return false
+}
+
 export interface VoleNetConfig {
 	enabled?: boolean
 	instanceName?: string
@@ -206,6 +213,8 @@ export class VoleNetManager {
 		// Handle tool:list requests — respond with our local tools
 		this.transport.onMessage((message) => {
 			if (message.type === 'tool:list' && this.toolRegistry && this.keyPair) {
+				if (!this.discovery?.verifyMessageFrom(message)) return
+				if (!this.peerToolsEnabled(message.from)) return
 				const tools: RemoteToolInfo[] = this.toolRegistry
 					.list()
 					.filter((t) => !t.pawName.startsWith('__volenet')) // don't echo remote tools back
@@ -230,6 +239,10 @@ export class VoleNetManager {
 		// Handle incoming tool:call — execute locally and return result
 		this.transport.onMessage(async (message) => {
 			if (message.type === 'tool:call' && this.toolRegistry && this.keyPair) {
+				if (!this.discovery?.verifyMessageFrom(message)) {
+					logger.warn(`Rejected unverified tool:call from ${message.from.substring(0, 8)}`)
+					return
+				}
 				const { callId, toolName, params } = message.payload as {
 					callId: string
 					toolName: string
@@ -238,6 +251,21 @@ export class VoleNetManager {
 				logger.info(
 					`Remote tool call from ${message.from.substring(0, 8)}: ${toolName}(${JSON.stringify(params)})`,
 				)
+
+				if (!this.isPeerAllowedTool(message.from, toolName)) {
+					logger.warn(`Tool access denied for ${message.from.substring(0, 8)}: ${toolName}`)
+					this.transport!.sendToPeer(
+						message.from,
+						createMessage(
+							'tool:result',
+							this.keyPair.instanceId,
+							message.from,
+							{ callId, success: false, error: `Tool access not allowed: ${toolName}` },
+							this.keyPair.privateKey,
+						),
+					)
+					return
+				}
 
 				const tool = this.toolRegistry.get(toolName)
 				let response
@@ -452,6 +480,10 @@ export class VoleNetManager {
 		// Handle incoming task:delegate — run task with our brain if allowed
 		this.transport.onMessage(async (message) => {
 			if (message.type === 'task:delegate' && this.keyPair) {
+				if (!this.discovery?.verifyMessageFrom(message)) {
+					logger.warn(`Rejected unverified task:delegate from ${message.from.substring(0, 8)}`)
+					return
+				}
 				const request = message.payload as { taskId: string; input: string; maxIterations?: number; fromName?: string }
 				if (!request?.input) return
 
@@ -965,6 +997,23 @@ export class VoleNetManager {
 	 */
 	isPeerAllowedBrain(peerId: string): boolean {
 		return this.getPeerTrust(peerId)?.allowBrain === true
+	}
+
+	/** Whether this peer may call our tools at all — explicit tool/full trust, or share.tools. */
+	private peerToolsEnabled(peerId: string): boolean {
+		const explicit = this.matchPeerConfig(peerId)
+		if (explicit && (explicit.trust === 'full' || explicit.trust === 'tool')) return true
+		return this.config.share?.tools === true
+	}
+
+	/** Whether this peer may call a specific tool (honors per-peer allow/deny lists). */
+	isPeerAllowedTool(peerId: string, toolName: string): boolean {
+		const explicit = this.matchPeerConfig(peerId)
+		if (explicit?.denyTools?.some((p) => matchToolPattern(p, toolName))) return false
+		if (explicit?.allowTools && explicit.allowTools.length > 0) {
+			return explicit.allowTools.some((p) => matchToolPattern(p, toolName))
+		}
+		return this.peerToolsEnabled(peerId)
 	}
 
 	/**
