@@ -11,7 +11,7 @@
 - All remote actions — `tool:call`, `tool:list`, and `task:delegate` — now require an Ed25519-signed message from an authorized peer; unverified messages are rejected. This closes an unauthenticated remote-tool-execution gap
 - A peer may call your tools only with explicit `trust: "tool"`/`"full"` in `net.peers`, or when you set `share.tools: true`; per-peer `allowTools`/`denyTools` (glob like `shell_*`) refine it. Tools are not exposed by default
 - New `net.publicJoin` — let unknown peers self-register over HTTP at a restricted guest trust level (never `"full"`), with peer cap, per-IP rate limiting, and optional manual approval. Off by default
-- **Hybrid post-quantum signatures** — messages are signed with Ed25519 **and** ML-DSA-65 (FIPS 204) when the runtime supports it (Node 24+ / OpenSSL 3.5+, native); keypairs auto-upgrade, both signatures are required between PQ-capable peers (downgrade-resistant), and Ed25519-only nodes stay interoperable
+- **Hybrid post-quantum signatures** — messages are signed with Ed25519 **and** ML-DSA-65 (FIPS 204) when the runtime supports it (Node 24+ / OpenSSL 3.5+, native). Zero-touch migration: keypairs auto-upgrade on start and existing trust auto-upgrades when peers reconnect; both signatures are required between PQ-capable peers (downgrade-resistant), and Ed25519-only nodes stay interoperable
 - The `/volenet/message` endpoint is now rate-limited per source and body-size-capped (DoS mitigation)
 
 ### Mesh resilience
