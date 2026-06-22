@@ -1,5 +1,10 @@
 # Changelog
 
+## v4.5.0 (2026-06-22)
+
+### Security — paw filesystem sandbox scoping
+- **Paws can no longer read outside their sandbox.** The read sandbox was effectively open: the module-path resolver granted recursive read up to the filesystem root (`--allow-fs-read=/`), so any paw — even one with no permissions — could read the vault, the VoleNet private keys, and other paws' data. Reads are now scoped to the paw's own package, its own data dir (`.openvole/paws/<paw>`), `node_modules`, the temp dir, and anything explicitly granted via `allow.filesystem` / `security.allowedPaths`. The project root and `.openvole/` are no longer granted wholesale. (The write sandbox was already scoped.)
+
 ## v4.4.0 (2026-06-22)
 
 ### Security — dashboard / control-plane hardening

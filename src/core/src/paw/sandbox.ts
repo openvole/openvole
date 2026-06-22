@@ -160,11 +160,12 @@ export function buildPermissionFlags(
 		tmpDir = tmpDirRaw
 	}
 
-	// Read access: paw's own package, project root, .openvole/, temp dir, node_modules, granted paths
+	// Read access: paw's own package + its own data dir, temp, node_modules, granted paths.
+	// NOT the project root or .openvole/ wholesale — those hold the vault, the VoleNet private
+	// keys, and other paws' data. A paw gets only its own data dir plus anything explicitly granted.
 	const readPaths = new Set<string>([
 		pawPath,
-		projectRoot,
-		openvoleDir,
+		pawDataDir,
 		tmpDir,
 		tmpDirRaw,
 		// Node needs to read its own modules
@@ -246,7 +247,12 @@ function resolveNodePaths(pawPath: string): string[] {
 	// do statSync on parent dirs when searching for config files
 	dir = path.resolve(pawPath)
 	while (true) {
-		if (!paths.includes(dir)) {
+		// Grant the directory itself only while inside a node_modules tree (the paw's own package
+		// and its scope dirs). Never grant bare ancestors like the project root (which holds the
+		// .openvole secrets) or '/' — `--allow-fs-read` is recursive, so that would expose
+		// everything above the paw, including the vault and the VoleNet private keys.
+		const inNodeModules = dir.split(path.sep).includes('node_modules')
+		if (inNodeModules && !paths.includes(dir)) {
 			paths.push(dir)
 		}
 		const nmPath = path.join(dir, 'node_modules')
