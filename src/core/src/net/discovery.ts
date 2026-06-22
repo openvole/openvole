@@ -65,6 +65,10 @@ export class VoleNetDiscovery {
 			this.handleMessage(message, peerId)
 		})
 
+		// On WS (re)connect, ping immediately so the remote binds this socket without waiting
+		// for the next heartbeat — keeps reverse delivery (hub→NAT'd follower) consistent.
+		this.transport.setOnConnect((peerId) => this.sendPing(peerId))
+
 		// Start health monitoring
 		this.healthTimer = setInterval(() => this.healthCheck(), HEALTH_INTERVAL_MS)
 
@@ -380,6 +384,18 @@ export class VoleNetDiscovery {
 	/**
 	 * Health check — ping all peers, remove stale ones.
 	 */
+	/** Send a signed ping to a peer — fired on WS connect for immediate binding, and by healthCheck. */
+	private sendPing(peerId: string): void {
+		const ping = createMessage(
+			'ping',
+			this.config.instanceId,
+			peerId,
+			{ timestamp: Date.now() },
+			this.config.privateKey,
+		)
+		this.transport.sendToPeer(peerId, ping)
+	}
+
 	private async healthCheck(): Promise<void> {
 		const now = Date.now()
 

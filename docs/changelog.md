@@ -1,5 +1,20 @@
 # Changelog
 
+## v4.3.0 (2026-06-22)
+
+### Security — VoleNet message verification (transport-level)
+- **Every inbound message is now verified at the transport before any handler runs.** Previously each handler had to check the signature itself, and three subsystems didn't — so an unauthenticated remote peer could trigger `memory:sync`/`session:sync` (disk writes), hijack leader election (`leader:claim`/`leader:heartbeat`), or inject forged `task:result`/`tool:result` into the Brain. Verification — valid signature from an authorized peer — is now a single chokepoint on all three dispatch paths (HTTP, inbound WS, outbound WS); unverified messages are dropped, and the gate fails closed.
+- **Replay protection.** A captured signed message could be replayed within the 60s freshness window (e.g. re-executing a `tool:call`). The transport now caches accepted `(from, id)` pairs and drops replays.
+- **WebSocket payload cap.** The WS path accepted up to 100 MB per frame (vs 1 MB on HTTP) — a memory-DoS vector — now capped at 1 MB (`maxPayload`) to match.
+
+## v4.2.1 (2026-06-21)
+
+### Fixed
+- **Intermittent hub→follower delivery ("peer offline — not delivered").** After a follower's WebSocket (re)connected, the hub only bound the socket on the follower's next 15s heartbeat, so a message sent in that window fell back to dialing the follower's unreachable (NAT) address and failed — delivery looked random. Nodes now send a signed ping **the instant a WebSocket connects**, so the remote binds it immediately, and the HTTP fallback **fails fast (5s)** instead of hanging when there's no live socket.
+
+### Dashboard
+- Config → NET form now exposes the fields that were previously editable only by hand: `hostname`, `maxConnections`, `authTimeoutMs`, `maxMessagesPerSecond`, `publicJoin` (enabled / trustLevel / allowBrain / maxPeers / ratePerMinute / requireApproval), and `chatRetention` (maxMessages / maxAgeDays). (`@openvole/dashboard-server` 0.4.0)
+
 ## v4.2.0 (2026-06-21)
 
 ### VoleNet — NAT traversal for followers + hardened socket handling

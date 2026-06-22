@@ -26,6 +26,8 @@ const MAX_MESSAGE_BYTES = 1_000_000 // cap inbound HTTP message bodies (1 MB)
 const DEFAULT_MAX_CONNECTIONS = 1000 // cap concurrent inbound WebSocket connections (DoS)
 const DEFAULT_AUTH_TIMEOUT_MS = 10_000 // close inbound sockets that never send a verified message (DoS)
 const DEFAULT_MAX_MESSAGES_PER_SECOND = 5000 // global inbound message ceiling across all sources (load shed)
+const REPLAY_WINDOW_MS = 65_000 // remember accepted (from,id) a bit beyond the 60s freshness window
+const REPLAY_MAX_ENTRIES = 20_000 // sweep the replay cache once it grows past this
 
 export interface TransportConfig {
 	port: number
@@ -75,6 +77,8 @@ export class VoleNetTransport {
 	private globalWindow: number[] = []
 	private verifyFn?: (message: VoleNetMessage) => boolean
 	private responder?: (message: VoleNetMessage) => VoleNetMessage | null
+	private onConnectCb?: (peerId: string) => void
+	private seenMsgs = new Map<string, number>()
 
 	constructor(config: TransportConfig) {
 		this.config = config
@@ -103,6 +107,15 @@ export class VoleNetTransport {
 		this.responder = fn
 	}
 
+	/**
+	 * Called when an outbound WebSocket to a peer opens. Lets the owner push a signed message
+	 * immediately so the remote side binds this socket without waiting for the next heartbeat —
+	 * which is what makes reverse delivery (hub→NAT'd-follower) consistent right after (re)connect.
+	 */
+	setOnConnect(fn: (peerId: string) => void): void {
+		this.onConnectCb = fn
+	}
+
 	/** Global sliding-window message ceiling across all sources (load shed). False when over. */
 	private globalRateAllow(): boolean {
 		const now = Date.now()
@@ -110,6 +123,24 @@ export class VoleNetTransport {
 		this.globalWindow = this.globalWindow.filter((t) => now - t < 1000)
 		if (this.globalWindow.length >= max) return false
 		this.globalWindow.push(now)
+		return true
+	}
+
+	/**
+	 * Central inbound gate. Every message must (a) verify — valid signature from an authorized
+	 * peer — and (b) not be a replay of a recently-accepted (from,id), before it reaches ANY
+	 * handler. Fails closed if no verifier is wired. This makes verification a single chokepoint
+	 * so an individual handler can never forget to check.
+	 */
+	private verifyAndAccept(message: VoleNetMessage): boolean {
+		if (!this.verifyFn || !this.verifyFn(message)) return false
+		const key = `${message.from}:${message.id}`
+		const now = Date.now()
+		if (this.seenMsgs.has(key)) return false // replay within the freshness window
+		this.seenMsgs.set(key, now)
+		if (this.seenMsgs.size > REPLAY_MAX_ENTRIES) {
+			for (const [k, t] of this.seenMsgs) if (now - t > REPLAY_WINDOW_MS) this.seenMsgs.delete(k)
+		}
 		return true
 	}
 
@@ -157,6 +188,12 @@ export class VoleNetTransport {
 					if (!message) {
 						res.writeHead(400, { 'Content-Type': 'application/json' })
 						res.end(JSON.stringify({ error: 'Invalid message' }))
+						return
+					}
+					// Verify signature + authorization + replay BEFORE any handler runs.
+					if (!this.verifyAndAccept(message)) {
+						res.writeHead(401, { 'Content-Type': 'application/json' })
+						res.end(JSON.stringify({ error: 'unverified' }))
 						return
 					}
 					for (const handler of this.messageHandlers) {
@@ -244,7 +281,7 @@ export class VoleNetTransport {
 		}
 
 		// Attach WebSocket server
-		this.wss = new WebSocketServer({ server: this.server })
+		this.wss = new WebSocketServer({ server: this.server, maxPayload: MAX_MESSAGE_BYTES })
 
 		this.wss.on('error', (err) => {
 			logger.warn(`VoleNet WebSocket server error: ${err.message}`)
@@ -275,12 +312,13 @@ export class VoleNetTransport {
 				if (!this.globalRateAllow()) return // global load shed
 				const message = deserialize(data.toString())
 				if (!message) return
+				// Verify signature + authorization + replay for EVERY message before dispatch.
+				if (!this.verifyAndAccept(message)) return
 
 				if (!authedPeerId) {
-					// Bind the socket to a peer id ONLY after a signed message from it verifies.
-					// This blocks an attacker from claiming a victim's id and capturing its
-					// hub→peer traffic (the binding is what sendToPeer routes over).
-					if (!this.verifyFn || !this.verifyFn(message)) return
+					// First verified message binds this socket to that peer id (the binding is what
+					// sendToPeer routes over). An attacker can't bind a victim's id — verifyAndAccept
+					// already proved the signature.
 					authedPeerId = message.from
 					clearTimeout(authTimer)
 					const existing = this.peers.get(message.from)
@@ -446,7 +484,9 @@ export class VoleNetTransport {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: serialize(message),
-				signal: AbortSignal.timeout(10000),
+				// Short fallback: when there's no live socket (e.g. a NAT'd peer mid-reconnect),
+				// fail fast instead of hanging — the WS is the real delivery path.
+				signal: AbortSignal.timeout(5000),
 			})
 			peer.lastSeen = Date.now()
 			return response.ok
@@ -568,11 +608,17 @@ export class VoleNetTransport {
 				peer.connecting = false
 				peer.reconnectAttempts = 0
 				logger.info(`WebSocket connected to ${peerId.substring(0, 8)}`)
+				// Push a signed message now so the remote binds this socket immediately
+				// (don't wait up to a heartbeat interval) — keeps reverse delivery consistent.
+				this.onConnectCb?.(peerId)
 			})
 
 			ws.on('message', (data) => {
+				if (!this.globalRateAllow()) return // global load shed
 				const message = deserialize(data.toString())
 				if (!message) return
+				// Verify signature + authorization + replay before dispatch (same gate as inbound).
+				if (!this.verifyAndAccept(message)) return
 				for (const handler of this.messageHandlers) {
 					handler(message, message.from)
 				}
