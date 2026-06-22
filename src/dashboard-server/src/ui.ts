@@ -2168,8 +2168,19 @@ function showAppFrame() {
         });
     });
   }
-  var src = '/panel/' + encodeURIComponent(currentSpaceId) + '/' + encodeURIComponent(currentApp) + '/';
-  if (frame.getAttribute('src') !== src) frame.setAttribute('src', src);
+  // The dashboard (which holds the token) fetches the panel HTML and injects it via srcdoc, so the
+  // authorized request is made by the parent — the sandboxed iframe carries no token, yet still loads.
+  var key = currentSpaceId + '::' + currentApp;
+  if (frame.__loadedApp === key) return;
+  frame.__loadedApp = key;
+  fetch('/panel/' + encodeURIComponent(currentSpaceId) + '/' + encodeURIComponent(currentApp) + '/' + location.search)
+    .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
+    .then(function(html) { if (frame.__loadedApp === key) frame.srcdoc = html; })
+    .catch(function(err) {
+      if (frame.__loadedApp !== key) return;
+      frame.__loadedApp = null;
+      frame.srcdoc = '<!doctype html><meta charset="utf-8"><body style="margin:0;padding:16px;font:13px system-ui,sans-serif;color:#888;background:#1a1a1a">Failed to load panel: ' + String(err && err.message ? err.message : err) + '</body>';
+    });
 }
 
 /* ── Config sections as vertical tabs ── */
