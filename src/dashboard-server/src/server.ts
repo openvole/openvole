@@ -51,6 +51,24 @@ export interface DashboardCallbacks {
 	restartEngine: (spaceId?: string) => Promise<unknown>
 }
 
+// Injected into every served panel. The panel runs in a sandboxed (null-origin) iframe so it
+// can't read the dashboard token or reach the parent; this shim reroutes its `fetch('tool/…')`
+// calls to the parent via postMessage, which forwards them over the authenticated WebSocket.
+const PANEL_SHIM =
+	'<script>(function(){' +
+	'var _f=window.fetch,seq=0,pend={};' +
+	"window.addEventListener('message',function(e){var d=e.data;if(d&&d.__voleToolResult&&pend[d.reqId]){pend[d.reqId](d.result);delete pend[d.reqId];}});" +
+	'window.fetch=function(u,o){' +
+	"if(typeof u==='string'&&(u.indexOf('tool/')===0||u.indexOf('./tool/')===0)){" +
+	"var nm=u.indexOf('./tool/')===0?u.slice(7):u.slice(5);" +
+	'var pr={};try{pr=o&&o.body?JSON.parse(o.body):{};}catch(_){}' +
+	"var id='t'+(++seq);" +
+	'return new Promise(function(rs){' +
+	'pend[id]=function(r){rs({ok:true,status:200,json:function(){return Promise.resolve(r);},text:function(){return Promise.resolve(JSON.stringify(r));}});};' +
+	"parent.postMessage({__voleTool:true,reqId:id,name:nm,params:pr},'*');" +
+	'});}' +
+	'return _f.apply(window,arguments);};})();</script>'
+
 export function createDashboardServer(
 	port: number,
 	callbacks: DashboardCallbacks,
@@ -127,7 +145,7 @@ export function createDashboardServer(
 				'Content-Type': 'text/html; charset=utf-8',
 				'X-Content-Type-Options': 'nosniff',
 			})
-			res.end(r.html)
+			res.end(PANEL_SHIM + r.html)
 		} catch (e) {
 			res.writeHead(500)
 			res.end(e instanceof Error ? e.message : String(e))
@@ -259,6 +277,13 @@ export function createDashboardServer(
 				case 'chat_sessions':
 					respond(await callbacks.chatSessions?.(sel()))
 					break
+				case 'call_paw_tool': {
+					// Sandboxed panels proxy tool calls here over the authenticated WS, scoped to the
+					// space the parent passes — the panel itself never holds the token.
+					const p = cmd.params as { space?: string; name?: string; params?: Record<string, unknown> }
+					respond(await callbacks.callPawTool?.(p?.space ?? sel() ?? '', p?.name ?? '', p?.params ?? {}))
+					break
+				}
 				case 'chat_clear': {
 					const p = cmd.params as { sessionId: string }
 					respond(await callbacks.chatClear?.(p?.sessionId, sel()))

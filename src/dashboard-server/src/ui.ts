@@ -1399,7 +1399,7 @@ export function getDashboardHtml(wsPort: number): string {
   <div id="tab-panel" class="tab-content" style="display:none">
     <div class="apps-layout" id="apps-layout">
       <nav class="apps-nav" id="apps-nav"></nav>
-      <iframe id="panel-frame" title="Paw app"></iframe>
+      <iframe id="panel-frame" title="Paw app" sandbox="allow-scripts"></iframe>
     </div>
     <div id="apps-empty" class="apps-empty-state" style="display:none"></div>
   </div>
@@ -2149,7 +2149,26 @@ function selectApp(paw) {
 function showAppFrame() {
   var frame = document.getElementById('panel-frame');
   if (!frame || !currentSpaceId || !currentApp) return;
-  var src = '/panel/' + encodeURIComponent(currentSpaceId) + '/' + encodeURIComponent(currentApp) + '/' + location.search;
+  // The panel runs sandboxed (null origin) so paw-authored HTML can't read the dashboard token
+  // or reach the parent. Its tool calls are proxied here over the authenticated WebSocket, scoped
+  // to the panel's own space — the panel never sees the token and can't touch other spaces.
+  if (!window.__voleToolRelay) {
+    window.__voleToolRelay = true;
+    window.addEventListener('message', function(e) {
+      var f = document.getElementById('panel-frame');
+      if (!f || e.source !== f.contentWindow) return;
+      var d = e.data;
+      if (!d || !d.__voleTool) return;
+      sendCommand('call_paw_tool', { space: currentSpaceId, name: d.name, params: d.params })
+        .then(function(result) {
+          f.contentWindow.postMessage({ __voleToolResult: true, reqId: d.reqId, result: result }, '*');
+        })
+        .catch(function(err) {
+          f.contentWindow.postMessage({ __voleToolResult: true, reqId: d.reqId, result: { error: String(err) } }, '*');
+        });
+    });
+  }
+  var src = '/panel/' + encodeURIComponent(currentSpaceId) + '/' + encodeURIComponent(currentApp) + '/';
   if (frame.getAttribute('src') !== src) frame.setAttribute('src', src);
 }
 
