@@ -1,6 +1,8 @@
 # Changelog
 
-## v4.6.0 (2026-06-22)
+## Unreleased
+
+> Not yet published — changes since 4.2.0. The VoleNet wire protocol is now **v2**; when this releases, all mesh nodes must upgrade together. Affects `openvole` and `@openvole/dashboard-server`.
 
 ### Security — signature integrity (VoleNet wire protocol v2)
 - **Fixed a critical signature-coverage bug: message signatures did not cover nested payload fields.** The canonicalizer used `JSON.stringify(payload, keysArray)`, where the array is a *recursive property allowlist* — so nested data (e.g. a `tool:call`'s `params`) serialized to `{}` and was never signed. On a non-TLS mesh an on-path attacker could rewrite tool arguments while keeping a valid signature. Signing now uses a fully recursive canonical serialization over the entire payload.
@@ -12,32 +14,22 @@
 - The dashboard HTTP server now handles `error` (e.g. `EADDRINUSE`) instead of crashing. (`@openvole/dashboard-server` 0.5.1)
 - VoleNet WS sockets get an error listener before any cap/auth-timeout close (no crash on a close-time socket error); the replay cache + rate windows are cleared on `stop()`.
 
-## v4.5.1 (2026-06-22)
-
 ### Security — DoS hardening
 - Per-source rate-limit windows (VoleNet `msgWindow`) and the public-join timestamp map are now pruned, so they can't grow unbounded under IP/connection spray.
 - Stdio-framed IPC messages are capped at 32 MB, so a misbehaving paw can't balloon core memory with a huge `Content-Length`.
 
-## v4.5.0 (2026-06-22)
-
 ### Security — paw filesystem sandbox scoping
 - **Paws can no longer read outside their sandbox.** The read sandbox was effectively open: the module-path resolver granted recursive read up to the filesystem root (`--allow-fs-read=/`), so any paw — even one with no permissions — could read the vault, the VoleNet private keys, and other paws' data. Reads are now scoped to the paw's own package, its own data dir (`.openvole/paws/<paw>`), `node_modules`, the temp dir, and anything explicitly granted via `allow.filesystem` / `security.allowedPaths`. The project root and `.openvole/` are no longer granted wholesale. (The write sandbox was already scoped.)
-
-## v4.4.0 (2026-06-22)
 
 ### Security — dashboard / control-plane hardening
 - **Session token.** The control-plane dashboard is now gated by a session token, so reaching the port is no longer enough to control it (previously it was unauthenticated). `vole serve` generates one (persisted at `<root>/.dashboard-token`, override with `VOLE_DASHBOARD_TOKEN`) and prints a tokenized URL; the token is required on the page, the WebSocket, and panel routes. The dashboard still binds all interfaces by default for convenience — set `VOLE_DASHBOARD_HOST=127.0.0.1` to restrict it to localhost, and firewall/tunnel the port on public servers.
 - **Cross-site protection.** The WebSocket and panel tool routes enforce a same-origin check, closing cross-site WebSocket hijacking (a malicious page you visit can no longer drive your local dashboard).
 - **Config-downgrade guard.** `write_config` from the dashboard refuses to weaken the sandbox (`security.sandboxFilesystem: false` or broadening `allowedPaths`); those require a deliberate edit of `vole.config.json` on the server, removing a remote-RCE path. (`@openvole/dashboard-server` 0.5.0)
 
-## v4.3.0 (2026-06-22)
-
 ### Security — VoleNet message verification (transport-level)
 - **Every inbound message is now verified at the transport before any handler runs.** Previously each handler had to check the signature itself, and three subsystems didn't — so an unauthenticated remote peer could trigger `memory:sync`/`session:sync` (disk writes), hijack leader election (`leader:claim`/`leader:heartbeat`), or inject forged `task:result`/`tool:result` into the Brain. Verification — valid signature from an authorized peer — is now a single chokepoint on all three dispatch paths (HTTP, inbound WS, outbound WS); unverified messages are dropped, and the gate fails closed.
 - **Replay protection.** A captured signed message could be replayed within the 60s freshness window (e.g. re-executing a `tool:call`). The transport now caches accepted `(from, id)` pairs and drops replays.
 - **WebSocket payload cap.** The WS path accepted up to 100 MB per frame (vs 1 MB on HTTP) — a memory-DoS vector — now capped at 1 MB (`maxPayload`) to match.
-
-## v4.2.1 (2026-06-21)
 
 ### Fixed
 - **Intermittent hub→follower delivery ("peer offline — not delivered").** After a follower's WebSocket (re)connected, the hub only bound the socket on the follower's next 15s heartbeat, so a message sent in that window fell back to dialing the follower's unreachable (NAT) address and failed — delivery looked random. Nodes now send a signed ping **the instant a WebSocket connects**, so the remote binds it immediately, and the HTTP fallback **fails fast (5s)** instead of hanging when there's no live socket.
