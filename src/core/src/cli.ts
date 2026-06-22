@@ -1654,7 +1654,8 @@ async function runServe(projectRoot: string): Promise<void> {
 	// Session token gating the dashboard (page, WebSocket, panels). Persisted so the URL is stable.
 	let token = process.env.VOLE_DASHBOARD_TOKEN
 	if (!token) {
-		const tokenFile = path.join(home, '.dashboard-token')
+		// Kept under .openvole/ (the runtime data dir) so it never lands next to committable files.
+		const tokenFile = path.join(home, '.openvole', 'dashboard-token')
 		try {
 			token = (await fs.readFile(tokenFile, 'utf-8')).trim()
 		} catch {
@@ -1663,6 +1664,7 @@ async function runServe(projectRoot: string): Promise<void> {
 		if (!token) {
 			const { randomBytes } = await import('node:crypto')
 			token = randomBytes(24).toString('hex')
+			await fs.mkdir(path.dirname(tokenFile), { recursive: true }).catch(() => {})
 			await fs.writeFile(tokenFile, `${token}\n`, { mode: 0o600 }).catch(() => {})
 		}
 	}

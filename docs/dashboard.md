@@ -34,7 +34,7 @@ Manage your spaces at http://localhost:3000/?token=3f9c2a…
 ```
 
 > [!IMPORTANT]
-> The dashboard is gated by a **session token**, generated on first run and persisted at `<root>/.dashboard-token` (or set `VOLE_DASHBOARD_TOKEN`). Open the printed URL — the token is required to reach the dashboard. It binds all interfaces by default; set `VOLE_DASHBOARD_HOST=127.0.0.1` for localhost-only, and never expose the port raw on a public network. See [Security › Dashboard / Control Plane](/security#dashboard-control-plane).
+> The dashboard is gated by a **session token**, generated on first run and persisted at `<root>/.openvole/dashboard-token` (or set `VOLE_DASHBOARD_TOKEN`). Open the printed URL — the token is required to reach the dashboard. It binds all interfaces by default; set `VOLE_DASHBOARD_HOST=127.0.0.1` for localhost-only, and never expose the port raw on a public network. See [Security › Dashboard / Control Plane](/security#dashboard-control-plane).
 
 > [!TIP]
 > Pick a directory to be your OpenVole root and run `vole serve` there — for example `mkdir ~/agents && cd ~/agents && vole serve`. To always serve a fixed root regardless of where you are, set `VOLE_HOME`:

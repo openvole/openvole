@@ -22,7 +22,7 @@ vole serve
 
 By default it listens on `http://localhost:3000`; set `VOLE_DASHBOARD_PORT` to change the port.
 
-On first run it generates a **session token** (persisted at `<root>/.dashboard-token`, or supply `VOLE_DASHBOARD_TOKEN`) and prints a tokenized URL — open *that* URL; the token is required to reach the dashboard, its WebSocket, and panel routes. It binds all interfaces (`0.0.0.0`) by default; set `VOLE_DASHBOARD_HOST=127.0.0.1` to restrict it to localhost. See [Security › Dashboard / Control Plane](/security#dashboard-control-plane).
+On first run it generates a **session token** (persisted at `<root>/.openvole/dashboard-token`, or supply `VOLE_DASHBOARD_TOKEN`) and prints a tokenized URL — open *that* URL; the token is required to reach the dashboard, its WebSocket, and panel routes. It binds all interfaces (`0.0.0.0`) by default; set `VOLE_DASHBOARD_HOST=127.0.0.1` to restrict it to localhost. See [Security › Dashboard / Control Plane](/security#dashboard-control-plane).
 
 **Root resolution** — `vole serve` operates on an OpenVole *root* directory (which holds a `spaces.json` registry). The root is resolved in this order:
 
