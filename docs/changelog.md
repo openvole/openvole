@@ -1,5 +1,17 @@
 # Changelog
 
+## v4.6.0 (2026-06-22)
+
+### Security — signature integrity (VoleNet wire protocol v2)
+- **Fixed a critical signature-coverage bug: message signatures did not cover nested payload fields.** The canonicalizer used `JSON.stringify(payload, keysArray)`, where the array is a *recursive property allowlist* — so nested data (e.g. a `tool:call`'s `params`) serialized to `{}` and was never signed. On a non-TLS mesh an on-path attacker could rewrite tool arguments while keeping a valid signature. Signing now uses a fully recursive canonical serialization over the entire payload.
+- **The message `id` and `timestamp` are now signed**, and a missing/non-numeric `timestamp` is rejected — closing a replay-cache bypass (re-id'ing a captured message) and a freshness bypass (NaN age check).
+- **Wire protocol bumped to v2.** Signatures are incompatible with v1 nodes, so **all mesh nodes must upgrade together** (mismatched versions reject with a clear "unsupported version" error).
+
+### Security — dashboard + robustness
+- The panel **tool** route now requires a present, matching `Origin` — a token-less curl or cross-site request can no longer execute paw tools (browser same-origin POSTs still work).
+- The dashboard HTTP server now handles `error` (e.g. `EADDRINUSE`) instead of crashing. (`@openvole/dashboard-server` 0.5.1)
+- VoleNet WS sockets get an error listener before any cap/auth-timeout close (no crash on a close-time socket error); the replay cache + rate windows are cleared on `stop()`.
+
 ## v4.5.1 (2026-06-22)
 
 ### Security — DoS hardening

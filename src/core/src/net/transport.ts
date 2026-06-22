@@ -294,6 +294,9 @@ export class VoleNetTransport {
 		})
 
 		this.wss.on('connection', (ws) => {
+			// Attach an error listener immediately — a socket erroring during the cap/auth-timeout
+			// close below (before the main handler is wired) would otherwise crash the process.
+			ws.on('error', () => {})
 			// Connection cap (DoS): refuse new sockets past the limit.
 			const maxConns = this.config.maxConnections ?? DEFAULT_MAX_CONNECTIONS
 			if (this.wsConnections >= maxConns) {
@@ -440,6 +443,9 @@ export class VoleNetTransport {
 			if (peer.reconnectTimer) clearTimeout(peer.reconnectTimer)
 		}
 		this.peers.clear()
+		this.seenMsgs.clear()
+		this.msgWindow.clear()
+		this.globalWindow = []
 
 		// Close WS clients, then force-drop any lingering keep-alive / upgraded sockets
 		// so the listening port is released promptly. Otherwise server.close() waits on

@@ -180,11 +180,26 @@ export function createDashboardServer(
 
 		// Embedded paw panels: /panel/<space>/<encodedPaw>/  and  .../tool/<name>
 		if (req.url?.startsWith('/panel/')) {
-			// Panel HTML needs the token (the dashboard opens it with ?token=); tool POSTs must be
-			// same-origin — the panel's own fetches are, a cross-site page's are not.
 			const isTool = req.url.includes('/tool/')
-			if (isTool ? !sameOrigin(req) : !tokenOk(req)) {
-				res.writeHead(isTool ? 403 : 401)
+			if (isTool) {
+				// A tool POST executes a paw tool. Require a PRESENT, matching Origin: a browser's
+				// same-origin POST sends one; a token-less curl or a cross-site page does not / won't
+				// match. (Missing Origin is NOT allowed here, unlike the token-gated routes.)
+				const origin = req.headers.origin
+				let ok = false
+				try {
+					ok = !!origin && new URL(origin).host === req.headers.host
+				} catch {
+					ok = false
+				}
+				if (!ok) {
+					res.writeHead(403)
+					res.end()
+					return
+				}
+			} else if (!tokenOk(req)) {
+				// Panel HTML is opened by the dashboard with ?token=.
+				res.writeHead(401)
 				res.end()
 				return
 			}
@@ -370,6 +385,10 @@ export function createDashboardServer(
 		}
 	})
 
+	httpServer.on('error', (err) => {
+		// Without this, EADDRINUSE (port already in use, e.g. a restart race) crashes the process.
+		logger.error(`Dashboard HTTP server error: ${(err as Error).message}`)
+	})
 	httpServer.listen(port, host, () => {
 		const shown = host === '0.0.0.0' || host === '::' ? 'localhost' : host
 		logger.info(`Dashboard listening on ${host}:${port} (open http://${shown}:${port})`)

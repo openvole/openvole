@@ -7,7 +7,7 @@ import * as crypto from 'node:crypto'
 import type { KeyObject } from 'node:crypto'
 import { sign, verify } from './keys.js'
 
-export const VOLENET_VERSION = 1
+export const VOLENET_VERSION = 2 // bumped: signatures now cover the full nested payload + id (the old shallow canonicalization left nested fields like tool-call params unsigned)
 export const MAX_MESSAGE_AGE_MS = 60_000 // reject messages older than 60s
 
 /**
@@ -91,7 +91,7 @@ export function createMessage(
 	const timestamp = Date.now()
 
 	// Sign the canonical payload representation (Ed25519, plus ML-DSA when available — hybrid).
-	const dataToSign = canonicalize(type, from, to, timestamp, payload)
+	const dataToSign = canonicalize(id, type, from, to, timestamp, payload)
 	const signature = sign(privateKey, dataToSign)
 	const sigPq = activePqSigningKey ? sign(activePqSigningKey, dataToSign) : undefined
 
@@ -121,7 +121,11 @@ export function verifyMessage(
 		return { valid: false, error: `Unsupported protocol version: ${message.version}` }
 	}
 
-	// Freshness check (replay protection)
+	// Freshness check (replay protection). Reject a missing/non-numeric timestamp — otherwise the
+	// age math is NaN, both comparisons below are false, and the message would never expire.
+	if (typeof message.timestamp !== 'number' || !Number.isFinite(message.timestamp)) {
+		return { valid: false, error: 'Invalid or missing timestamp' }
+	}
 	const age = Date.now() - message.timestamp
 	if (age > MAX_MESSAGE_AGE_MS) {
 		return { valid: false, error: `Message too old: ${age}ms (max: ${MAX_MESSAGE_AGE_MS}ms)` }
@@ -132,6 +136,7 @@ export function verifyMessage(
 
 	// Signature verification
 	const dataToSign = canonicalize(
+		message.id,
 		message.type,
 		message.from,
 		message.to,
@@ -183,16 +188,27 @@ export function deserialize(data: string): VoleNetMessage | null {
  * Create canonical string for signing.
  * Deterministic representation: type + from + to + timestamp + sorted JSON payload.
  */
+/** Deterministic JSON: keys sorted recursively at every level, so nested payload data IS signed. */
+function canonicalJson(value: unknown): string {
+	if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'null'
+	if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`
+	const obj = value as Record<string, unknown>
+	return `{${Object.keys(obj)
+		.sort()
+		.map((k) => `${JSON.stringify(k)}:${canonicalJson(obj[k])}`)
+		.join(',')}}`
+}
+
 function canonicalize(
+	id: string,
 	type: string,
 	from: string,
 	to: string | '*',
 	timestamp: number,
 	payload: unknown,
 ): string {
-	const payloadStr =
-		payload !== undefined && payload !== null
-			? JSON.stringify(payload, Object.keys(payload as object).sort())
-			: ''
-	return `${VOLENET_VERSION}:${type}:${from}:${to}:${timestamp}:${payloadStr}`
+	// Sign the id + envelope + the FULL nested payload (recursively key-sorted). Binding the id
+	// means a captured message can't be re-id'd to dodge the replay cache.
+	const payloadStr = payload !== undefined && payload !== null ? canonicalJson(payload) : ''
+	return `${VOLENET_VERSION}:${id}:${type}:${from}:${to}:${timestamp}:${payloadStr}`
 }
