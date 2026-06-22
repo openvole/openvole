@@ -1250,6 +1250,11 @@ export function getDashboardHtml(wsPort: number): string {
             <input type="number" class="form-input" id="cfg-net-port" placeholder="(default)" min="1" style="width:160px">
           </div>
           <div class="form-field">
+            <label class="form-label">net.hostname</label>
+            <div class="form-help">Host advertised to peers. Set to your public domain/IP when followers connect over the internet (also must match a TLS cert).</div>
+            <input type="text" class="form-input" id="cfg-net-hostname" placeholder="(auto: first non-internal IPv4)">
+          </div>
+          <div class="form-field">
             <label class="form-label">net.keyPath</label>
             <input type="text" class="form-input" id="cfg-net-keyPath" placeholder="path to shared key">
           </div>
@@ -1315,6 +1320,46 @@ export function getDashboardHtml(wsPort: number): string {
             <label class="form-label">net.tls</label>
             <input type="text" class="form-input" id="cfg-net-tls-cert" placeholder="cert path" style="margin-bottom:6px">
             <input type="text" class="form-input" id="cfg-net-tls-key" placeholder="key path">
+          </div>
+          <div class="form-field">
+            <label class="form-label">net.maxConnections</label>
+            <div class="form-help">Max concurrent inbound WebSocket connections (DoS cap).</div>
+            <input type="number" class="form-input" id="cfg-net-maxConnections" placeholder="1000" min="1" style="width:160px">
+          </div>
+          <div class="form-field">
+            <label class="form-label">net.authTimeoutMs</label>
+            <div class="form-help">Close inbound sockets that don't authenticate within this many ms.</div>
+            <input type="number" class="form-input" id="cfg-net-authTimeoutMs" placeholder="10000" min="1000" style="width:160px">
+          </div>
+          <div class="form-field">
+            <label class="form-label">net.maxMessagesPerSecond</label>
+            <div class="form-help">Global inbound message ceiling across all sources (load shed).</div>
+            <input type="number" class="form-input" id="cfg-net-maxMessagesPerSecond" placeholder="5000" min="1" style="width:160px">
+          </div>
+          <div class="form-field">
+            <label class="form-label">net.publicJoin</label>
+            <div class="form-help">Let unknown peers self-register over HTTP. Off by default; guests never get 'full' trust.</div>
+            <div class="form-checkbox-row"><input type="checkbox" class="form-checkbox" id="cfg-net-pj-enabled"><label class="form-checkbox-label" for="cfg-net-pj-enabled">publicJoin.enabled</label></div>
+            <label class="form-label" style="margin-top:6px">trustLevel</label>
+            <select class="form-select" id="cfg-net-pj-trustLevel">
+              <option value="">(default: tool)</option>
+              <option value="read">read</option>
+              <option value="tool">tool</option>
+            </select>
+            <div class="form-checkbox-row" style="margin-top:6px"><input type="checkbox" class="form-checkbox" id="cfg-net-pj-allowBrain"><label class="form-checkbox-label" for="cfg-net-pj-allowBrain">allowBrain (guests use your brain &mdash; you pay)</label></div>
+            <label class="form-label" style="margin-top:6px">maxPeers</label>
+            <input type="number" class="form-input" id="cfg-net-pj-maxPeers" placeholder="200" min="1" style="width:160px">
+            <label class="form-label" style="margin-top:6px">ratePerMinute</label>
+            <input type="number" class="form-input" id="cfg-net-pj-ratePerMinute" placeholder="5" min="1" style="width:160px">
+            <div class="form-checkbox-row" style="margin-top:6px"><input type="checkbox" class="form-checkbox" id="cfg-net-pj-requireApproval"><label class="form-checkbox-label" for="cfg-net-pj-requireApproval">requireApproval (queue joins for manual trust)</label></div>
+          </div>
+          <div class="form-field">
+            <label class="form-label">net.chatRetention</label>
+            <div class="form-help">Cap stored peer-chat history. maxMessages per peer; maxAgeDays prunes old sessions.</div>
+            <label class="form-label" style="margin-top:6px">maxMessages</label>
+            <input type="number" class="form-input" id="cfg-net-cr-maxMessages" placeholder="1000" min="1" style="width:160px">
+            <label class="form-label" style="margin-top:6px">maxAgeDays</label>
+            <input type="number" class="form-input" id="cfg-net-cr-maxAgeDays" placeholder="90" min="1" style="width:160px">
           </div>
           <div class="form-field">
             <label class="form-label">net.routing</label>
@@ -2582,6 +2627,7 @@ function populateNet(net) {
   document.getElementById('cfg-net-role').value = n.role || '';
   document.getElementById('cfg-net-port').value = n.port != null ? n.port : '';
   document.getElementById('cfg-net-keyPath').value = n.keyPath || '';
+  document.getElementById('cfg-net-hostname').value = n.hostname || '';
   var share = n.share || {};
   document.getElementById('cfg-net-share-tools').checked = !!share.tools;
   document.getElementById('cfg-net-share-memory').checked = !!share.memory;
@@ -2596,6 +2642,19 @@ function populateNet(net) {
   var tls = n.tls || {};
   document.getElementById('cfg-net-tls-cert').value = tls.cert || '';
   document.getElementById('cfg-net-tls-key').value = tls.key || '';
+  document.getElementById('cfg-net-maxConnections').value = n.maxConnections != null ? n.maxConnections : '';
+  document.getElementById('cfg-net-authTimeoutMs').value = n.authTimeoutMs != null ? n.authTimeoutMs : '';
+  document.getElementById('cfg-net-maxMessagesPerSecond').value = n.maxMessagesPerSecond != null ? n.maxMessagesPerSecond : '';
+  var pj = n.publicJoin || {};
+  document.getElementById('cfg-net-pj-enabled').checked = !!pj.enabled;
+  document.getElementById('cfg-net-pj-trustLevel').value = pj.trustLevel || '';
+  document.getElementById('cfg-net-pj-allowBrain').checked = !!pj.allowBrain;
+  document.getElementById('cfg-net-pj-maxPeers').value = pj.maxPeers != null ? pj.maxPeers : '';
+  document.getElementById('cfg-net-pj-ratePerMinute').value = pj.ratePerMinute != null ? pj.ratePerMinute : '';
+  document.getElementById('cfg-net-pj-requireApproval').checked = !!pj.requireApproval;
+  var cr = n.chatRetention || {};
+  document.getElementById('cfg-net-cr-maxMessages').value = cr.maxMessages != null ? cr.maxMessages : '';
+  document.getElementById('cfg-net-cr-maxAgeDays').value = cr.maxAgeDays != null ? cr.maxAgeDays : '';
   document.getElementById('net-peers').innerHTML = '';
   (n.peers || []).forEach(function(p) { addNetPeer(p); });
   document.getElementById('net-routing').innerHTML = '';
@@ -2654,6 +2713,8 @@ function readNetFromForm() {
   if (!isNaN(port)) net.port = port;
   var keyPath = document.getElementById('cfg-net-keyPath').value.trim();
   if (keyPath) net.keyPath = keyPath;
+  var hostname = document.getElementById('cfg-net-hostname').value.trim();
+  if (hostname) net.hostname = hostname;
 
   var peers = [];
   var pblocks = document.querySelectorAll('#net-peers .net-peer');
@@ -2697,6 +2758,32 @@ function readNetFromForm() {
   var tlsKey = document.getElementById('cfg-net-tls-key').value.trim();
   if (tlsCert || tlsKey) net.tls = { cert: tlsCert, key: tlsKey };
 
+  var maxConnections = parseInt(document.getElementById('cfg-net-maxConnections').value, 10);
+  if (!isNaN(maxConnections)) net.maxConnections = maxConnections;
+  var authTimeoutMs = parseInt(document.getElementById('cfg-net-authTimeoutMs').value, 10);
+  if (!isNaN(authTimeoutMs)) net.authTimeoutMs = authTimeoutMs;
+  var maxMps = parseInt(document.getElementById('cfg-net-maxMessagesPerSecond').value, 10);
+  if (!isNaN(maxMps)) net.maxMessagesPerSecond = maxMps;
+
+  var pj = {};
+  if (document.getElementById('cfg-net-pj-enabled').checked) pj.enabled = true;
+  var pjTrust = document.getElementById('cfg-net-pj-trustLevel').value;
+  if (pjTrust) pj.trustLevel = pjTrust;
+  if (document.getElementById('cfg-net-pj-allowBrain').checked) pj.allowBrain = true;
+  var pjMaxPeers = parseInt(document.getElementById('cfg-net-pj-maxPeers').value, 10);
+  if (!isNaN(pjMaxPeers)) pj.maxPeers = pjMaxPeers;
+  var pjRate = parseInt(document.getElementById('cfg-net-pj-ratePerMinute').value, 10);
+  if (!isNaN(pjRate)) pj.ratePerMinute = pjRate;
+  if (document.getElementById('cfg-net-pj-requireApproval').checked) pj.requireApproval = true;
+  if (Object.keys(pj).length > 0) net.publicJoin = pj;
+
+  var cr = {};
+  var crMax = parseInt(document.getElementById('cfg-net-cr-maxMessages').value, 10);
+  if (!isNaN(crMax)) cr.maxMessages = crMax;
+  var crAge = parseInt(document.getElementById('cfg-net-cr-maxAgeDays').value, 10);
+  if (!isNaN(crAge)) cr.maxAgeDays = crAge;
+  if (Object.keys(cr).length > 0) net.chatRetention = cr;
+
   var routing = {};
   var rrows = document.querySelectorAll('#net-routing .net-route');
   for (var r = 0; r < rrows.length; r++) {
@@ -2707,7 +2794,7 @@ function readNetFromForm() {
   if (Object.keys(routing).length > 0) net.routing = routing;
 
   // Forward-compat: preserve any keys we don't manage so saving never drops them.
-  var managed = { enabled: 1, instanceName: 1, role: 1, port: 1, keyPath: 1, peers: 1, share: 1, brainSource: 1, discovery: 1, leader: 1, heartbeatMode: 1, brainMode: 1, taskOverflow: 1, maxQueuedTasks: 1, tls: 1, routing: 1 };
+  var managed = { enabled: 1, instanceName: 1, role: 1, port: 1, hostname: 1, keyPath: 1, peers: 1, share: 1, brainSource: 1, discovery: 1, leader: 1, heartbeatMode: 1, brainMode: 1, taskOverflow: 1, maxQueuedTasks: 1, tls: 1, routing: 1, maxConnections: 1, authTimeoutMs: 1, maxMessagesPerSecond: 1, publicJoin: 1, chatRetention: 1 };
   for (var mk in loadedNet) if (!managed[mk]) net[mk] = loadedNet[mk];
   return net;
 }
