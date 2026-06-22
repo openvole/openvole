@@ -1424,7 +1424,7 @@ export function getDashboardHtml(wsPort: number): string {
 <div class="modal-overlay" id="modal-overlay" style="display:none" onclick="if(event.target===this)closeModal()"><div class="modal-card" id="modal-card" role="dialog" aria-modal="true"></div></div>
 
 <script>
-const ws = new WebSocket('ws://' + location.hostname + ':' + ${wsPort} + '/ws');
+const ws = new WebSocket('ws://' + location.hostname + ':' + ${wsPort} + '/ws' + location.search);
 const dot = document.getElementById('ws-dot');
 const statusText = document.getElementById('ws-status');
 const eventLog = document.getElementById('event-log');
@@ -2149,7 +2149,7 @@ function selectApp(paw) {
 function showAppFrame() {
   var frame = document.getElementById('panel-frame');
   if (!frame || !currentSpaceId || !currentApp) return;
-  var src = '/panel/' + encodeURIComponent(currentSpaceId) + '/' + encodeURIComponent(currentApp) + '/';
+  var src = '/panel/' + encodeURIComponent(currentSpaceId) + '/' + encodeURIComponent(currentApp) + '/' + location.search;
   if (frame.getAttribute('src') !== src) frame.setAttribute('src', src);
 }
 

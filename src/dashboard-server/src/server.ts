@@ -54,10 +54,32 @@ export interface DashboardCallbacks {
 export function createDashboardServer(
 	port: number,
 	callbacks: DashboardCallbacks,
+	options?: { host?: string; token?: string },
 ): DashboardServer {
 	const clients = new Set<WebSocket>()
 	// Per-connection selected space (control-plane mode); undefined = single-engine.
 	const selected = new Map<WebSocket, string | undefined>()
+	const host = options?.host ?? '0.0.0.0'
+	const token = options?.token
+
+	// Require the session token (query ?token= or x-vole-token header) when one is configured.
+	const tokenOk = (req: http.IncomingMessage): boolean => {
+		if (!token) return true
+		const u = new URL(req.url || '/', 'http://localhost')
+		const provided =
+			u.searchParams.get('token') ?? (req.headers['x-vole-token'] as string | undefined)
+		return provided === token
+	}
+	// Reject cross-site requests (CSWSH/CSRF): a browser's Origin must match the Host it connected to.
+	const sameOrigin = (req: http.IncomingMessage): boolean => {
+		const origin = req.headers.origin
+		if (!origin) return true // non-browser client (no Origin) — still token-gated
+		try {
+			return new URL(origin).host === req.headers.host
+		} catch {
+			return false
+		}
+	}
 
 	// Resolve assets directory relative to the paw's own directory
 	const assetsDir = path.resolve(
@@ -158,10 +180,23 @@ export function createDashboardServer(
 
 		// Embedded paw panels: /panel/<space>/<encodedPaw>/  and  .../tool/<name>
 		if (req.url?.startsWith('/panel/')) {
+			// Panel HTML needs the token (the dashboard opens it with ?token=); tool POSTs must be
+			// same-origin — the panel's own fetches are, a cross-site page's are not.
+			const isTool = req.url.includes('/tool/')
+			if (isTool ? !sameOrigin(req) : !tokenOk(req)) {
+				res.writeHead(isTool ? 403 : 401)
+				res.end()
+				return
+			}
 			void servePanel(req, res)
 			return
 		}
 
+		if (!tokenOk(req)) {
+			res.writeHead(401, { 'Content-Type': 'text/plain; charset=utf-8' })
+			res.end('Unauthorized — open the dashboard using the tokenized URL printed by `vole serve`.')
+			return
+		}
 		res.writeHead(200, {
 			'Content-Type': 'text/html; charset=utf-8',
 			'Cache-Control': 'no-cache',
@@ -291,7 +326,12 @@ export function createDashboardServer(
 	// WebSocket server — real-time events + commands
 	const wss = new WebSocketServer({ server: httpServer, path: '/ws' })
 
-	wss.on('connection', async (ws) => {
+	wss.on('connection', async (ws, req) => {
+		// Token + same-origin gate — kills cross-site WebSocket hijacking and unauthorized control.
+		if (!tokenOk(req) || !sameOrigin(req)) {
+			ws.close(1008, 'unauthorized')
+			return
+		}
 		clients.add(ws)
 		logger.info(`Client connected (${clients.size} total)`)
 
@@ -330,8 +370,9 @@ export function createDashboardServer(
 		}
 	})
 
-	httpServer.listen(port, () => {
-		logger.info(`Dashboard running at http://localhost:${port}`)
+	httpServer.listen(port, host, () => {
+		const shown = host === '0.0.0.0' || host === '::' ? 'localhost' : host
+		logger.info(`Dashboard listening on ${host}:${port} (open http://${shown}:${port})`)
 	})
 
 	return {

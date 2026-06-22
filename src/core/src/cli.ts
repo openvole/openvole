@@ -1650,10 +1650,32 @@ async function runServe(projectRoot: string): Promise<void> {
 	const fresh = !(await hasRegistry(home))
 	const { ControlPlane } = await import('./space/control-plane.js')
 	const port = Number(process.env.VOLE_DASHBOARD_PORT) || 3000
-	const cp = new ControlPlane({ cliPath: fileURLToPath(import.meta.url), port, home })
+	const host = process.env.VOLE_DASHBOARD_HOST || '0.0.0.0'
+	// Session token gating the dashboard (page, WebSocket, panels). Persisted so the URL is stable.
+	let token = process.env.VOLE_DASHBOARD_TOKEN
+	if (!token) {
+		const tokenFile = path.join(home, '.dashboard-token')
+		try {
+			token = (await fs.readFile(tokenFile, 'utf-8')).trim()
+		} catch {
+			/* generate below */
+		}
+		if (!token) {
+			const { randomBytes } = await import('node:crypto')
+			token = randomBytes(24).toString('hex')
+			await fs.writeFile(tokenFile, `${token}\n`, { mode: 0o600 }).catch(() => {})
+		}
+	}
+	const cp = new ControlPlane({ cliPath: fileURLToPath(import.meta.url), port, home, host, token })
 	cp.start()
 	logger.info(`OpenVole root: ${home}${fresh ? '  (new)' : ''}`)
-	logger.info(`Manage your spaces at http://localhost:${port}`)
+	const shownHost = host === '0.0.0.0' || host === '::' ? 'localhost' : host
+	logger.info(`Manage your spaces at http://${shownHost}:${port}/?token=${token}`)
+	if (host === '0.0.0.0' || host === '::') {
+		logger.info(
+			`Dashboard is reachable on your network and gated by the token above. Firewall port ${port} (or set VOLE_DASHBOARD_HOST=127.0.0.1) on public servers.`,
+		)
+	}
 	const shutdown = (): void => {
 		cp.shutdown()
 			.then(() => process.exit(0))

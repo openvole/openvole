@@ -32,6 +32,10 @@ export interface ControlPlaneOptions {
 	cliPath: string
 	port: number
 	home?: string
+	/** Interface to bind (default 127.0.0.1 — set 0.0.0.0 to expose, paired with a token). */
+	host?: string
+	/** Session token required on the dashboard page, WebSocket, and panel routes. */
+	token?: string
 }
 
 /**
@@ -44,6 +48,8 @@ export class ControlPlane {
 	private readonly refreshTimers = new Map<string, ReturnType<typeof setTimeout>>()
 	private readonly cliPath: string
 	private readonly port: number
+	private readonly host?: string
+	private readonly token?: string
 	private server: DashboardServer | undefined
 	private availablePawsCache:
 		| Array<{ name: string; version: string; description: string }>
@@ -52,6 +58,8 @@ export class ControlPlane {
 	constructor(opts: ControlPlaneOptions) {
 		this.cliPath = opts.cliPath
 		this.port = opts.port
+		this.host = opts.host
+		this.token = opts.token
 		this.manager = new SpaceManager(opts.home ? { home: opts.home } : undefined)
 	}
 
@@ -82,8 +90,7 @@ export class ControlPlane {
 			volenetChatClear: (peerId, id) => this.callSpace(id, 'volenet_chat_clear', { peerId }),
 			getPanelHtml: (spaceId, paw) => this.callSpace(spaceId, 'panel_html', { paw }),
 			callPawTool: (spaceId, name, params) => this.callSpace(spaceId, 'tool', { name, params }),
-		})
-		logger.info(`Control plane listening on http://localhost:${this.port}`)
+		}, { host: this.host, token: this.token })
 	}
 
 	async listSpaces(): Promise<SpaceSummary[]> {

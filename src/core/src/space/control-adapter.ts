@@ -145,7 +145,23 @@ export function installControlAdapter(engine: VoleEngine, projectRoot: string): 
 							'This space is in demo mode — configuration is read-only from the dashboard. Edit vole.config.json on the server to change it.',
 						)
 					}
-					await writeConfigFile(projectRoot, params.config as Record<string, unknown>)
+					const newCfg = params.config as Record<string, unknown>
+					// Refuse to weaken the paw sandbox from the dashboard (an exposure/CSRF RCE vector):
+					// disabling the filesystem sandbox or broadening allowedPaths must be a deliberate
+					// file edit on the server, not an API call.
+					const oldSec = (onDisk.security ?? {}) as Record<string, unknown>
+					const newSec = (newCfg.security ?? {}) as Record<string, unknown>
+					const oldPaths = Array.isArray(oldSec.allowedPaths) ? oldSec.allowedPaths.length : 0
+					const newPaths = Array.isArray(newSec.allowedPaths) ? newSec.allowedPaths.length : 0
+					if (
+						(newSec.sandboxFilesystem === false && oldSec.sandboxFilesystem !== false) ||
+						newPaths > oldPaths
+					) {
+						throw new Error(
+							'Refusing to weaken the sandbox (security.sandboxFilesystem / allowedPaths) from the dashboard. Edit vole.config.json on the server to change it.',
+						)
+					}
+					await writeConfigFile(projectRoot, newCfg)
 					result = { ok: true }
 					break
 				}

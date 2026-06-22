@@ -1,5 +1,12 @@
 # Changelog
 
+## v4.4.0 (2026-06-22)
+
+### Security — dashboard / control-plane hardening
+- **Session token.** The control-plane dashboard is now gated by a session token, so reaching the port is no longer enough to control it (previously it was unauthenticated). `vole serve` generates one (persisted at `<root>/.dashboard-token`, override with `VOLE_DASHBOARD_TOKEN`) and prints a tokenized URL; the token is required on the page, the WebSocket, and panel routes. The dashboard still binds all interfaces by default for convenience — set `VOLE_DASHBOARD_HOST=127.0.0.1` to restrict it to localhost, and firewall/tunnel the port on public servers.
+- **Cross-site protection.** The WebSocket and panel tool routes enforce a same-origin check, closing cross-site WebSocket hijacking (a malicious page you visit can no longer drive your local dashboard).
+- **Config-downgrade guard.** `write_config` from the dashboard refuses to weaken the sandbox (`security.sandboxFilesystem: false` or broadening `allowedPaths`); those require a deliberate edit of `vole.config.json` on the server, removing a remote-RCE path. (`@openvole/dashboard-server` 0.5.0)
+
 ## v4.3.0 (2026-06-22)
 
 ### Security — VoleNet message verification (transport-level)
