@@ -42,8 +42,9 @@ mkdir my-agents && cd my-agents
 vole serve
 ```
 
-Open the dashboard at `http://localhost:3000`, click **New space**, and onboarding installs the
-essential paws (brain, session, memory, compact, shell). Point a space at your model:
+`vole serve` prints a **tokenized dashboard URL** (the dashboard is gated by a session token) —
+open it, click **New space**, and onboarding installs the essential paws (brain, session, memory,
+compact, shell). Point a space at your model:
 
 ```
 BRAIN_PROVIDER=gemini

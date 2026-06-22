@@ -1,8 +1,8 @@
 # Changelog
 
-## Unreleased
+## v4.3.0 (2026-06-22)
 
-> Not yet published — changes since 4.2.0. The VoleNet wire protocol is now **v2**; when this releases, all mesh nodes must upgrade together. Affects `openvole` and `@openvole/dashboard-server`.
+> Ships as `openvole` 4.3.0 and `@openvole/dashboard-server` 0.4.0. The VoleNet wire protocol is now **v2** — a breaking change: **all mesh nodes must upgrade together** (mismatched versions reject each other with a clear "unsupported version" error). A security-hardening release across signature integrity, the control-plane dashboard, the paw sandbox, and DoS resistance.
 
 ### Security — signature integrity (VoleNet wire protocol v2)
 - **Fixed a critical signature-coverage bug: message signatures did not cover nested payload fields.** The canonicalizer used `JSON.stringify(payload, keysArray)`, where the array is a *recursive property allowlist* — so nested data (e.g. a `tool:call`'s `params`) serialized to `{}` and was never signed. On a non-TLS mesh an on-path attacker could rewrite tool arguments while keeping a valid signature. Signing now uses a fully recursive canonical serialization over the entire payload.
@@ -11,7 +11,7 @@
 
 ### Security — dashboard + robustness
 - The panel **tool** route now requires a present, matching `Origin` — a token-less curl or cross-site request can no longer execute paw tools (browser same-origin POSTs still work).
-- The dashboard HTTP server now handles `error` (e.g. `EADDRINUSE`) instead of crashing. (`@openvole/dashboard-server` 0.5.1)
+- The dashboard HTTP server now handles `error` (e.g. `EADDRINUSE`) instead of crashing.
 - VoleNet WS sockets get an error listener before any cap/auth-timeout close (no crash on a close-time socket error); the replay cache + rate windows are cleared on `stop()`.
 
 ### Security — DoS hardening
@@ -24,7 +24,7 @@
 ### Security — dashboard / control-plane hardening
 - **Session token.** The control-plane dashboard is now gated by a session token, so reaching the port is no longer enough to control it (previously it was unauthenticated). `vole serve` generates one (persisted at `<root>/.dashboard-token`, override with `VOLE_DASHBOARD_TOKEN`) and prints a tokenized URL; the token is required on the page, the WebSocket, and panel routes. The dashboard still binds all interfaces by default for convenience — set `VOLE_DASHBOARD_HOST=127.0.0.1` to restrict it to localhost, and firewall/tunnel the port on public servers.
 - **Cross-site protection.** The WebSocket and panel tool routes enforce a same-origin check, closing cross-site WebSocket hijacking (a malicious page you visit can no longer drive your local dashboard).
-- **Config-downgrade guard.** `write_config` from the dashboard refuses to weaken the sandbox (`security.sandboxFilesystem: false` or broadening `allowedPaths`); those require a deliberate edit of `vole.config.json` on the server, removing a remote-RCE path. (`@openvole/dashboard-server` 0.5.0)
+- **Config-downgrade guard.** `write_config` from the dashboard refuses to weaken the sandbox (`security.sandboxFilesystem: false` or broadening `allowedPaths`); those require a deliberate edit of `vole.config.json` on the server, removing a remote-RCE path.
 - **Panel token isolation.** Paw-rendered panels now run in a sandboxed, null-origin iframe (`sandbox="allow-scripts"`) and no longer receive the dashboard token in their URL. A panel's `fetch('tool/…')` calls are proxied through the parent over the authenticated WebSocket — scoped to the panel's own space — via `postMessage`, so a malicious or compromised paw can no longer read the session token, drive other spaces, or reach into the parent dashboard DOM.
 
 ### Security — VoleNet message verification (transport-level)
@@ -36,7 +36,7 @@
 - **Intermittent hub→follower delivery ("peer offline — not delivered").** After a follower's WebSocket (re)connected, the hub only bound the socket on the follower's next 15s heartbeat, so a message sent in that window fell back to dialing the follower's unreachable (NAT) address and failed — delivery looked random. Nodes now send a signed ping **the instant a WebSocket connects**, so the remote binds it immediately, and the HTTP fallback **fails fast (5s)** instead of hanging when there's no live socket.
 
 ### Dashboard
-- Config → NET form now exposes the fields that were previously editable only by hand: `hostname`, `maxConnections`, `authTimeoutMs`, `maxMessagesPerSecond`, `publicJoin` (enabled / trustLevel / allowBrain / maxPeers / ratePerMinute / requireApproval), and `chatRetention` (maxMessages / maxAgeDays). (`@openvole/dashboard-server` 0.4.0)
+- Config → NET form now exposes the fields that were previously editable only by hand: `hostname`, `maxConnections`, `authTimeoutMs`, `maxMessagesPerSecond`, `publicJoin` (enabled / trustLevel / allowBrain / maxPeers / ratePerMinute / requireApproval), and `chatRetention` (maxMessages / maxAgeDays).
 
 ## v4.2.0 (2026-06-21)
 

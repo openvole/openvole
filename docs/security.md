@@ -6,9 +6,9 @@ OpenVole takes a defense-in-depth approach to agent safety, with multiple layers
 
 **Enabled by default.** Every subprocess Paw runs with Node.js permission model restrictions:
 
-- **Read access**: Paw's own package directory, project root, `.openvole/`, `node_modules/`, OS temp directory, parent directories (for module resolution)
+- **Read access**: the Paw's own package directory, its own data directory (`.openvole/paws/<paw-name>/`), `node_modules/` (for module resolution), the OS temp directory, plus any path explicitly granted. The project root and `.openvole/` are **not** granted wholesale — a paw can't read the vault, VoleNet private keys, or other paws' data unless you grant it.
 - **Write access**: `.openvole/paws/<paw-name>/` (paw's own data directory), OS temp directory
-- **Network**: Blocked by default — allowed when paw has `network` or `listen` permissions granted
+- **Network**: Blocked by default, allowed when the paw has `network`/`listen` granted — **on Node 25+**, where the permission model can gate network access. On Node 20–24 the `--allow-net` flag doesn't exist, so network isn't permission-gated there (paws can reach the network regardless of grants). Run untrusted paws on **Node 25+** or inside Docker.
 - **Child processes**: Blocked by default — allowed only when user grants `childProcess: true` in config
 - **Additional paths**: Grant via `allow.filesystem` in paw config or `security.allowedPaths` globally
 - **Opt-out**: Set `security.sandboxFilesystem: false` to disable (not recommended)
@@ -75,11 +75,25 @@ Prevent runaway costs with configurable limits on:
 - Tool executions
 - Task enqueue rates
 
+## Dashboard / Control Plane
+
+`vole serve` exposes a web control plane (default `http://localhost:3000`) that can create, start, stop, and chat with every agent and read their data. It is protected by:
+
+- **Session token.** `vole serve` generates a token on first run — persisted at `<root>/.dashboard-token` (mode `0600`), or supplied via `VOLE_DASHBOARD_TOKEN` — and prints a tokenized URL. The token is required on the page, the WebSocket, and panel routes, so reaching the port is **not** enough to control the dashboard.
+- **Bind address.** Binds all interfaces (`0.0.0.0`) by default for convenience. Set `VOLE_DASHBOARD_HOST=127.0.0.1` to restrict it to localhost.
+- **Same-origin enforcement.** The WebSocket and panel-tool routes require a matching `Origin`, blocking cross-site WebSocket hijacking and token-less cross-site tool calls.
+- **Sandboxed paw panels.** Paw-rendered panels run in a null-origin (`sandbox="allow-scripts"`) iframe and never receive the token; their tool calls are proxied through the authenticated WebSocket, scoped to that panel's own space. A malicious paw panel can't read the token or drive other spaces.
+- **Config-downgrade guard.** Editing config from the dashboard cannot weaken the sandbox (`sandboxFilesystem: false` or broadening `allowedPaths`); those require editing `vole.config.json` on the server directly, closing a remote-RCE path.
+
+::: warning Public exposure
+Never expose port 3000 raw on a public network. Keep the token secret, prefer `VOLE_DASHBOARD_HOST=127.0.0.1` for local use, and put any remote access behind a firewall allowlist, VPN, or an authenticating reverse proxy.
+:::
+
 ## VoleNet (Distributed Mesh)
 
 When [VoleNet](/volenet) is enabled, nodes exchange signed messages over a shared port. Security is **authenticate, then authorize** on every remote action:
 
-- **Authentication** — every message is Ed25519-signed. Remote actions (`tool:call`, task/brain delegation, chat) are verified against the sender's public key in `.openvole/net/authorized_voles` before anything runs; forged or unknown senders are dropped. Messages older than 60s are rejected (replay protection).
+- **Authentication** — every message is Ed25519-signed over its full canonical form: type, sender, recipient, **id**, **timestamp**, and the **entire payload** (including nested tool arguments), so nothing can be altered without invalidating the signature. Verification happens **at the transport, before any handler runs** — a valid signature from a peer in `.openvole/net/authorized_voles` is required on every dispatch path (HTTP and WebSocket), and forged or unknown senders are dropped (fail-closed). Messages older than 60s are rejected, and accepted `(sender, id)` pairs are cached so a captured message can't be replayed within that window.
 - **Authorization** — an authenticated peer still can't act unless granted:
   - **Tools** — callable only with `tool`/`full` trust in `net.peers`, or `share.tools: true`. `denyTools` wins; an `allowTools` list (globs like `shell_*`) is authoritative. **Off by default.**
   - **Brain** — delegation requires `allowBrain: true` per peer. **Off by default**, even for `full` trust.
@@ -103,6 +117,7 @@ Message signatures are **hybrid Ed25519 + ML-DSA-65** (FIPS 204) when the runtim
 | Runaway agent | `maxIterations` + rate limiting + `confirmBeforeAct` |
 | Channel safety | Tool profiles restrict which tools each task source can use |
 | Vault | AES-256-GCM encryption, write-once semantics |
+| Dashboard access | Session token + same-origin checks + sandboxed paw panels |
 
 ## For Paw Developers
 

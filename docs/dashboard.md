@@ -26,12 +26,15 @@ When you run `vole serve`, the OpenVole root is resolved in this order:
 3. **The current directory, if it is empty** — ignoring incidental files (`.DS_Store`, `.git`, `.gitignore`). It then becomes a **new** root.
 4. **Otherwise it refuses to start** with a clear error. If a legacy `~/.openvole` with spaces exists, it tells you how to reach it.
 
-On startup it logs the resolved root (with `(new)` if freshly created) and the dashboard URL:
+On startup it logs the resolved root (with `(new)` if freshly created) and the tokenized dashboard URL:
 
 ```
 OpenVole root: /Users/me/agents  (new)
-Manage your spaces at http://localhost:3000
+Manage your spaces at http://localhost:3000/?token=3f9c2a…
 ```
+
+> [!IMPORTANT]
+> The dashboard is gated by a **session token**, generated on first run and persisted at `<root>/.dashboard-token` (or set `VOLE_DASHBOARD_TOKEN`). Open the printed URL — the token is required to reach the dashboard. It binds all interfaces by default; set `VOLE_DASHBOARD_HOST=127.0.0.1` for localhost-only, and never expose the port raw on a public network. See [Security › Dashboard / Control Plane](/security#dashboard-control-plane).
 
 > [!TIP]
 > Pick a directory to be your OpenVole root and run `vole serve` there — for example `mkdir ~/agents && cd ~/agents && vole serve`. To always serve a fixed root regardless of where you are, set `VOLE_HOME`:
