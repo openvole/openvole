@@ -1,5 +1,11 @@
 # Changelog
 
+## v4.5.1 (2026-06-22)
+
+### Security — DoS hardening
+- Per-source rate-limit windows (VoleNet `msgWindow`) and the public-join timestamp map are now pruned, so they can't grow unbounded under IP/connection spray.
+- Stdio-framed IPC messages are capped at 32 MB, so a misbehaving paw can't balloon core memory with a huge `Content-Length`.
+
 ## v4.5.0 (2026-06-22)
 
 ### Security — paw filesystem sandbox scoping

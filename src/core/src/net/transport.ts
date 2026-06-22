@@ -148,6 +148,12 @@ export class VoleNetTransport {
 	private rateAllow(key: string): boolean {
 		const max = this.config.maxMessagesPerMinute ?? MAX_MESSAGES_PER_MINUTE
 		const now = Date.now()
+		// Prune stale per-source windows so the map can't grow unbounded under IP/connection spray.
+		if (this.msgWindow.size > 4096) {
+			for (const [k, ts] of this.msgWindow) {
+				if (ts.length === 0 || now - ts[ts.length - 1] > 60_000) this.msgWindow.delete(k)
+			}
+		}
 		const win = (this.msgWindow.get(key) ?? []).filter((t) => now - t < 60_000)
 		if (win.length >= max) {
 			this.msgWindow.set(key, win)

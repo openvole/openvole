@@ -7,6 +7,8 @@ import { createLogger } from './logger.js'
 
 const logger = createLogger('ipc')
 
+const MAX_IPC_MESSAGE_BYTES = 32 * 1024 * 1024 // cap stdio-framed IPC messages (DoS from a malicious paw)
+
 /** JSON-RPC 2.0 message */
 export interface IpcMessage {
 	jsonrpc: '2.0'
@@ -188,6 +190,11 @@ export class IpcTransport {
 				}
 
 				const contentLength = Number.parseInt(match[1], 10)
+				if (!Number.isFinite(contentLength) || contentLength > MAX_IPC_MESSAGE_BYTES) {
+					logger.error(`IPC message too large (${match[1]} bytes) — dropping`)
+					buffer = ''
+					break
+				}
 				const bodyStart = headerEnd + 4
 				if (buffer.length < bodyStart + contentLength) break
 

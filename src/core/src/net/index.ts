@@ -1028,6 +1028,12 @@ export class VoleNetManager {
 		// Rate limit per IP.
 		const now = Date.now()
 		const rpm = pj.ratePerMinute ?? 5
+		// Prune stale per-IP windows so the join map can't grow unbounded under IP-spray.
+		if (this.joinTimestamps.size > 4096) {
+			for (const [k, ts] of this.joinTimestamps) {
+				if (ts.length === 0 || now - ts[ts.length - 1] > 60_000) this.joinTimestamps.delete(k)
+			}
+		}
 		const recent = (this.joinTimestamps.get(ip) ?? []).filter((t) => now - t < 60_000)
 		if (recent.length >= rpm) return { status: 429, json: { error: 'rate limited' } }
 		recent.push(now)
