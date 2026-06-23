@@ -1,5 +1,21 @@
 # Changelog
 
+## v4.4.0 (2026-06-23)
+
+> Ships as `openvole` 4.4.0 and `@openvole/dashboard-server` 0.5.0. A space can now expose its own tools over **MCP**; the new **Claude Code brain** (PawHub `@openvole/paw-brain` 2.3.0) can call them back. Also fixes a startup race that was silently dropping brain replies from the chat transcript. No breaking changes.
+
+### Tools over MCP (`/mcp/<space>`)
+- **The control plane serves a Model Context Protocol endpoint per space.** `POST /mcp/<space>` exposes that space's registered tools to any MCP client — `tools/list` enumerates them, `tools/call` runs them through the space's normal tool path. It's a stateless, streamable-HTTP MCP server built on the official `@modelcontextprotocol/sdk` (no kernel changes, no `paw-mcp` duplication), and is gated by the dashboard session token (`x-vole-token`).
+- The engine injects `VOLE_DASHBOARD_URL` / `VOLE_SPACE_ID` (and the token) into each space, so a paw — e.g. the new Claude Code brain — can find the endpoint and call OpenVole's own tools as `mcp__openvole__<tool>`.
+
+### Fixed — brain replies weren't recorded to chat
+- **A paw's bus subscription could be silently dropped at startup.** paw-session records each brain reply by subscribing to `task:completed` from its `onLoad`; that `subscribe` raced `PawRegistry`'s instance registration, and the handler gated `setupBusForwarding` on the instance already existing — so when subscribe won the race the subscription no-opped (no forwarding, nothing logged), and replies were never persisted (worked only intermittently). Forwarding is now set up unconditionally and resolves the instance lazily at event time.
+- **The IPC transport now buffers inbound messages that arrive before their handler is registered** (flushed on registration) instead of dropping them — closing the same startup race at the transport layer.
+- **`task:completed` / `task:failed` now carry the task's `sessionId`,** so a reply is recorded against the session it belongs to even when tasks interleave (e.g. a heartbeat task between a chat's start and finish).
+
+### Dashboard
+- Chat shows a rotating, friendly status (`thinking…`, `pondering…`, `putting it together…`, …) while the brain works, instead of a bare `queued`.
+
 ## v4.3.0 (2026-06-22)
 
 > Ships as `openvole` 4.3.0 and `@openvole/dashboard-server` 0.4.0. The VoleNet wire protocol is now **v2** — a breaking change: **all mesh nodes must upgrade together** (mismatched versions reject each other with a clear "unsupported version" error). A security-hardening release across signature integrity, the control-plane dashboard, the paw sandbox, and DoS resistance.

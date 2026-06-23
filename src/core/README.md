@@ -172,6 +172,7 @@ The Brain is a Paw — the core is LLM-ignorant. Use `@openvole/paw-brain` — a
 - **Google Gemini** — `BRAIN_PROVIDER=gemini`
 - **xAI Grok** — `BRAIN_PROVIDER=xai`
 - **Ollama (local)** — `BRAIN_PROVIDER=ollama`
+- **Claude Code (local CLI, no API key)** — `BRAIN_PROVIDER=claude-code`
 
 > Legacy single-provider paws (`paw-ollama`, `paw-claude`, `paw-openai`, `paw-gemini`, `paw-xai`) are deprecated but still available.
 
@@ -233,6 +234,8 @@ Bridge 1000+ community MCP servers into the tool registry via `paw-mcp`. MCP too
 - MCP tools are **auto-discovered at runtime** as MCP servers connect
 - **Late tool registration** — tools appear after the engine starts, not at boot
 - MCP config lives in `.openvole/paws/paw-mcp/servers.json` (not in the installed package)
+
+The control plane also **serves** MCP: `vole serve` exposes each space's own tools to MCP clients at a token-gated `/mcp/<space>` endpoint. This is how the `claude-code` brain provider lets Claude Code call OpenVole's tools.
 
 Example `.openvole/paws/paw-mcp/servers.json`:
 
@@ -471,7 +474,7 @@ Both are open-source AI agent frameworks. Different philosophies, many shared co
 | **Skill marketplace** | ClawHub-compatible (`vole clawhub install`) | ClawHub (13K+ skills) |
 | **Skill loading** | Progressive on-demand | Progressive on-demand |
 | **Brain/LLM** | External Paw — core is LLM-ignorant | Configurable provider in core |
-| **Brain options** | Unified paw-brain (Ollama, Claude, OpenAI, Gemini, xAI) | Multi-provider with fallback chains |
+| **Brain options** | Unified paw-brain (Ollama, Claude, OpenAI, Gemini, xAI, Claude Code) | Multi-provider with fallback chains |
 | **Heartbeat** | HEARTBEAT.md + cron | HEARTBEAT.md + cron |
 | **Memory** | Source-isolated (user/paw/heartbeat scoped) | Shared (no source isolation) |
 | **Identity files** | BRAIN.md, SOUL.md, USER.md, AGENT.md | SOUL.md, USER.md, AGENTS.md |

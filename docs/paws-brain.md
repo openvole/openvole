@@ -19,6 +19,7 @@ Set the provider via `BRAIN_PROVIDER` env var, or let it auto-detect from availa
 | OpenAI | `openai` | `OPENAI_API_KEY` |
 | Google Gemini | `gemini` | `GEMINI_API_KEY` |
 | xAI Grok | `xai` | `XAI_API_KEY` |
+| Claude Code (local CLI) | `claude-code` | none — uses the local `claude` CLI's own auth |
 
 > Legacy single-provider paws (`paw-ollama`, `paw-claude`, `paw-openai`, `paw-gemini`, `paw-xai`) are deprecated but still available.
 
@@ -61,6 +62,19 @@ Set `BRAIN_PROVIDER=mock` (`echo` and `test` are aliases) for a free, determinis
   ```
 
 To pass the sandbox, add any mock env vars you use to the paw's `allow.env`, e.g. `"BRAIN_MOCK_SCRIPT"`, `"BRAIN_MOCK_REPLY"`.
+
+### Claude Code provider (local CLI)
+
+Set `BRAIN_PROVIDER=claude-code` (aliases `claudecode`, `cc`) to use the local, **authenticated Claude Code CLI** as the brain — **no API key**; it uses the CLI's own auth. Each `think()` renders the system prompt + transcript and runs `claude -p --output-format json`, returning Claude Code's final answer.
+
+- **Auth profile** — point at a config dir with `CLAUDE_CODE_CONFIG_DIR` (e.g. `~/.claude-ep`); it maps to the CLI's `CLAUDE_CONFIG_DIR`.
+- **Other env** — `CLAUDE_CODE_CMD` (default `claude`), `CLAUDE_CODE_MODEL`, `CLAUDE_CODE_PERMISSION_MODE` (e.g. `bypassPermissions`, to let Claude Code use its own tools without an interactive prompt), `CLAUDE_CODE_ARGS` (extra CLI flags), `CLAUDE_CODE_TIMEOUT_MS` (default `600000`).
+
+Grant `"childProcess": true` (it spawns the CLI) and add the `CLAUDE_CODE_*` vars you use to the paw's `allow.env`.
+
+#### Calling OpenVole's own tools
+
+Set **`CLAUDE_CODE_EXPOSE_TOOLS=1`** and Claude Code can call the space's own tools (memory, schedules, VoleNet, …) as `mcp__openvole__<tool>`, alongside its built-ins. paw-brain writes a `--mcp-config` pointing the CLI at the control plane's MCP endpoint (`/mcp/<space>`); the engine injects `VOLE_DASHBOARD_URL`, `VOLE_SPACE_ID`, and the dashboard token, so it works automatically under `vole serve`. Add `CLAUDE_CODE_EXPOSE_TOOLS`, `VOLE_DASHBOARD_URL`, `VOLE_DASHBOARD_TOKEN`, and `VOLE_SPACE_ID` to `allow.env`. See [Dashboard → Tools over MCP](./dashboard.md#tools-over-mcp).
 
 ## BRAIN.md
 

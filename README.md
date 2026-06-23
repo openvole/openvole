@@ -66,7 +66,7 @@ Full walkthrough → [Getting Started](https://openvole.github.io/openvole/getti
 | | |
 |---|---|
 | 🏠 **Self-hosted & private** | Your agents, your hardware, your data. Nothing phones home — point it at a local Ollama model and it never touches the cloud. |
-| 🔌 **Model-agnostic** | One unified brain paw speaks Anthropic, OpenAI, Gemini, xAI, and Ollama. Switch providers per agent with a single env var. |
+| 🔌 **Model-agnostic** | One unified brain paw speaks Anthropic, OpenAI, Gemini, xAI, Ollama, and the local Claude Code CLI. Switch providers per agent with a single env var. |
 | 🖥️ **A server, not a script** | `vole serve` is a control plane: create, start, stop, and chat with a fleet of agents — "spaces" — from one browser dashboard. No babysitting processes on ports. |
 | 🧩 **Microkernel, zero lock-in** | A tiny, LLM-ignorant core. Every capability is a Paw you can swap, sandbox, or write yourself — and you can bring your own system prompt via `BRAIN.md`. |
 | 🕸️ **VoleNet** | A peer-to-peer AI agent network: remote tools become local, cheap workers share one brain, memory syncs across the mesh — signed with hybrid post-quantum signatures (Ed25519 + ML-DSA-65), with leader election and no central server. |

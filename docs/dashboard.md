@@ -106,6 +106,16 @@ To add a panel to your own paw, see **[Build an Embedded App](/paws#build-an-emb
 
 `@openvole/paw-markets` is a US-stock tracking paw whose **Markets** panel embeds this way. Install it into a space from the Config tab and start the space — its panel appears under the Apps tab.
 
+## Tools over MCP
+
+The control plane exposes each running space's own tools over the **Model Context Protocol** at `POST /mcp/<space>`, so an MCP client can drive a space's tools directly:
+
+- `tools/list` enumerates the space's registered tools; `tools/call` runs one through the space's normal tool path (the same execution the brain uses).
+- It's a stateless, streamable-HTTP MCP server built on the official `@modelcontextprotocol/sdk` — no extra ports, no per-paw servers.
+- **Token-gated:** requests must carry the dashboard session token in the `x-vole-token` header.
+
+The main consumer is the **[Claude Code brain](/paws-brain#claude-code-provider-local-cli)**: with `CLAUDE_CODE_EXPOSE_TOOLS=1`, Claude Code calls OpenVole's own tools as `mcp__openvole__<tool>` through this endpoint. The engine injects `VOLE_DASHBOARD_URL`, `VOLE_SPACE_ID`, and the token into each space, so it wires up automatically under `vole serve`.
+
 ## VoleNet Tab
 
 The **VoleNet** tab is for talking to the *humans* behind your connected peer nodes. It has two parts:
