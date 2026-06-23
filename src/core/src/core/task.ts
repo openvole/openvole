@@ -242,7 +242,11 @@ export class TaskQueue {
 			}
 			task.completedAt = Date.now()
 			logger.info(`Task ${task.id} ${task.status}`)
-			this.bus.emit('task:completed', { taskId: task.id, result: task.result })
+			this.bus.emit('task:completed', {
+				taskId: task.id,
+				result: task.result,
+				sessionId: task.sessionId,
+			})
 			// Notify parent if this was a sub-agent task
 			if (task.parentTaskId) {
 				this.bus.emit('agent:completed', {
@@ -260,7 +264,12 @@ export class TaskQueue {
 				task.result ||
 				'Sorry, something went wrong while processing your request. Please try again.'
 			logger.error(`Task ${task.id} failed: ${task.error}`)
-			this.bus.emit('task:failed', { taskId: task.id, error: err, result: task.result })
+			this.bus.emit('task:failed', {
+				taskId: task.id,
+				error: err,
+				result: task.result,
+				sessionId: task.sessionId,
+			})
 			if (task.parentTaskId) {
 				this.bus.emit('agent:completed', {
 					taskId: task.id,

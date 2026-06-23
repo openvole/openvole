@@ -536,12 +536,17 @@ export class PawRegistry {
 		// Handle Paw → Core: subscribe to bus events
 		transport.onRequest('subscribe', async (params) => {
 			const { events } = params as { events: string[] }
+			// Set up forwarding unconditionally. `subscribe` is sent from a paw's onLoad at
+			// startup and can arrive before `this.paws.set(...)` registers the instance (it
+			// runs after waitForRegistration), so `this.paws.get(pawName)` may still be
+			// undefined here. The forwarding callback resolves the instance lazily at event
+			// time, so gating on it now would silently drop the subscription (which is exactly
+			// why paw-session's task:completed subscription — and thus brain-response recording
+			// — was lost ~half the time).
 			const instance = this.paws.get(pawName)
-			if (instance) {
-				instance.subscriptions = events
-				this.setupBusForwarding(pawName, events, transport)
-				logger.info(`Paw "${pawName}" subscribed to events: ${events.join(', ')}`)
-			}
+			if (instance) instance.subscriptions = events
+			this.setupBusForwarding(pawName, events, transport)
+			logger.info(`Paw "${pawName}" subscribed to events: ${events.join(', ')}`)
 			return { ok: true }
 		})
 

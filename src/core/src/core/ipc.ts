@@ -33,6 +33,14 @@ export class IpcTransport {
 	private pending = new Map<string, PendingRequest>()
 	private handlers = new Map<string, (params: unknown) => Promise<unknown>>()
 	private disposed = false
+	// Inbound request/notification messages that arrived before their handler was
+	// registered. A subprocess Paw sends `register` (at module load) and `subscribe`
+	// (from onLoad) at startup, which races handler registration on this side — without
+	// buffering, those early messages are silently dropped (e.g. paw-session's
+	// `task:completed` subscription, so brain responses never get recorded). Flushed in
+	// onRequest() when the matching handler is registered.
+	private earlyMessages: IpcMessage[] = []
+	private static readonly MAX_EARLY_MESSAGES = 100
 
 	constructor(
 		private type: TransportType,
@@ -49,6 +57,14 @@ export class IpcTransport {
 	/** Register a handler for incoming requests from the Paw */
 	onRequest(method: string, handler: (params: unknown) => Promise<unknown>): void {
 		this.handlers.set(method, handler)
+		// Flush any early messages for this method that arrived before the handler existed.
+		if (this.earlyMessages.length > 0) {
+			const ready = this.earlyMessages.filter((m) => m.method === method)
+			if (ready.length > 0) {
+				this.earlyMessages = this.earlyMessages.filter((m) => m.method !== method)
+				for (const m of ready) this.dispatchRequest(m)
+			}
+		}
 	}
 
 	/** Send a request to the Paw and wait for a response */
@@ -93,6 +109,7 @@ export class IpcTransport {
 		}
 		this.pending.clear()
 		this.handlers.clear()
+		this.earlyMessages = []
 	}
 
 	private send(message: IpcMessage): void {
@@ -134,27 +151,41 @@ export class IpcTransport {
 			return
 		}
 
-		// Incoming request from Paw
-		if (msg.method && this.handlers.has(msg.method)) {
-			const handler = this.handlers.get(msg.method)!
-			handler(msg.params)
-				.then((result) => {
-					if (msg.id) {
-						this.send({ jsonrpc: '2.0', id: msg.id, result })
-					}
-				})
-				.catch((err: unknown) => {
-					const errorMessage = err instanceof Error ? err.message : String(err)
-					logger.error(`Handler error for "${msg.method}": ${errorMessage}`)
-					if (msg.id) {
-						this.send({
-							jsonrpc: '2.0',
-							id: msg.id,
-							error: { code: -32603, message: errorMessage },
-						})
-					}
-				})
+		// Incoming request/notification from Paw
+		if (msg.method) {
+			if (this.handlers.has(msg.method)) {
+				this.dispatchRequest(msg)
+			} else {
+				// Handler not registered yet — buffer so it isn't lost to the startup race
+				// (flushed in onRequest). Bounded; drop the oldest if a paw floods unknown methods.
+				if (this.earlyMessages.length >= IpcTransport.MAX_EARLY_MESSAGES) {
+					const dropped = this.earlyMessages.shift()
+					logger.warn(`IPC early-message buffer full — dropped "${dropped?.method}"`)
+				}
+				this.earlyMessages.push(msg)
+			}
 		}
+	}
+
+	private dispatchRequest(msg: IpcMessage): void {
+		const handler = this.handlers.get(msg.method!)!
+		handler(msg.params)
+			.then((result) => {
+				if (msg.id) {
+					this.send({ jsonrpc: '2.0', id: msg.id, result })
+				}
+			})
+			.catch((err: unknown) => {
+				const errorMessage = err instanceof Error ? err.message : String(err)
+				logger.error(`Handler error for "${msg.method}": ${errorMessage}`)
+				if (msg.id) {
+					this.send({
+						jsonrpc: '2.0',
+						id: msg.id,
+						error: { code: -32603, message: errorMessage },
+					})
+				}
+			})
 	}
 
 	private setupIpcListeners(): void {

@@ -9,8 +9,8 @@ export type BusEvents = {
 	'paw:crashed': { pawName: string; error?: unknown }
 	'task:queued': { taskId: string }
 	'task:started': { taskId: string }
-	'task:completed': { taskId: string; result?: string }
-	'task:failed': { taskId: string; error?: unknown; result?: string }
+	'task:completed': { taskId: string; result?: string; sessionId?: string }
+	'task:failed': { taskId: string; error?: unknown; result?: string; sessionId?: string }
 	'task:cancelled': { taskId: string }
 	'agent:completed': {
 		taskId: string
