@@ -144,7 +144,7 @@ describe('buildPermissionFlags', () => {
 		expect(flags[0]).toBe('--permission')
 	})
 
-	it('includes paw path and .openvole in read paths', () => {
+	it('includes paw path and its scoped data dir (not all of .openvole) in read paths', () => {
 		const permissions: EffectivePermissions = {
 			network: [],
 			listen: [],
@@ -159,7 +159,10 @@ describe('buildPermissionFlags', () => {
 		const readPaths = readFlags.map((f) => f.replace('--allow-fs-read=', ''))
 
 		expect(readPaths).toContain(pawPath)
-		expect(readPaths).toContain(path.resolve(projectRoot, '.openvole'))
+		// Reads are scoped to the paw's own data dir, NOT the whole .openvole tree —
+		// that holds the vault and the VoleNet private key, so it must stay off-limits.
+		expect(readPaths).toContain(path.resolve(projectRoot, '.openvole/paws/paw-test'))
+		expect(readPaths).not.toContain(path.resolve(projectRoot, '.openvole'))
 	})
 
 	it('includes paw data dir in write paths', () => {

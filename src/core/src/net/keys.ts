@@ -2,8 +2,10 @@
  * VoleNet Ed25519 key management.
  * Each vole instance has a keypair for identity and message signing.
  *
- * Key format: "vole-ed25519 <base64-public-key> <instance-name>"
- * Storage: .openvole/net/vole_key (private), vole_key.pub (public)
+ * Key format: "vole-ed25519 <base64-ed25519-public-key> <instance-name> [base64-ml-dsa-public-key]"
+ *   The 4th field (ML-DSA public key) is present when post-quantum support is available
+ *   — the identity is then a hybrid Ed25519 + ML-DSA keypair.
+ * Storage: .openvole/net/vole_key (private), vole_key.pub (public), vole_key.pq (ML-DSA private)
  *          .openvole/net/authorized_voles (trusted peer public keys)
  */
 

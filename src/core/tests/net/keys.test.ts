@@ -52,7 +52,9 @@ describe('VoleNet Keys', () => {
 			await generateKeyPair(netDir, 'my-vole')
 			const publicKeyPath = path.join(netDir, 'vole_key.pub')
 			const content = await fs.readFile(publicKeyPath, 'utf-8')
-			expect(content.trim()).toMatch(/^vole-ed25519 [A-Za-z0-9+/=]+ my-vole$/)
+			// Hybrid format: a base64 ML-DSA public key is appended as a 4th field when
+			// post-quantum support is available, otherwise the classical 3-field form.
+			expect(content.trim()).toMatch(/^vole-ed25519 [A-Za-z0-9+/=]+ my-vole( [A-Za-z0-9+/=]+)?$/)
 		})
 
 		it('creates authorized_voles file', async () => {
