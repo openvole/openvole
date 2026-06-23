@@ -1694,7 +1694,27 @@ function spaceAction(cmd) {
 /* ── Chat (per-space brain conversation via paw-session sessions) ── */
 var chatSessionId = 'dashboard';
 var chatLoadedKey = null;
-var pendingChats = {}; // taskId -> { el, spaceId }
+var pendingChats = {}; // taskId -> { el, spaceId, timer }
+// Friendly, rotating placeholders shown while the brain works — nicer than a bare "queued".
+var CHAT_WAIT_PHRASES = [
+  'thinking…', 'let me think on that…', 'pondering…', 'working on it…',
+  'gathering my thoughts…', 'on it…', 'reasoning through this…', 'hmm, let me see…',
+  'digging in…', 'one moment…', 'putting it together…', 'chewing on it…',
+  'consulting my neurons…', 'almost there…'
+];
+function chatWaitPhrase() {
+  return CHAT_WAIT_PHRASES[Math.floor(Math.random() * CHAT_WAIT_PHRASES.length)];
+}
+// Rotate the placeholder every few seconds so a long wait still feels alive.
+function startChatWait(el) {
+  el.textContent = chatWaitPhrase();
+  return setInterval(function() {
+    if (el.classList.contains('chat-msg-pending')) el.textContent = chatWaitPhrase();
+  }, 2500);
+}
+function stopChatWait(entry) {
+  if (entry && entry.timer) { clearInterval(entry.timer); entry.timer = null; }
+}
 
 function resetChat() {
   chatSessionId = 'dashboard';
@@ -1869,15 +1889,18 @@ function sendChat() {
   if (!text || !currentSpaceId) return;
   input.value = '';
   addChatBubble('user', text);
-  var pendingEl = addChatBubble('brain', 'queued…', 'chat-msg-pending');
+  var pendingEl = addChatBubble('brain', '', 'chat-msg-pending');
+  var waitTimer = startChatWait(pendingEl);
   sendCommand('submit', { input: text, sessionId: chatSessionId }).then(function(res) {
     if (res && res.taskId) {
-      pendingChats[res.taskId] = { el: pendingEl, spaceId: currentSpaceId };
+      pendingChats[res.taskId] = { el: pendingEl, spaceId: currentSpaceId, timer: waitTimer };
     } else {
+      clearInterval(waitTimer);
       pendingEl.classList.remove('chat-msg-pending');
       pendingEl.textContent = '(submitted)';
     }
   }).catch(function(e) {
+    clearInterval(waitTimer);
     pendingEl.className = 'chat-msg chat-msg-error';
     pendingEl.textContent = 'Failed to submit: ' + e.message;
   });
@@ -1887,13 +1910,15 @@ function chatOnTaskEvent(event, data, spaceId) {
   if (!p) return;
   if (spaceId !== undefined && p.spaceId !== spaceId) return;
   if (event === 'task:started') {
-    p.el.textContent = 'thinking…';
+    // Let the rotating placeholder keep going — it already reads as "working".
     return;
   }
   if (event === 'task:completed') {
+    stopChatWait(p);
     p.el.classList.remove('chat-msg-pending');
     setBubbleMarkdown(p.el, data.result || '(no response)');
   } else if (event === 'task:failed' || event === 'task:cancelled') {
+    stopChatWait(p);
     p.el.className = 'chat-msg chat-msg-error';
     p.el.textContent = data && (data.result || data.error) ? String(data.result || data.error) : 'Task failed';
   } else {
