@@ -111,6 +111,14 @@ export class ControlPlane {
 
 		const proc = execa('node', [this.cliPath, '__run-space', entry.path], {
 			cwd: entry.path,
+			// Tell the engine (and its paws, e.g. a Claude Code brain) where the control plane's
+			// MCP endpoint lives, so it can expose this space's tools back to an MCP client.
+			env: {
+				...process.env,
+				VOLE_DASHBOARD_URL: `http://127.0.0.1:${this.port}`,
+				VOLE_SPACE_ID: entry.id,
+				...(this.token ? { VOLE_DASHBOARD_TOKEN: this.token } : {}),
+			},
 			stdio: ['ignore', 'ignore', 'ignore', 'ipc'],
 			reject: false,
 			cleanup: true,

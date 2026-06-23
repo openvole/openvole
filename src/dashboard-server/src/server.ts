@@ -196,6 +196,49 @@ export function createDashboardServer(
 			return
 		}
 
+		// MCP endpoint: /mcp/<space> — exposes the space's tools to an MCP client (e.g. a
+		// Claude Code brain). Token-gated; a non-browser MCP client sends no Origin, so the
+		// token is the gate. Tool execution reuses the same engine path as the panels.
+		if (req.url?.startsWith('/mcp/')) {
+			if (!tokenOk(req)) {
+				res.writeHead(401)
+				res.end()
+				return
+			}
+			const space = decodeURIComponent(
+				new URL(req.url, 'http://localhost').pathname.split('/').filter(Boolean)[1] ?? '',
+			)
+			if (!space) {
+				res.writeHead(404)
+				res.end()
+				return
+			}
+			void (async () => {
+				try {
+					let raw = ''
+					for await (const chunk of req) raw += chunk
+					const body = raw ? JSON.parse(raw) : undefined
+					const { handleMcpRequest } = await import('./mcp.js')
+					await handleMcpRequest(req, res, body, {
+						listTools: async () => {
+							const state = (await callbacks.fetchState(space)) as {
+								tools?: Array<{ name: string; description?: string; parameters?: unknown }>
+							}
+							return state?.tools ?? []
+						},
+						callTool: async (name, args) =>
+							(await callbacks.callPawTool?.(space, name, args)) ?? { error: 'tool execution unavailable' },
+					})
+				} catch (e) {
+					if (!res.headersSent) {
+						res.writeHead(500)
+						res.end(e instanceof Error ? e.message : String(e))
+					}
+				}
+			})()
+			return
+		}
+
 		// Embedded paw panels: /panel/<space>/<encodedPaw>/  and  .../tool/<name>
 		if (req.url?.startsWith('/panel/')) {
 			const isTool = req.url.includes('/tool/')
