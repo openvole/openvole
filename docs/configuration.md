@@ -565,6 +565,30 @@ Each paw gets its own data directory at `.openvole/paws/<name>/`. The installed 
 
 ---
 
+## Workspace
+
+Every space is scaffolded with a `.openvole/workspace/` directory — the agent's
+**writable scratch and project area**. It's the sanctioned place for anything the
+agent produces or fetches that isn't memory, config, or a paw's own data:
+
+- Internal projects and their files (drop source material or media here to work on it)
+- Drafts, notes, and downloaded docs or instructions
+- Generated outputs (reports, renders, exports)
+
+The core `workspace_read`, `workspace_write`, `workspace_list`, and
+`workspace_delete` tools operate on this directory and confine every path to it —
+they run in-core, so the agent can use them without any sandbox grant. Encourage
+your agent (via `AGENT.md` or a task prompt) to treat the workspace as its working
+directory for multi-step projects.
+
+- **Gitignored by default** (the scaffolded `.gitignore` ignores `.openvole/`), so
+  it's safe for large or throwaway files. Version anything you want to keep elsewhere.
+- **Not for secrets** — store credentials in the [vault](/security#vault), never here.
+- **Sandboxed paws** don't get workspace access automatically; a paw subprocess that
+  needs it must be granted the path via `allow.filesystem` (see [Security](/security)).
+
+---
+
 ## Identity Files
 
 Customize agent behavior with markdown files in `.openvole/`:

@@ -13,6 +13,10 @@ OpenVole takes a defense-in-depth approach to agent safety, with multiple layers
 - **Additional paths**: Grant via `allow.filesystem` in paw config or `security.allowedPaths` globally
 - **Opt-out**: Set `security.sandboxFilesystem: false` to disable (not recommended)
 
+::: tip Workspace access
+The [workspace](/configuration#workspace) (`.openvole/workspace/`) is written by the core `workspace_*` tools, which run **in-core** and so aren't subject to this sandbox — the agent can use it without any grant. A **subprocess paw** that needs to reach the workspace is a different case: grant it explicitly with `allow.filesystem: [".openvole/workspace"]`.
+:::
+
 ```json
 {
   "security": {

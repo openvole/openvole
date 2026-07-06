@@ -39,6 +39,13 @@ export async function scaffoldProject(dir: string): Promise<void> {
 	await fs.mkdir(path.join(dir, '.openvole', 'workspace'), { recursive: true })
 	await fs.mkdir(path.join(dir, '.openvole', 'paws'), { recursive: true })
 
+	// Seed a self-documenting README so the workspace is discoverable, not an empty dir.
+	await fs.writeFile(
+		path.join(dir, '.openvole', 'workspace', 'README.md'),
+		'# Workspace\n\nThe agent’s writable scratch and project area. Anything the agent creates or\ndownloads that is not memory, config, or a paw’s own data belongs here: drafts,\nnotes, downloaded docs, generated files, and media for internal projects.\n\nManaged by the `workspace_read`, `workspace_write`, `workspace_list`, and\n`workspace_delete` tools, which confine all paths to this directory. Gitignored by\ndefault, so it is safe for large or throwaway files. Never store secrets here — use\nthe vault.\n',
+		'utf-8',
+	)
+
 	// HEARTBEAT.md
 	await fs.writeFile(
 		path.join(dir, '.openvole', 'HEARTBEAT.md'),
