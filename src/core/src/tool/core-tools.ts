@@ -1,5 +1,6 @@
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
+import { execa } from 'execa'
 import { z } from 'zod'
 import type { SchedulerStore } from '../core/scheduler.js'
 import type { TaskQueue } from '../core/task.js'
@@ -7,6 +8,32 @@ import type { Vault } from '../core/vault.js'
 import type { SkillRegistry } from '../skill/registry.js'
 import type { ToolRegistry } from './registry.js'
 import type { ToolDefinition } from './types.js'
+
+/** Interpreter candidates per script extension (first available on PATH wins). */
+const SCRIPT_INTERPRETERS: Record<string, string[]> = {
+	'.js': ['node'],
+	'.mjs': ['node'],
+	'.cjs': ['node'],
+	'.py': ['python3', 'python'],
+	'.sh': ['bash', 'sh'],
+	'.bash': ['bash'],
+}
+const SCRIPT_TIMEOUT_DEFAULT_MS = 120_000
+const SCRIPT_TIMEOUT_MAX_MS = 600_000
+const MAX_SCRIPT_OUTPUT = 20_000
+const SCRIPT_MAX_BUFFER = 1_000_000
+/** Env vars always safe to forward to a skill script (the interpreter needs PATH, etc.). */
+const SCRIPT_ENV_BASELINE = [
+	'PATH',
+	'HOME',
+	'LANG',
+	'LC_ALL',
+	'TMPDIR',
+	'TEMP',
+	'TMP',
+	'SystemRoot',
+	'PATHEXT',
+]
 
 /** Create the built-in core tools that are always available to the Brain */
 export function createCoreTools(
@@ -129,7 +156,8 @@ export function createCoreTools(
 				}
 				try {
 					const content = await fs.readFile(path.join(skill.path, 'SKILL.md'), 'utf-8')
-					return { ok: true, name, content }
+					// basePath lets the Brain resolve/execute bundled files the SKILL.md references.
+					return { ok: true, name, basePath: skill.path, content }
 				} catch {
 					return { ok: false, error: `Failed to read SKILL.md for "${name}"` }
 				}
@@ -149,14 +177,16 @@ export function createCoreTools(
 				if (!skill) {
 					return { ok: false, error: `Skill "${name}" not found` }
 				}
-				// Prevent path traversal
-				const resolved = path.resolve(skill.path, 'references', file)
-				if (!resolved.startsWith(path.resolve(skill.path, 'references'))) {
+				// Prevent path traversal — append the separator so a sibling dir like
+				// "references-private/" can't satisfy the prefix check.
+				const refDir = path.resolve(skill.path, 'references')
+				const resolved = path.resolve(refDir, file)
+				if (resolved !== refDir && !resolved.startsWith(refDir + path.sep)) {
 					return { ok: false, error: 'Invalid file path' }
 				}
 				try {
 					const content = await fs.readFile(resolved, 'utf-8')
-					return { ok: true, name, file, content }
+					return { ok: true, name, basePath: skill.path, file, content }
 				} catch {
 					return { ok: false, error: `File not found: references/${file}` }
 				}
@@ -165,7 +195,7 @@ export function createCoreTools(
 		{
 			name: 'skill_list_files',
 			description:
-				"List all files in a skill's directory including scripts, references, and assets.",
+				"List all files in a skill's directory (scripts, references, assets). Paths are relative to the skill's basePath (also returned); run bundled scripts with skill_run_script.",
 			parameters: z.object({
 				name: z.string().describe('Skill name'),
 			}),
@@ -177,9 +207,140 @@ export function createCoreTools(
 				}
 				try {
 					const files = await listFilesRecursive(skill.path)
-					return { ok: true, name, files }
+					return { ok: true, name, basePath: skill.path, files }
 				} catch {
 					return { ok: false, error: `Failed to list files for "${name}"` }
+				}
+			},
+		},
+		{
+			name: 'skill_run_script',
+			description:
+				"Execute a script bundled inside a skill (e.g. 'scripts/run.js'), confined to the skill's own directory. Runs with the skill's declared environment (requires.env) plus a PATH/HOME baseline — NOT the engine's full env. Interpreter by extension: .js/.mjs/.cjs → node, .py → python3/python, .sh/.bash → bash (an interpreter the skill declares in requires.bins/anyBins is preferred). Default timeout 120s (override with timeoutMs, capped at 600s). Returns exitCode, signal, and stdout/stderr (clipped to ~20k chars, head+tail).",
+			parameters: z.object({
+				name: z.string().describe('Skill name'),
+				script: z
+					.string()
+					.describe("Script path relative to the skill directory, e.g. 'scripts/run.js'"),
+				args: z.array(z.string()).optional().describe('Command-line arguments for the script'),
+				input: z.string().optional().describe('Data written to the script on stdin'),
+				timeoutMs: z
+					.number()
+					.int()
+					.positive()
+					.optional()
+					.describe(
+						`Max run time in ms (default ${SCRIPT_TIMEOUT_DEFAULT_MS}, capped at ${SCRIPT_TIMEOUT_MAX_MS})`,
+					),
+			}),
+			async execute(params) {
+				const { name, script, args, input, timeoutMs } = params as {
+					name: string
+					script: string
+					args?: string[]
+					input?: string
+					timeoutMs?: number
+				}
+				const skill = skillRegistry.get(name)
+				if (!skill) {
+					return { ok: false, error: `Skill "${name}" not found` }
+				}
+				// Only run scripts for skills whose declared requirements are met — the same gate the
+				// resolver uses to activate a skill. An inactive skill may be missing required env/bins.
+				if (!skill.active) {
+					const missing = skill.missingTools.join(', ') || 'unmet requirements'
+					return {
+						ok: false,
+						error: `Skill "${name}" is inactive (${missing}); its scripts are not runnable.`,
+					}
+				}
+
+				// Confine execution to the skill's directory: a lexical check (catches ../ traversal
+				// even for non-existent targets), then realpath so an in-dir symlink can't point the
+				// interpreter at a file outside the skill tree.
+				const skillDir = await fs.realpath(skill.path).catch(() => path.resolve(skill.path))
+				const requested = path.resolve(skillDir, script)
+				if (requested !== skillDir && !requested.startsWith(skillDir + path.sep)) {
+					return { ok: false, error: 'Invalid script path (must be inside the skill directory)' }
+				}
+				let resolved: string
+				try {
+					resolved = await fs.realpath(requested)
+				} catch {
+					return { ok: false, error: `Script not found: ${script}` }
+				}
+				if (resolved !== skillDir && !resolved.startsWith(skillDir + path.sep)) {
+					return { ok: false, error: 'Invalid script path (symlink escapes the skill directory)' }
+				}
+				try {
+					if (!(await fs.stat(resolved)).isFile()) {
+						return { ok: false, error: `Not a file: ${script}` }
+					}
+				} catch {
+					return { ok: false, error: `Script not found: ${script}` }
+				}
+
+				const ext = path.extname(resolved).toLowerCase()
+				const extCandidates = SCRIPT_INTERPRETERS[ext]
+				if (!extCandidates) {
+					return {
+						ok: false,
+						error: `Unsupported script type "${ext || '(none)'}". Supported: ${Object.keys(SCRIPT_INTERPRETERS).join(', ')}`,
+					}
+				}
+				// Prefer an interpreter the skill itself declares (requires.bins/anyBins) when it can
+				// run this extension; otherwise fall back to the extension defaults.
+				const declared = [
+					...(skill.definition.requires?.bins ?? []),
+					...(skill.definition.requires?.anyBins ?? []),
+				].filter((b) => extCandidates.includes(b))
+				const candidates = [...new Set([...declared, ...extCandidates])]
+				const interpreter = await firstAvailableBinary(candidates)
+				if (!interpreter) {
+					return {
+						ok: false,
+						error: `No interpreter on PATH for ${ext} (tried ${candidates.join(', ')}).`,
+					}
+				}
+
+				const timeout = Math.min(
+					Math.max(1, timeoutMs ?? SCRIPT_TIMEOUT_DEFAULT_MS),
+					SCRIPT_TIMEOUT_MAX_MS,
+				)
+				try {
+					const res = await execa(interpreter, [resolved, ...(args ?? [])], {
+						cwd: skillDir,
+						timeout,
+						maxBuffer: SCRIPT_MAX_BUFFER,
+						reject: false,
+						// Scope the environment — never hand a skill script the engine's full env
+						// (vault key, unrelated API keys, …); only its declared vars + a safe baseline.
+						env: buildScriptEnv(skill.definition.requires?.env ?? []),
+						extendEnv: false,
+						// Give the child an empty stdin (EOF) when no input is supplied, so a script
+						// that reads stdin doesn't block until the timeout.
+						...(input === undefined ? { stdin: 'ignore' as const } : { input }),
+					})
+					const ok = res.exitCode === 0 && !res.failed
+					return {
+						ok,
+						script,
+						interpreter,
+						exitCode: res.exitCode ?? null,
+						stdout: clipOutput(res.stdout ?? ''),
+						stderr: clipOutput(res.stderr ?? ''),
+						...(res.signal ? { signal: res.signal } : {}),
+						...(res.timedOut ? { timedOut: true } : {}),
+						...(res.isMaxBuffer ? { truncatedBuffer: true } : {}),
+						...(!ok && res.exitCode === undefined
+							? {
+									error:
+										res.shortMessage || `script terminated${res.signal ? ` by ${res.signal}` : ''}`,
+								}
+							: {}),
+					}
+				} catch (err) {
+					return { ok: false, error: err instanceof Error ? err.message : String(err) }
 				}
 			},
 		},
@@ -772,7 +933,7 @@ export function createCoreTools(
 					const maxLen = 50_000
 					const content =
 						text.length > maxLen
-							? text.substring(0, maxLen) + `\n\n[Truncated — ${text.length} chars total]`
+							? `${text.substring(0, maxLen)}\n\n[Truncated — ${text.length} chars total]`
 							: text
 
 					return {
@@ -928,6 +1089,46 @@ async function listFilesRecursive(dir: string, prefix = ''): Promise<string[]> {
 		}
 	}
 	return files
+}
+
+/** Async PATH probe (returns the first available binary) — doesn't block the event loop. */
+async function firstAvailableBinary(candidates: string[]): Promise<string | undefined> {
+	const probe = process.platform === 'win32' ? 'where' : 'which'
+	for (const bin of candidates) {
+		const res = await execa(probe, [bin], { reject: false, timeout: 2000, stdin: 'ignore' })
+		if (res.exitCode === 0) return bin
+	}
+	return undefined
+}
+
+/** Build a scoped env for a skill script: a safe baseline plus the skill's declared vars only. */
+function buildScriptEnv(declaredEnv: string[]): Record<string, string> {
+	const env: Record<string, string> = {}
+	for (const key of [...SCRIPT_ENV_BASELINE, ...declaredEnv]) {
+		const value = process.env[key]
+		if (value !== undefined) env[key] = value
+	}
+	return env
+}
+
+/** Clip long output to ~MAX_SCRIPT_OUTPUT chars, keeping head + tail, without splitting a surrogate pair. */
+function clipOutput(s: string): string {
+	if (s.length <= MAX_SCRIPT_OUTPUT) return s
+	const head = Math.ceil(MAX_SCRIPT_OUTPUT * 0.6)
+	const tail = MAX_SCRIPT_OUTPUT - head
+	const dropped = s.length - MAX_SCRIPT_OUTPUT
+	return `${safeSlice(s, 0, head)}\n… [${dropped} chars truncated] …\n${safeSlice(s, s.length - tail, s.length)}`
+}
+
+/** Slice by UTF-16 units but never leave a lone surrogate at either cut edge. */
+function safeSlice(s: string, start: number, end: number): string {
+	let a = start
+	let b = end
+	// A low surrogate at the start would be orphaned from its high surrogate.
+	if (a > 0 && a < s.length && s.charCodeAt(a) >= 0xdc00 && s.charCodeAt(a) <= 0xdfff) a++
+	// A high surrogate just before the end would be orphaned from its low surrogate.
+	if (b > 0 && b < s.length && s.charCodeAt(b - 1) >= 0xd800 && s.charCodeAt(b - 1) <= 0xdbff) b--
+	return s.slice(a, b)
 }
 
 /** Recursively list files with sizes relative to a directory */

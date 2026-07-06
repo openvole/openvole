@@ -270,3 +270,162 @@ describe('createCoreTools', () => {
 		})
 	})
 })
+
+describe('skill basePath + skill_run_script', () => {
+	let tmpDir: string
+	let skillDir: string
+	let tools: ToolDefinition[]
+	let scheduler: SchedulerStore
+	let taskQueue: TaskQueue
+	let vault: Vault
+	// biome-ignore lint/suspicious/noExplicitAny: test mock registry
+	let skillRegistry: any
+
+	const makeSkill = (over: Record<string, unknown> = {}) => ({
+		name: 'demo',
+		path: skillDir,
+		active: true,
+		missingTools: [],
+		definition: {
+			name: 'demo',
+			description: 'd',
+			requiredTools: [],
+			optionalTools: [],
+			instructions: 'body',
+			tags: [],
+			requires: { env: [], bins: [], anyBins: [] },
+		},
+		...over,
+	})
+
+	beforeEach(async () => {
+		tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'vole-skillscript-test-'))
+		skillDir = path.join(tmpDir, 'skills', 'demo')
+		await fs.mkdir(path.join(skillDir, 'scripts'), { recursive: true })
+		await fs.writeFile(
+			path.join(skillDir, 'SKILL.md'),
+			'---\nname: demo\ndescription: d\n---\nbody',
+		)
+		await fs.writeFile(
+			path.join(skillDir, 'scripts', 'echo.js'),
+			"process.stdout.write('hi:' + process.argv.slice(2).join(','))",
+		)
+
+		const bus = createMessageBus()
+		scheduler = new SchedulerStore()
+		taskQueue = new TaskQueue(bus)
+		vault = new Vault(path.join(tmpDir, 'vault.json'))
+		await vault.init()
+
+		skillRegistry = {
+			get: vi.fn(() => makeSkill()),
+			list: vi.fn(() => []),
+			active: vi.fn(() => []),
+			load: vi.fn(async () => true),
+			unload: vi.fn(() => true),
+			resolve: vi.fn(),
+		}
+		tools = createCoreTools(scheduler, taskQueue, tmpDir, skillRegistry, vault)
+	})
+
+	afterEach(async () => {
+		scheduler.clearAll()
+		await fs.rm(tmpDir, { recursive: true, force: true })
+		Reflect.deleteProperty(process.env, 'VOLE_TEST_SECRET')
+		Reflect.deleteProperty(process.env, 'VOLE_TEST_DECLARED')
+	})
+
+	const run = (name: string, args: unknown) =>
+		// biome-ignore lint/suspicious/noExplicitAny: test helper
+		tools.find((t) => t.name === name)!.execute(args) as Promise<any>
+
+	it('skill_read returns the skill basePath', async () => {
+		const res = await run('skill_read', { name: 'demo' })
+		expect(res.ok).toBe(true)
+		expect(res.basePath).toBe(skillDir)
+	})
+
+	it('skill_read_reference returns basePath and confines to references/', async () => {
+		await fs.mkdir(path.join(skillDir, 'references'), { recursive: true })
+		await fs.writeFile(path.join(skillDir, 'references', 'api.md'), 'docs')
+		const ok = await run('skill_read_reference', { name: 'demo', file: 'api.md' })
+		expect(ok.ok).toBe(true)
+		expect(ok.basePath).toBe(skillDir)
+		expect(ok.content).toBe('docs')
+		// A sibling dir whose name starts with "references" must not be reachable.
+		await fs.mkdir(path.join(skillDir, 'references-private'), { recursive: true })
+		await fs.writeFile(path.join(skillDir, 'references-private', 'secret.md'), 's')
+		const esc = await run('skill_read_reference', {
+			name: 'demo',
+			file: '../references-private/secret.md',
+		})
+		expect(esc.ok).toBe(false)
+	})
+
+	it('skill_list_files returns basePath + relative paths', async () => {
+		const res = await run('skill_list_files', { name: 'demo' })
+		expect(res.ok).toBe(true)
+		expect(res.basePath).toBe(skillDir)
+		expect(res.files).toContain('scripts/echo.js')
+		expect(res.files).toContain('SKILL.md')
+	})
+
+	it('skill_run_script executes a bundled node script with args', async () => {
+		const res = await run('skill_run_script', {
+			name: 'demo',
+			script: 'scripts/echo.js',
+			args: ['a', 'b'],
+		})
+		expect(res.ok).toBe(true)
+		expect(res.exitCode).toBe(0)
+		expect(res.interpreter).toBe('node')
+		expect(res.stdout).toBe('hi:a,b')
+	})
+
+	it('skill_run_script scopes env to requires.env + baseline (no secret leak)', async () => {
+		process.env.VOLE_TEST_SECRET = 'leak'
+		process.env.VOLE_TEST_DECLARED = 'ok'
+		skillRegistry.get.mockReturnValue(
+			makeSkill({
+				definition: {
+					...makeSkill().definition,
+					requires: { env: ['VOLE_TEST_DECLARED'], bins: [], anyBins: [] },
+				},
+			}),
+		)
+		await fs.writeFile(
+			path.join(skillDir, 'scripts', 'env.js'),
+			"process.stdout.write((process.env.VOLE_TEST_SECRET ?? 'undefined') + '|' + (process.env.VOLE_TEST_DECLARED ?? 'undefined'))",
+		)
+		const res = await run('skill_run_script', { name: 'demo', script: 'scripts/env.js' })
+		expect(res.ok).toBe(true)
+		// Undeclared secret must not leak into the child; the declared var is passed through.
+		expect(res.stdout).toBe('undefined|ok')
+	})
+
+	it('skill_run_script refuses to run scripts of an inactive skill', async () => {
+		skillRegistry.get.mockReturnValue(makeSkill({ active: false, missingTools: ['env:API_KEY'] }))
+		const res = await run('skill_run_script', { name: 'demo', script: 'scripts/echo.js' })
+		expect(res.ok).toBe(false)
+		expect(res.error).toMatch(/inactive/)
+	})
+
+	it('skill_run_script blocks path traversal out of the skill dir', async () => {
+		const res = await run('skill_run_script', { name: 'demo', script: '../../evil.js' })
+		expect(res.ok).toBe(false)
+		expect(res.error).toMatch(/inside the skill directory/)
+	})
+
+	it('skill_run_script rejects an unsupported extension', async () => {
+		await fs.writeFile(path.join(skillDir, 'data.txt'), 'x')
+		const res = await run('skill_run_script', { name: 'demo', script: 'data.txt' })
+		expect(res.ok).toBe(false)
+		expect(res.error).toMatch(/Unsupported script type/)
+	})
+
+	it('skill_run_script errors on a missing script', async () => {
+		const res = await run('skill_run_script', { name: 'demo', script: 'scripts/nope.js' })
+		expect(res.ok).toBe(false)
+		expect(res.error).toMatch(/not found/i)
+	})
+})

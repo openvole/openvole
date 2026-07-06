@@ -94,7 +94,8 @@ export function buildActiveSkills(
 function isBinaryAvailable(name: string): boolean {
 	try {
 		const cmd = process.platform === 'win32' ? 'where' : 'which'
-		execFileSync(cmd, [name], { stdio: 'ignore' })
+		// Bound the probe so a hung `which`/`where` can't stall skill activation indefinitely.
+		execFileSync(cmd, [name], { stdio: 'ignore', timeout: 2000 })
 		return true
 	} catch {
 		return false
