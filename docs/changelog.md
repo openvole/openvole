@@ -1,5 +1,23 @@
 # Changelog
 
+## v4.5.0 (2026-07-07)
+
+> Ships as `openvole` 4.5.0 and `@openvole/dashboard-server` 0.6.0. Skills grow up: a hardened **`skill_run_script`** tool runs a skill's bundled scripts, and VoleHub now installs **multi-file skills** (scripts and all) with per-file integrity hashes. The dashboard gains a **per-paw permission editor**. No breaking changes.
+
+### Skills — bundled scripts, run safely
+- **New core tool `skill_run_script`.** Executes a script bundled inside an installed skill (e.g. `scripts/analyze.py`), confined to the skill's own directory — no path escapes. It runs with the skill's declared environment (`requires.env`) plus a PATH/HOME baseline, **not** the engine's full env; the interpreter is picked by extension (`.js`/`.mjs`/`.cjs` → node, `.py` → python, `.sh` → bash), preferring one the skill declares in `requires.bins`. Bounded runtime (120s default, 600s cap) and clipped stdout/stderr. Only runs for skills whose declared requirements are met — the same gate the resolver uses for activation.
+- **Skills expose their `basePath`**, so prompts and tools can reference a skill's bundled files.
+
+### VoleHub — multi-file skill install
+- **`vole skill install` now fetches everything a skill bundles** — SKILL.md plus scripts/references/assets — from the skill's `files` manifest in INDEX.json, verifying each file's SHA-256 and preserving directory structure. Entries that predate manifests are discovered from the registry; build junk (`__pycache__`, `.pyc`, `.DS_Store`, VCS files) is never fetched or published.
+- `vole skill publish` prints the full `files` manifest (with hashes) to add to INDEX.json.
+
+### Dashboard — per-paw permission editor
+- **Edit a paw's permission grants from the Paws panel.** Each paw now shows the permissions its manifest *requests* (network, env, filesystem, child processes) next to what the space's config actually *grants*, with toggles to allow or revoke — writes go through the existing config-downgrade guard. Paw cards also show the manifest description, and config writes key paws by their `vole.config.json` identifier (package name or local path), so locally-pathed paws resolve correctly.
+
+### Spaces
+- `vole space create` seeds a default `workspace/` directory in each new space (documented in configuration + security docs) — a ready sandbox-friendly place for the agent's working files.
+
 ## v4.4.0 (2026-06-23)
 
 > Ships as `openvole` 4.4.0 and `@openvole/dashboard-server` 0.5.0. A space can now expose its own tools over **MCP**; the new **Claude Code brain** (PawHub `@openvole/paw-brain` 2.3.0) can call them back. Also fixes a startup race that was silently dropping brain replies from the chat transcript. No breaking changes.
