@@ -146,10 +146,11 @@ vole paw add @openvole/paw-telegram
 
 ### Skills
 
-**Skills are behavioral recipes.** A skill is a folder with a `SKILL.md` file — no code, no build step. Compatible with [ClawHub](https://clawhub.ai) (13,000+ skills).
+**Skills are behavioral recipes.** A skill is a folder with a `SKILL.md` of instructions, optionally with bundled scripts the agent runs sandboxed to the skill's own directory. Install from [VoleHub](https://github.com/openvole/volehub) (OpenVole's registry, with per-file hash verification) or [ClawHub](https://clawhub.ai) (13,000+ skills).
 
 ```bash
-vole clawhub install summarize
+vole skill install resolve-autocut   # from VoleHub
+vole clawhub install summarize        # from ClawHub
 ```
 
 ```markdown
@@ -186,6 +187,7 @@ The Brain is a Paw — the core is LLM-ignorant. Use `@openvole/paw-brain` — a
 | `cancel_schedule` / `list_schedules` | Manage schedules (persistent across restarts) |
 | `skill_read` | Load skill instructions on demand |
 | `skill_read_reference` / `skill_list_files` | Access skill resources |
+| `skill_run_script` | Run a script bundled in a skill, confined to its directory |
 | `heartbeat_read` / `heartbeat_write` | Manage recurring jobs |
 | `workspace_write` / `workspace_read` | Read/write files in agent scratch space |
 | `workspace_list` / `workspace_delete` | List/delete workspace files |

@@ -102,8 +102,10 @@ Bootstrap → Perceive → Compact → Think → Act → Observe → loop
 **Paws** — subprocess-isolated plugins that connect OpenVole to the world (APIs, databases,
 browsers, messaging). Each runs behind a capability-based permission sandbox.
 
-**Skills** — behavioral recipes: a folder with a `SKILL.md` and no code. Compatible with
-[ClawHub](https://clawhub.ai) (13,000+ skills).
+**Skills** — behavioral recipes: a folder with a `SKILL.md` of instructions, optionally with
+bundled scripts the agent runs sandboxed to the skill's own directory. Install from
+[VoleHub](https://github.com/openvole/volehub) (OpenVole's registry, with per-file hash
+verification) or [ClawHub](https://clawhub.ai) (13,000+ skills).
 
 **Brain** — the LLM lives in a Paw, not the core. `@openvole/paw-brain` is one unified paw for
 all providers and auto-detects from your API keys.

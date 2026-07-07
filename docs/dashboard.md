@@ -86,6 +86,7 @@ The Config tab is a fully **structured form** — no raw-JSON textareas. Edit ev
 - **loop** — iterations, compaction, tool horizon, context budget, cost tracking
 - **heartbeat** — enabled, interval, run-on-start
 - **security** — sandbox toggle and per-paw filesystem paths
+- **paw permissions** — each paw shows the permissions its manifest *requests* (network, env, filesystem, child processes) next to what the space's config actually *grants*, with toggles to allow or revoke; writes go through the sandbox-weakening guard
 - **docker sandbox** — image, limits, network mode
 - **rate limits** — LLM/tool/task throttles
 - **tool profiles** — per-source allow/deny lists

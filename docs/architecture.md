@@ -141,7 +141,7 @@ Optional Docker sandbox available for stronger isolation.
 
 ## Skills
 
-**Skills are behavioral recipes.** A Skill is a folder with a `SKILL.md` file — no code, no build step. They tell the Brain _how_ to approach a task by providing instructions, not tools.
+**Skills are behavioral recipes.** A Skill is a folder with a `SKILL.md` file — no build step — optionally with bundled scripts the Brain runs via `skill_run_script`, sandboxed to the skill's own directory. They tell the Brain _how_ to approach a task by providing instructions, not tools.
 
 Skills activate based on available tools — a skill requiring `email_send` only loads when an email paw is present. The Brain sees a list of available skills and can load full instructions on demand using the `skill_read` tool.
 
@@ -158,6 +158,7 @@ Skills activate based on available tools — a skill requiring `email_send` only
 | `cancel_schedule` / `list_schedules` | Manage schedules |
 | `skill_read` | Load skill instructions on demand |
 | `skill_read_reference` / `skill_list_files` | Access skill resources |
+| `skill_run_script` | Run a script bundled in a skill, confined to its directory |
 | `heartbeat_read` / `heartbeat_write` | Read/write recurring job definitions |
 | `workspace_write` / `workspace_read` | Read/write agent scratch space |
 | `workspace_list` / `workspace_delete` | List/delete workspace files |

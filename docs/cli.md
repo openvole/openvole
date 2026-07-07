@@ -137,6 +137,35 @@ Create a new local skill with a template SKILL.md.
 vole skill create email-triage
 ```
 
+## VoleHub
+
+[VoleHub](https://github.com/openvole/volehub) is OpenVole's skill registry. Installs pull **every bundled file** (SKILL.md + scripts/references) and verify each against a per-file SHA-256 in the registry's `INDEX.json`.
+
+### `vole skill install`
+
+Install a skill (and all its files) from VoleHub.
+
+```bash
+vole skill install resolve-autocut
+```
+
+### `vole skill hub` / `vole skill uninstall`
+
+List installed VoleHub skills, or remove one.
+
+```bash
+vole skill hub
+vole skill uninstall resolve-autocut
+```
+
+### `vole skill publish`
+
+Print a skill's `files` manifest (paths + SHA-256 hashes) to add to `INDEX.json` when contributing to VoleHub.
+
+```bash
+vole skill publish ./skills/my-skill
+```
+
 ## ClawHub
 
 ### `vole clawhub install`

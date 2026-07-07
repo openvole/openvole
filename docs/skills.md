@@ -30,8 +30,25 @@ This keeps the context window lean — only relevant skills are loaded.
 | `skill_read` | Load full skill instructions |
 | `skill_read_reference` | Access skill reference files |
 | `skill_list_files` | List files in a skill directory |
+| `skill_run_script` | Run a script bundled in the skill, confined to its directory |
+
+## Bundled Scripts
+
+A skill can ship runnable scripts (`.js`, `.py`, `.sh`) alongside its `SKILL.md`. The Brain runs them with `skill_run_script`, which is **confined to the skill's own directory** and runs with only the skill's declared environment (`metadata.openclaw.requires.env`) plus a PATH/HOME baseline — not the engine's full env. The interpreter is chosen by extension, and output is bounded (120s default, 600s cap). Scripts only run for a skill whose declared requirements (tools, bins, env) are met. This lets a skill do real work — transcode video, call a CLI — while the `SKILL.md` stays pure instructions.
 
 ## Installing Skills
+
+### From VoleHub
+
+[VoleHub](https://github.com/openvole/volehub) is OpenVole's own registry. Skills install with **every bundled file** (SKILL.md + scripts/references), each verified against a per-file SHA-256 in the registry's `INDEX.json`:
+
+```bash
+vole skill install resolve-autocut   # fetches all files, verifies hashes
+vole skill hub                        # list installed VoleHub skills
+vole skill uninstall resolve-autocut
+```
+
+Publish your own with `vole skill publish <dir>`, which prints the `files` manifest (with hashes) to add to `INDEX.json`.
 
 ### From ClawHub
 
