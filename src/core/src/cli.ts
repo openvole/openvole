@@ -561,11 +561,13 @@ async function handleSkillCommand(args: string[], projectRoot: string): Promise<
 				logger.info(`  version: ${prepared.version}`)
 				logger.info(`  description: ${prepared.description}`)
 				logger.info(`  hash: ${prepared.contentHash}`)
+				logger.info(`  files: ${prepared.files.length} (${prepared.files.map((f) => f.path).join(', ')})`)
 				logger.info(`  tools: ${prepared.requiredTools.join(', ') || 'none'}`)
 				logger.info(`  tags: ${prepared.tags.join(', ') || 'none'}`)
 				logger.info('')
 				logger.info('To publish, create a PR against https://github.com/openvole/volehub')
-				logger.info(`with your SKILL.md in skills/${prepared.name}/`)
+				logger.info(`with all files under skills/${prepared.name}/, and add the entry (with the`)
+				logger.info('"files" manifest above) to INDEX.json so the installer fetches every file.')
 			} catch (err) {
 				logger.error(
 					`Publish preparation failed: ${err instanceof Error ? err.message : String(err)}`,

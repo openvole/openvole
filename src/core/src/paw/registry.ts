@@ -660,6 +660,13 @@ export class PawRegistry {
 					category: p.manifest?.category ?? 'tool',
 					toolCount: this.toolRegistry.toolsForPaw(p.name).length,
 					panel: p.manifest?.panel?.title ?? null,
+					// Identifier as written in vole.config.json (a package name or a local path). The dashboard
+					// matches state to config and sets the brain by this value — p.name is the manifest name,
+					// which differs for locally-pathed paws and would not resolve if written back.
+					configName: p.config?.name ?? p.name,
+					// Permissions the paw's manifest requests — drives the dashboard's per-paw grant editor.
+					permissions: p.manifest?.permissions ?? null,
+					description: p.manifest?.description ?? '',
 				}))
 			case 'skills':
 				return (

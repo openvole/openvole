@@ -590,6 +590,31 @@ export function getDashboardHtml(wsPort: number): string {
     justify-content: flex-end;
   }
 
+  /* Paws editor (per-paw grant cards) */
+  .paws-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 10px; }
+  .paws-raw-toggle { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-dim); white-space: nowrap; cursor: pointer; }
+  .paw-card { border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; margin-top: 10px; background: var(--surface); }
+  .paw-card-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; cursor: pointer; }
+  .paw-card-title { display: flex; align-items: center; gap: 8px; min-width: 0; flex-wrap: wrap; }
+  .paw-card-arrow { display: inline-block; color: var(--text-dim); font-size: 10px; transition: transform 0.15s; }
+  .paw-card:not(.collapsed) .paw-card-arrow { transform: rotate(90deg); }
+  .paw-card.collapsed .paw-card-body { display: none; }
+  .paw-card-summary { font-size: 11px; color: var(--text-dim); font-family: var(--mono); }
+  .paw-card-title .paw-name { font-weight: 600; font-size: 13px; word-break: break-all; }
+  .paw-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .paw-dot.ok { background: var(--green, #3fb950); }
+  .paw-dot.bad { background: var(--text-dim); }
+  .paw-badge { font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-dim); border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; }
+  .paw-note { margin-top: 6px; font-style: italic; }
+  .paw-card-body { margin-top: 10px; display: flex; flex-direction: column; gap: 14px; }
+  .paw-field-label { font-size: 12px; font-weight: 600; margin-bottom: 4px; }
+  .paw-env-grid { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 4px; }
+  .paw-env-item { display: flex; align-items: center; gap: 6px; font-size: 12px; font-family: var(--mono); }
+  .paw-row { display: flex; gap: 8px; margin-top: 6px; align-items: center; }
+  .paw-row .form-input { flex: 1; }
+  .paw-adv-summary { cursor: pointer; font-size: 12px; color: var(--text-dim); user-select: none; }
+  .paw-adv-summary:hover { color: var(--text); }
+
   /* Identity Page */
   .identity-page {
     flex: 1;
@@ -1129,8 +1154,7 @@ export function getDashboardHtml(wsPort: number): string {
           </div>
           <div class="form-field">
             <label class="form-label">Per-paw filesystem paths</label>
-            <div class="form-help">Each paw's allow.filesystem — extra paths only that paw may read/write. Saved into the Paws config.</div>
-            <div id="sec-paw-paths"></div>
+            <div class="form-help">Edited per paw in the <b>Paws</b> section below — each paw's allow.filesystem.</div>
           </div>
           <div class="form-field">
             <label class="form-label">Docker Sandbox</label>
@@ -1182,8 +1206,15 @@ export function getDashboardHtml(wsPort: number): string {
         </div>
         <div class="config-section-body">
           <div class="form-field">
-            <div class="form-help">Array of paw configurations. Each entry is a string or { name, allow: { network, listen, filesystem, env, childProcess } }</div>
-            <textarea class="form-textarea" id="cfg-paws" rows="8" placeholder='["@openvole/paw-brain"]'>[]</textarea>
+            <div class="paws-head">
+              <div class="form-help">Grant each paw only the permissions its manifest requests. Toggle a permission to allow it; leave it off to withhold. Effective access is always the paw's request &cap; what you grant.</div>
+              <label class="paws-raw-toggle"><input type="checkbox" id="cfg-paws-rawmode" onchange="togglePawsRaw(this.checked)"> Raw JSON</label>
+            </div>
+            <div id="cfg-paws-form"></div>
+            <div id="cfg-paws-raw-wrap" style="display:none">
+              <div class="form-help">Array of paw configs. Each entry is a string or { name, allow: { network, listen, filesystem, env, childProcess }, hooks }.</div>
+              <textarea class="form-textarea" id="cfg-paws" rows="10" placeholder='["@openvole/paw-brain"]'>[]</textarea>
+            </div>
             <button class="btn-restart" type="button" id="btn-browse-paws" onclick="browsePaws()" style="margin-top:8px">Browse official paws</button>
             <div id="paw-catalog" style="margin-top:8px"></div>
           </div>
@@ -2341,7 +2372,7 @@ function refreshBrainOptions(desired) {
     : (sel.value || (cachedConfig && cachedConfig.brain) || '');
   var brains = (lastStatePaws || [])
     .filter(function(p) { return p && p.category === 'brain'; })
-    .map(function(p) { return p.name; });
+    .map(function(p) { return p.configName || p.name; });
   if (current && brains.indexOf(current) < 0) brains.unshift(current);
   var opts = ['<option value="">(none)</option>'];
   for (var i = 0; i < brains.length; i++) {
@@ -2376,7 +2407,12 @@ function populateConfig(cfg) {
   populateDocker(sec.docker || {});
 
   document.getElementById('cfg-paws').value = JSON.stringify(cfg.paws || [], null, 2);
-  populatePawPaths(cfg.paws || []);
+  var pawsRawToggle = document.getElementById('cfg-paws-rawmode');
+  if (pawsRawToggle) pawsRawToggle.checked = false;
+  pawsRawMode = false;
+  document.getElementById('cfg-paws-raw-wrap').style.display = 'none';
+  document.getElementById('cfg-paws-form').style.display = '';
+  renderPawsForm(cfg.paws || []);
   populateToolProfiles(cfg.toolProfiles || {});
   populateAgents(cfg.agents || {});
   populateNet(cfg.net || {});
@@ -2450,41 +2486,318 @@ function populateGlobalPaths(paths) {
   c.innerHTML = '';
   for (var i = 0; i < (paths || []).length; i++) addPathRow(c, paths[i]);
 }
-function populatePawPaths(paws) {
-  var wrap = document.getElementById('sec-paw-paths');
+/* ── Paws editor: manifest-driven per-paw grant cards ── */
+var pawsRawMode = false;
+
+function pawStateFor(name) {
+  var arr = lastStatePaws || [];
+  // Match by configName (the identifier written in config, e.g. a local path) or the manifest name.
+  for (var i = 0; i < arr.length; i++) {
+    var p = arr[i];
+    if (p && (p.configName === name || p.name === name)) return p;
+  }
+  return null;
+}
+function normPawEntry(p) {
+  if (typeof p === 'string') p = { name: p };
+  p = p || {};
+  var allow = p.allow || {};
+  return {
+    name: p.name || '',
+    hooks: p.hooks || null,
+    network: Array.isArray(allow.network) ? allow.network.slice() : [],
+    listen: Array.isArray(allow.listen) ? allow.listen.slice() : [],
+    filesystem: Array.isArray(allow.filesystem) ? allow.filesystem.slice() : [],
+    env: Array.isArray(allow.env) ? allow.env.slice() : [],
+    childProcess: !!allow.childProcess
+  };
+}
+function cssId(name) { return String(name).replace(/[^a-zA-Z0-9_-]/g, '_'); }
+
+function renderPawsForm(paws) {
+  var wrap = document.getElementById('cfg-paws-form');
+  if (!wrap) return;
   wrap.innerHTML = '';
   paws = Array.isArray(paws) ? paws : [];
   if (paws.length === 0) {
-    wrap.innerHTML = '<div class="form-help">No paws configured yet — add paws first.</div>';
+    wrap.innerHTML = '<div class="form-help">No paws configured. Use “Browse official paws” below to add one.</div>';
     return;
   }
-  for (var i = 0; i < paws.length; i++) {
-    var p = paws[i];
-    var name = typeof p === 'string' ? p : ((p && p.name) || '');
-    if (!name) continue;
-    var fsPaths = (p && p.allow && p.allow.filesystem) || [];
-    var block = document.createElement('div');
-    block.className = 'pp-paw-block';
-    block.setAttribute('data-paw', name);
-    block.style.cssText = 'border:1px solid var(--border);border-radius:6px;padding:10px;margin-top:8px';
-    var title = document.createElement('div');
-    title.textContent = name;
-    title.style.cssText = 'font-weight:600;font-size:12px';
-    var rows = document.createElement('div');
-    rows.className = 'pp-paths';
-    var btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'btn-restart';
-    btn.textContent = '+ Add path';
-    btn.style.marginTop = '6px';
-    (function(rowsEl) {
-      btn.addEventListener('click', function() { addPathRow(rowsEl, ''); });
-    })(rows);
-    block.appendChild(title);
-    block.appendChild(rows);
-    block.appendChild(btn);
-    wrap.appendChild(block);
-    for (var j = 0; j < fsPaths.length; j++) addPathRow(rows, fsPaths[j]);
+  for (var i = 0; i < paws.length; i++) wrap.appendChild(buildPawCard(normPawEntry(paws[i])));
+}
+
+// A labelled field wrapper.
+function pawField(label, help) {
+  var f = document.createElement('div');
+  f.className = 'paw-field';
+  var l = document.createElement('div'); l.className = 'paw-field-label'; l.textContent = label;
+  f.appendChild(l);
+  if (help) { var h = document.createElement('div'); h.className = 'form-help'; h.innerHTML = help; f.appendChild(h); }
+  return f;
+}
+// A removable text-input row inside a container; syncs on input.
+function pawInputRow(container, value, placeholder, listId) {
+  var row = document.createElement('div');
+  row.className = 'paw-row';
+  var input = document.createElement('input');
+  input.type = 'text'; input.className = 'form-input paw-input';
+  input.placeholder = placeholder || '';
+  input.value = value == null ? '' : String(value);
+  if (listId) input.setAttribute('list', listId);
+  input.addEventListener('input', syncPawsFormToRaw);
+  var del = document.createElement('button');
+  del.type = 'button'; del.className = 'space-btn space-btn-danger'; del.title = 'Remove'; del.innerHTML = '&times;';
+  del.addEventListener('click', function() { row.remove(); syncPawsFormToRaw(); });
+  row.appendChild(input); row.appendChild(del);
+  container.appendChild(row);
+  return input;
+}
+function readPawInputs(container) {
+  var out = [];
+  if (!container) return out;
+  var inputs = container.querySelectorAll('.paw-input');
+  for (var i = 0; i < inputs.length; i++) { var v = inputs[i].value.trim(); if (v) out.push(v); }
+  return out;
+}
+// A list field (rows + Add button), rows tagged with rowsClass so the card can read them back.
+function pawListField(label, help, rowsClass, values, placeholder, suggestions, listId) {
+  var f = pawField(label, help);
+  var rows = document.createElement('div'); rows.className = rowsClass;
+  f.appendChild(rows);
+  var add = document.createElement('button');
+  add.type = 'button'; add.className = 'btn-restart'; add.textContent = '+ Add'; add.style.marginTop = '6px';
+  add.addEventListener('click', function() { pawInputRow(rows, '', placeholder, listId); syncPawsFormToRaw(); });
+  f.appendChild(add);
+  for (var i = 0; i < (values || []).length; i++) pawInputRow(rows, values[i], placeholder, listId);
+  if (suggestions && suggestions.length && listId) {
+    var dl = document.createElement('datalist'); dl.id = listId;
+    dl.innerHTML = suggestions.map(function(s){ return '<option value="' + esc(String(s)) + '"></option>'; }).join('');
+    f.appendChild(dl);
+  }
+  return f;
+}
+
+function buildPawCard(m) {
+  var st = pawStateFor(m.name);
+  var reqs = (st && st.permissions) || null;
+  var card = document.createElement('div');
+  card.className = 'paw-card collapsed';
+  card.setAttribute('data-paw', m.name);
+
+  // Header (click to expand/collapse): chevron + health dot + name + category badge + at-a-glance summary + remove.
+  var head = document.createElement('div'); head.className = 'paw-card-head';
+  var title = document.createElement('div'); title.className = 'paw-card-title';
+  var dot = st ? '<span class="paw-dot ' + (st.healthy ? 'ok' : 'bad') + '" title="' + (st.healthy ? 'loaded' : 'not loaded') + '"></span>' : '';
+  var badge = st && st.category ? '<span class="paw-badge">' + esc(st.category) + '</span>' : '';
+  title.innerHTML = '<span class="paw-card-arrow">&#9656;</span>' + dot + '<span class="paw-name">' + esc(m.name) + '</span>' + badge + '<span class="paw-card-summary"></span>';
+  head.appendChild(title);
+  var rm = document.createElement('button');
+  rm.type = 'button'; rm.className = 'space-btn space-btn-danger'; rm.textContent = 'Remove';
+  rm.addEventListener('click', function(e) { e.stopPropagation(); card.remove(); syncPawsFormToRaw(); });
+  head.appendChild(rm);
+  head.addEventListener('click', function() { card.classList.toggle('collapsed'); });
+  card.appendChild(head);
+
+  var body = document.createElement('div'); body.className = 'paw-card-body';
+
+  if (st && st.description) {
+    var desc = document.createElement('div'); desc.className = 'form-help';
+    desc.textContent = st.description;
+    body.appendChild(desc);
+  }
+  if (!st) {
+    var note = document.createElement('div'); note.className = 'form-help paw-note';
+    note.textContent = 'Manifest not loaded — start the space to see the exact permissions this paw requests. Editing free-form.';
+    body.appendChild(note);
+  }
+
+  // Child process
+  var reqCp = reqs ? !!reqs.childProcess : false;
+  var cpF = pawField('Child process', reqCp
+    ? 'This paw <b>requests</b> permission to spawn child processes.'
+    : 'Let this paw spawn child processes (shell, npx, browsers). This effectively grants broad filesystem access — only for trusted paws.');
+  var cpRow = document.createElement('label'); cpRow.className = 'form-checkbox-row';
+  var cpCb = document.createElement('input'); cpCb.type = 'checkbox'; cpCb.className = 'form-checkbox pc-childprocess'; cpCb.checked = m.childProcess;
+  cpCb.addEventListener('change', syncPawsFormToRaw);
+  var cpLbl = document.createElement('span'); cpLbl.className = 'form-checkbox-label'; cpLbl.textContent = 'allow.childProcess' + (reqCp ? ' (requested)' : '');
+  cpRow.appendChild(cpCb); cpRow.appendChild(cpLbl); cpF.appendChild(cpRow);
+  body.appendChild(cpF);
+
+  // Network
+  var netSug = (reqs && reqs.network) || [];
+  var netF = pawField('Network', netSug.length ? ('Requested: <code>' + esc(netSug.join(', ')) + '</code>') : 'Outbound hosts this paw may reach.');
+  var netSel = document.createElement('select'); netSel.className = 'form-select pc-net-mode';
+  netSel.innerHTML = '<option value="none">No network</option><option value="all">All hosts (*)</option><option value="hosts">Specific hosts</option>';
+  var isAll = m.network.indexOf('*') >= 0;
+  netSel.value = isAll ? 'all' : (m.network.length ? 'hosts' : 'none');
+  var netListId = 'pawnet-' + cssId(m.name);
+  var hostsWrap = document.createElement('div'); hostsWrap.className = 'pc-net-hosts';
+  var addHost = document.createElement('button');
+  addHost.type = 'button'; addHost.className = 'btn-restart'; addHost.textContent = '+ Add host'; addHost.style.marginTop = '6px';
+  addHost.addEventListener('click', function() { pawInputRow(hostsWrap, '', 'api.example.com', netSug.length ? netListId : ''); syncPawsFormToRaw(); });
+  function paintHosts() {
+    var show = netSel.value === 'hosts';
+    hostsWrap.style.display = show ? '' : 'none';
+    addHost.style.display = show ? '' : 'none';
+  }
+  netSel.addEventListener('change', function() { paintHosts(); syncPawsFormToRaw(); });
+  netF.appendChild(netSel);
+  netF.appendChild(hostsWrap);
+  netF.appendChild(addHost);
+  var initHosts = m.network.filter(function(x){ return x !== '*'; });
+  for (var hi = 0; hi < initHosts.length; hi++) pawInputRow(hostsWrap, initHosts[hi], 'api.example.com', netSug.length ? netListId : '');
+  if (netSug.length) {
+    var ndl = document.createElement('datalist'); ndl.id = netListId;
+    ndl.innerHTML = netSug.map(function(s){ return '<option value="' + esc(String(s)) + '"></option>'; }).join('');
+    netF.appendChild(ndl);
+  }
+  paintHosts();
+  body.appendChild(netF);
+
+  // Env — checkboxes for manifest-declared vars + free rows for extras
+  var declared = (reqs && reqs.env) || [];
+  var granted = m.env.slice();
+  var envF = pawField('Environment variables', declared.length
+    ? 'Check the variables this paw may read — these are what its manifest declares.'
+    : 'Environment variable names this paw may read.');
+  var declaredSet = {};
+  if (declared.length) {
+    var grid = document.createElement('div'); grid.className = 'paw-env-grid';
+    for (var di = 0; di < declared.length; di++) {
+      declaredSet[declared[di]] = true;
+      var item = document.createElement('label'); item.className = 'paw-env-item';
+      var ecb = document.createElement('input'); ecb.type = 'checkbox'; ecb.className = 'form-checkbox pc-env'; ecb.setAttribute('data-env', declared[di]);
+      ecb.checked = granted.indexOf(declared[di]) >= 0;
+      ecb.addEventListener('change', syncPawsFormToRaw);
+      var espan = document.createElement('span'); espan.textContent = declared[di];
+      item.appendChild(ecb); item.appendChild(espan); grid.appendChild(item);
+    }
+    envF.appendChild(grid);
+  }
+  var extraWrap = document.createElement('div'); extraWrap.className = 'pc-env-extra';
+  envF.appendChild(extraWrap);
+  var addEnv = document.createElement('button');
+  addEnv.type = 'button'; addEnv.className = 'btn-restart'; addEnv.textContent = '+ Add variable'; addEnv.style.marginTop = '6px';
+  addEnv.addEventListener('click', function() { pawInputRow(extraWrap, '', 'ENV_VAR_NAME'); syncPawsFormToRaw(); });
+  envF.appendChild(addEnv);
+  var extras = granted.filter(function(v){ return !declaredSet[v]; });
+  for (var xi = 0; xi < extras.length; xi++) pawInputRow(extraWrap, extras[xi], 'ENV_VAR_NAME');
+  body.appendChild(envF);
+
+  // Filesystem
+  body.appendChild(pawListField('Filesystem paths',
+    'Extra paths only this paw may read/write, beyond its own data dir.',
+    'pc-fs', m.filesystem, '.openvole/workspace or /abs/path', null, null));
+
+  // Listen ports
+  var listenSug = (reqs && reqs.listen) || [];
+  body.appendChild(pawListField('Listen ports',
+    listenSug.length ? ('Requested: <code>' + esc(listenSug.join(', ')) + '</code>') : 'TCP ports this paw may bind.',
+    'pc-listen', m.listen, 'e.g. 8080', listenSug, 'pawlisten-' + cssId(m.name)));
+
+  // Advanced: perceive hook ordering
+  var adv = document.createElement('details');
+  var sum = document.createElement('summary'); sum.className = 'paw-adv-summary'; sum.textContent = 'Advanced — perceive hook';
+  adv.appendChild(sum);
+  var advBody = document.createElement('div'); advBody.style.marginTop = '8px';
+  var hook = (m.hooks && m.hooks.perceive) || {};
+  var ordRow = document.createElement('div'); ordRow.className = 'paw-row';
+  var ordLbl = document.createElement('span'); ordLbl.className = 'form-checkbox-label'; ordLbl.textContent = 'hooks.perceive.order';
+  var ordInput = document.createElement('input'); ordInput.type = 'number'; ordInput.className = 'form-input pc-hook-order'; ordInput.style.width = '120px';
+  ordInput.value = (hook.order != null ? hook.order : '');
+  ordInput.addEventListener('input', syncPawsFormToRaw);
+  ordRow.appendChild(ordLbl); ordRow.appendChild(ordInput);
+  advBody.appendChild(ordRow);
+  var pipeRow = document.createElement('label'); pipeRow.className = 'form-checkbox-row'; pipeRow.style.marginTop = '8px';
+  var pipeCb = document.createElement('input'); pipeCb.type = 'checkbox'; pipeCb.className = 'form-checkbox pc-hook-pipeline'; pipeCb.checked = !!hook.pipeline;
+  pipeCb.addEventListener('change', syncPawsFormToRaw);
+  var pipeLbl = document.createElement('span'); pipeLbl.className = 'form-checkbox-label'; pipeLbl.textContent = 'hooks.perceive.pipeline';
+  pipeRow.appendChild(pipeCb); pipeRow.appendChild(pipeLbl);
+  advBody.appendChild(pipeRow);
+  adv.appendChild(advBody);
+  body.appendChild(adv);
+
+  card.appendChild(body);
+  card.querySelector('.paw-card-summary').textContent = pawSummary(serializePawCard(card));
+  return card;
+}
+
+// One-line grant summary shown in the collapsed card header.
+function pawSummary(entry) {
+  if (typeof entry === 'string') return 'no grants';
+  var a = entry.allow || {};
+  var parts = [];
+  if (a.childProcess) parts.push('child-proc');
+  if (a.network && a.network.length) parts.push(a.network.indexOf('*') >= 0 ? 'net:*' : 'net:' + a.network.length);
+  if (a.env && a.env.length) parts.push('env:' + a.env.length);
+  if (a.filesystem && a.filesystem.length) parts.push('fs:' + a.filesystem.length);
+  if (a.listen && a.listen.length) parts.push('listen:' + a.listen.length);
+  if (entry.hooks) parts.push('hook');
+  return parts.length ? parts.join(' · ') : 'no grants';
+}
+
+function serializePawCard(card) {
+  var name = card.getAttribute('data-paw') || '';
+  var allow = {};
+  if (card.querySelector('.pc-childprocess').checked) allow.childProcess = true;
+  var mode = card.querySelector('.pc-net-mode').value;
+  if (mode === 'all') allow.network = ['*'];
+  else if (mode === 'hosts') { var hosts = readPawInputs(card.querySelector('.pc-net-hosts')); if (hosts.length) allow.network = hosts; }
+  var env = [];
+  var ecbs = card.querySelectorAll('.pc-env');
+  for (var i = 0; i < ecbs.length; i++) { if (ecbs[i].checked) env.push(ecbs[i].getAttribute('data-env')); }
+  var extra = readPawInputs(card.querySelector('.pc-env-extra'));
+  for (var j = 0; j < extra.length; j++) { if (env.indexOf(extra[j]) < 0) env.push(extra[j]); }
+  if (env.length) allow.env = env;
+  var fs = readPawInputs(card.querySelector('.pc-fs')); if (fs.length) allow.filesystem = fs;
+  var ports = [];
+  var pin = readPawInputs(card.querySelector('.pc-listen'));
+  for (var k = 0; k < pin.length; k++) { var n = parseInt(pin[k], 10); if (!isNaN(n) && n > 0) ports.push(n); }
+  if (ports.length) allow.listen = ports;
+  var hooks = null;
+  var order = parseInt(card.querySelector('.pc-hook-order').value, 10);
+  var pipeline = card.querySelector('.pc-hook-pipeline').checked;
+  if (!isNaN(order) || pipeline) {
+    hooks = { perceive: {} };
+    if (!isNaN(order)) hooks.perceive.order = order;
+    if (pipeline) hooks.perceive.pipeline = true;
+  }
+  if (Object.keys(allow).length === 0 && !hooks) return name; // bare string when nothing is granted
+  var entry = { name: name };
+  if (Object.keys(allow).length) entry.allow = allow;
+  if (hooks) entry.hooks = hooks;
+  return entry;
+}
+
+function syncPawsFormToRaw() {
+  var cards = document.querySelectorAll('#cfg-paws-form .paw-card');
+  var out = [];
+  for (var i = 0; i < cards.length; i++) {
+    var entry = serializePawCard(cards[i]);
+    out.push(entry);
+    var sum = cards[i].querySelector('.paw-card-summary');
+    if (sum) sum.textContent = pawSummary(entry);
+  }
+  var ta = document.getElementById('cfg-paws');
+  if (ta) ta.value = JSON.stringify(out, null, 2);
+}
+
+function togglePawsRaw(on) {
+  pawsRawMode = on;
+  var raw = document.getElementById('cfg-paws-raw-wrap');
+  var form = document.getElementById('cfg-paws-form');
+  if (on) {
+    syncPawsFormToRaw();
+    raw.style.display = ''; form.style.display = 'none';
+  } else {
+    var arr;
+    try { arr = JSON.parse(document.getElementById('cfg-paws').value || '[]'); }
+    catch (e) {
+      showToast('Raw JSON is invalid — fix it before switching back to the form.', 'error');
+      document.getElementById('cfg-paws-rawmode').checked = true; pawsRawMode = true; return;
+    }
+    renderPawsForm(arr);
+    raw.style.display = 'none'; form.style.display = '';
   }
 }
 function populateDocker(d) {
@@ -2892,32 +3205,12 @@ function readConfigFromForm() {
   var docker = readDockerFromForm();
   if (Object.keys(docker).length > 0) cfg.security.docker = docker;
 
+  // Paws: the card form keeps the raw JSON textarea in sync; in raw mode the user edits it directly.
+  if (!pawsRawMode) syncPawsFormToRaw();
   try {
     cfg.paws = JSON.parse(document.getElementById('cfg-paws').value);
   } catch (e) {
     throw new Error('Invalid JSON in Paws');
-  }
-
-  // Overlay per-paw filesystem paths (Security section) onto the paws config, matched by name.
-  if (Array.isArray(cfg.paws)) {
-    var blocks = document.querySelectorAll('#sec-paw-paths .pp-paw-block');
-    for (var bi = 0; bi < blocks.length; bi++) {
-      var pawName = blocks[bi].getAttribute('data-paw');
-      var pawPaths = readPathRows(blocks[bi].querySelector('.pp-paths'));
-      for (var pi = 0; pi < cfg.paws.length; pi++) {
-        var entry = cfg.paws[pi];
-        var n = typeof entry === 'string' ? entry : (entry && entry.name);
-        if (n !== pawName) continue;
-        if (pawPaths.length > 0) {
-          if (typeof entry === 'string') { entry = { name: entry }; cfg.paws[pi] = entry; }
-          entry.allow = entry.allow || {};
-          entry.allow.filesystem = pawPaths;
-        } else if (entry && typeof entry === 'object' && entry.allow && entry.allow.filesystem) {
-          delete entry.allow.filesystem;
-        }
-        break;
-      }
-    }
   }
 
   var tp = readToolProfilesFromForm();
