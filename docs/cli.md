@@ -50,7 +50,8 @@ Manage spaces from the CLI. (The dashboard's space switcher does the same things
 
 | Command | Description |
 |---------|-------------|
-| `vole space create <name>` | Scaffold a new space (clones your template if set). |
+| `vole space create <name>` | Scaffold a new space (clones your template if set). Add `--orchestrator` to let it manage its siblings. |
+| `vole space orchestrate <name> [on\|off]` | Grant or revoke a space's authority to manage its siblings (see below). |
 | `vole space template` | Create or locate the template that new spaces clone. |
 | `vole space list` | List spaces and their running status. |
 | `vole space status [name]` | Show live status (pid, port). |
@@ -67,6 +68,14 @@ vole space list
 
 > [!WARNING]
 > `vole space remove <name>` removes the space from the registry but **keeps its files**. Add `--purge` to permanently delete the space's directory (config, identity, installed paws, data). Deleting a space from the dashboard is equivalent to `--purge`.
+
+#### Orchestrator spaces
+
+A space flagged as **orchestrator** gets a set of `space_*` tools when it runs under `vole serve`: list siblings, submit tasks to them, read/write their config and identity files, restart/start/stop them, and create new spaces. This lets one agent supervise the others — pair it with the `vole-orchestrate` skill from VoleHub for the playbook.
+
+- The flag lives in the server's `spaces.json` registry — **outside every space's sandbox** — and the control plane re-checks it on every request, so `off` takes effect immediately. Granting (`on`) requires restarting the space under `vole serve`.
+- Guardrails: an orchestrator cannot stop/start/restart **itself**, cannot **remove** spaces at all, and config writes go through the same sandbox-weakening refusal as the dashboard.
+- Detached spaces (`vole space start`) have no control channel — orchestrator tools require `vole serve`.
 
 ## Paw Management
 

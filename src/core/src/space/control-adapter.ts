@@ -200,6 +200,25 @@ export function installControlAdapter(engine: VoleEngine, projectRoot: string): 
 						),
 					}
 					break
+				case 'task_status': {
+					// Result readback for orchestrators polling a delegated task (clipped for LLM context).
+					const t = current.taskQueue.get(params.taskId as string)
+					result = t
+						? {
+								ok: true,
+								taskId: t.id,
+								status: t.status,
+								result:
+									t.result && t.result.length > 8000
+										? `${t.result.slice(0, 8000)}… [truncated]`
+										: (t.result ?? null),
+								error: t.error ?? null,
+								createdAt: t.createdAt,
+								completedAt: t.completedAt ?? null,
+							}
+						: { ok: false, error: `Task not found: ${params.taskId}` }
+					break
+				}
 				case 'chat_history': {
 					// History comes from paw-session's tool (if loaded) — no file-format coupling.
 					const tool = current.toolRegistry.get('session_history')

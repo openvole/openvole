@@ -10,6 +10,12 @@ export interface SpaceEntry {
 	path: string
 	/** ISO timestamp of creation. */
 	createdAt: string
+	/**
+	 * This space may supervise its siblings via the control plane's reverse-RPC (space_* tools).
+	 * Parent-owned: lives in the registry, outside every space's sandbox — a space cannot
+	 * grant itself orchestrator.
+	 */
+	orchestrator?: boolean
 }
 
 /** The global spaces registry — persisted at ~/.openvole/spaces.json. */

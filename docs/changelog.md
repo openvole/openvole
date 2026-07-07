@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Orchestrator spaces — one agent supervising the fleet
+- **A space can be granted orchestrator authority** (`vole space create <name> --orchestrator`, `vole space orchestrate <name> on|off`) and gets `space_*` core tools under `vole serve`: list siblings, submit tasks (with result readback via `space_task_status`), read/write sibling config + identity files, restart/start/stop siblings, and create new spaces.
+- Built as **reverse-RPC on the existing control-plane IPC channel** (`{creq}`/`{cres}` envelopes). The flag lives in the server registry — outside every space's sandbox — and is re-verified per request, so revocation is immediate. The dashboard's config guards (demo mode, sandbox-weakening refusal) apply unchanged; self-lifecycle ops and space removal are refused.
+- New VoleHub skill **`vole-orchestrate`** — the supervisor playbook (delegation briefs, sessionId continuity, identity-file conventions, lifecycle rules); activates only in spaces that have the tools.
+- Dashboard: spaces list shows an **orchestrator badge**.
+
 ## v4.5.0 (2026-07-07)
 
 > Ships as `openvole` 4.5.0 and `@openvole/dashboard-server` 0.6.0. Skills grow up: a hardened **`skill_run_script`** tool runs a skill's bundled scripts, and VoleHub now installs **multi-file skills** (scripts and all) with per-file integrity hashes. The dashboard gains a **per-paw permission editor**. No breaking changes.

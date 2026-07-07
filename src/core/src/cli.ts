@@ -169,7 +169,8 @@ VoleNet (distributed networking):
 
 Space management:
   vole serve                             Control-plane dashboard for this dir's spaces (empty dir = new root; VOLE_HOME overrides)
-  vole space create <name>               Scaffold a new space (clones your template if set)
+  vole space create <name>               Scaffold a new space (clones your template if set; --orchestrator to let it manage siblings)
+  vole space orchestrate <name> [on|off] Grant/revoke a space's sibling-management authority (vole serve)
   vole space template                    Create/locate the template new spaces clone
   vole space list                        List spaces and running status
   vole space start <name>                Start a space's engine (lazy, own process)
@@ -1471,6 +1472,7 @@ async function handleSpaceCommand(args: string[]): Promise<void> {
 		case 'create': {
 			const rest = args.slice(1)
 			let customPath: string | undefined
+			let orchestrator = false
 			const nameParts: string[] = []
 			for (let i = 0; i < rest.length; i++) {
 				if (rest[i] === '--path') {
@@ -1478,16 +1480,23 @@ async function handleSpaceCommand(args: string[]): Promise<void> {
 					i++
 					continue
 				}
+				if (rest[i] === '--orchestrator') {
+					orchestrator = true
+					continue
+				}
 				nameParts.push(rest[i])
 			}
 			const name = nameParts.join(' ')
 			if (!name) {
-				logger.error('Usage: vole space create <name> [--path <dir>]')
+				logger.error('Usage: vole space create <name> [--path <dir>] [--orchestrator]')
 				process.exit(1)
 			}
-			const entry = await mgr.create(name, customPath ? { path: customPath } : undefined)
+			const entry = await mgr.create(name, { path: customPath, orchestrator })
 			logger.info(`Created space "${entry.id}"`)
 			logger.info(`  path: ${entry.path}`)
+			if (entry.orchestrator) {
+				logger.info('  This space is an ORCHESTRATOR — under "vole serve" it can manage its siblings.')
+			}
 			logger.info('')
 			logger.info(`Next: vole space start ${entry.id}  (or manage all spaces in: vole serve)`)
 			logger.info('Tip: pre-equip new spaces by setting up a template — vole space template')
@@ -1506,7 +1515,8 @@ async function handleSpaceCommand(args: string[]): Promise<void> {
 			for (const s of spaces) {
 				const active = reg.activeId === s.id ? '*' : ' '
 				const state = s.state === 'running' ? `running (pid ${s.pid})` : 'stopped'
-				logger.info(`${active} ${s.id.padEnd(16)} ${state.padEnd(22)} ${s.path}`)
+				const orch = s.orchestrator ? ' [orchestrator]' : ''
+				logger.info(`${active} ${s.id.padEnd(16)} ${state.padEnd(22)} ${s.path}${orch}`)
 			}
 			break
 		}
@@ -1524,6 +1534,10 @@ async function handleSpaceCommand(args: string[]): Promise<void> {
 					? `Space "${id}" already running (pid ${pid})`
 					: `Started space "${id}" (pid ${pid})`,
 			)
+			const reg = await mgr.readRegistry()
+			if (reg.spaces.find((s) => s.id === id || s.name === id)?.orchestrator) {
+				logger.info('Note: orchestrator tools (space_*) require "vole serve" — detached spaces have no control channel.')
+			}
 			break
 		}
 
@@ -1566,6 +1580,24 @@ async function handleSpaceCommand(args: string[]): Promise<void> {
 			break
 		}
 
+		case 'orchestrate': {
+			const id = args[1]
+			const mode = args[2] ?? 'on'
+			if (!id || !['on', 'off'].includes(mode)) {
+				logger.error('Usage: vole space orchestrate <name> [on|off]')
+				process.exit(1)
+			}
+			const entry = await mgr.setOrchestrator(id, mode === 'on')
+			logger.info(`Space "${entry.id}" orchestrator: ${mode.toUpperCase()}`)
+			logger.info('Applies to spaces run under "vole serve".')
+			if (mode === 'on') {
+				logger.info('Restart the space (under vole serve) to register its space_* tools.')
+			} else {
+				logger.info('Revocation is immediate — pending requests from it will be refused.')
+			}
+			break
+		}
+
 		case 'template': {
 			const { path: tdir, created } = await mgr.ensureTemplate()
 			if (created) {
@@ -1581,7 +1613,9 @@ async function handleSpaceCommand(args: string[]): Promise<void> {
 
 		default:
 			logger.error(`Unknown space command: ${subcommand}`)
-			logger.info('Available: create, template, list, start, stop, status, switch, remove')
+			logger.info(
+				'Available: create, template, list, start, stop, status, switch, remove, orchestrate',
+			)
 			process.exit(1)
 	}
 }
@@ -1697,12 +1731,30 @@ async function runSpaceDaemon(projectRoot: string): Promise<void> {
 	// When spawned as an IPC child by the control plane, bridge engine ↔ parent.
 	const adapter = process.send ? installControlAdapter(engine, projectRoot) : undefined
 
+	// Orchestrator space (flag lives in the parent's registry; env is just the spawn-time
+	// signal): register the space_* sibling-management tools. The reverse-RPC client is
+	// created once per process — only the tools re-register per engine instance.
+	let installOrchestrateTools: (eng: typeof engine) => void = () => {}
+	if (process.send && process.env.VOLE_ORCHESTRATOR === '1') {
+		const { createParentClient } = await import('./space/orchestrate-client.js')
+		const { createOrchestrateTools } = await import('./tool/orchestrate-tools.js')
+		const client = createParentClient()
+		const selfId = process.env.VOLE_SPACE_ID ?? ''
+		installOrchestrateTools = (eng) => {
+			eng.toolRegistry.register('__orchestrate__', createOrchestrateTools(client.call, selfId), true)
+			// Keep space_* visible under tool horizon — an orchestrator's core job.
+			eng.toolRegistry.addAlwaysVisiblePaw('__orchestrate__')
+		}
+	}
+	installOrchestrateTools(engine)
+
 	const wireRestart = (eng: typeof engine): void => {
 		eng.bus.on('engine:restart', async () => {
 			logger.info('Engine restarting...')
 			await eng.shutdown()
 			engine = await createEngine(projectRoot)
 			adapter?.rebind(engine)
+			installOrchestrateTools(engine)
 			wireRestart(engine)
 			await engine.start()
 			logger.info('Engine restarted successfully')

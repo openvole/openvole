@@ -21,6 +21,8 @@ export interface SpaceSummary {
 	name: string
 	state: 'running' | 'stopped'
 	pid?: number
+	/** This space can manage its siblings via the control plane (space_* tools). */
+	orchestrator?: boolean
 }
 
 export interface DashboardCallbacks {

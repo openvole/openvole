@@ -814,6 +814,7 @@ export function getDashboardHtml(wsPort: number): string {
   .space-card:hover { border-color: var(--accent); transform: translateY(-1px); }
   .space-card-head { display: flex; align-items: center; justify-content: space-between; }
   .space-card-name { font-weight: 600; font-size: 15px; color: var(--text); }
+  .space-orch-badge { font-size: 10px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.04em; color: var(--accent); border: 1px solid var(--accent); border-radius: 4px; padding: 1px 5px; margin-left: 6px; vertical-align: middle; }
   .space-card-meta { color: var(--text-dim); font-size: 11px; font-family: ui-monospace, monospace; }
   .space-card-actions { display: flex; gap: 8px; margin-top: 4px; }
   .space-status { font-size: 10px; padding: 2px 8px; border-radius: 999px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
@@ -1516,7 +1517,7 @@ function spaceCardHtml(s) {
   var running = s.state === 'running';
   return '<div class="space-card">'
     + '<div class="space-card-head">'
-    + '<span class="space-card-name">' + esc(s.name) + '</span>'
+    + '<span class="space-card-name">' + esc(s.name) + (s.orchestrator ? ' <span class="space-orch-badge">orchestrator</span>' : '') + '</span>'
     + '<span class="space-status space-status-' + (running ? 'running' : 'stopped') + '">' + (running ? 'running' : 'stopped') + '</span>'
     + '</div>'
     + '<div class="space-card-meta">' + esc(s.id) + (s.pid ? ' &middot; pid ' + s.pid : '') + '</div>'

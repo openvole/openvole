@@ -135,7 +135,10 @@ export class SpaceManager {
 
 	// --- commands ---
 
-	async create(name: string, opts?: { path?: string }): Promise<SpaceEntry> {
+	async create(
+		name: string,
+		opts?: { path?: string; orchestrator?: boolean },
+	): Promise<SpaceEntry> {
 		const reg = await this.readRegistry()
 		const id = this.slug(name)
 		if (!id) throw new Error(`Invalid space name: "${name}"`)
@@ -155,6 +158,7 @@ export class SpaceManager {
 			name,
 			path: dir,
 			createdAt: new Date().toISOString(),
+			...(opts?.orchestrator ? { orchestrator: true } : {}),
 		}
 		reg.spaces.push(entry)
 		if (!reg.activeId) reg.activeId = id
@@ -197,7 +201,9 @@ export class SpaceManager {
 		// to the space's own VOLE_LOG_FILE (.openvole/logs/vole.log).
 		const child = execa('node', [opts.cliPath, '__run-space', entry.path], {
 			cwd: entry.path,
-			env: { ...process.env },
+			// Explicitly blank: detached spaces have no IPC channel, so they can never
+			// reverse-RPC — don't let an inherited VOLE_ORCHESTRATOR suggest otherwise.
+			env: { ...process.env, VOLE_ORCHESTRATOR: '' },
 			stdio: 'ignore',
 			detached: true,
 			cleanup: false,
@@ -248,6 +254,17 @@ export class SpaceManager {
 		}
 		await this.clearRuntime(entry.path)
 		return true
+	}
+
+	/** Grant or revoke a space's orchestrator authority (persisted in the registry). */
+	async setOrchestrator(idOrName: string, value: boolean): Promise<SpaceEntry> {
+		const reg = await this.readRegistry()
+		const entry = this.getEntry(reg, idOrName)
+		if (!entry) throw new Error(`Space not found: "${idOrName}"`)
+		// undefined (not `delete`) — JSON.stringify drops the key on write anyway
+		entry.orchestrator = value ? true : undefined
+		await this.writeRegistry(reg)
+		return entry
 	}
 
 	async switchTo(idOrName: string): Promise<SpaceEntry> {

@@ -12,6 +12,10 @@ const logger = createLogger('control-plane')
 const RPC_TIMEOUT_MS = 15_000
 const STOP_GRACE_MS = 5000
 const STATE_DEBOUNCE_MS = 150
+/** Max tasks included in an orchestrator's space_state summary. */
+const ORCH_STATE_TASKS = 10
+/** Max chars of a task's input echoed in an orchestrator's space_state summary. */
+const ORCH_INPUT_CLIP = 200
 
 interface Pending {
 	resolve: (value: unknown) => void
@@ -64,33 +68,37 @@ export class ControlPlane {
 	}
 
 	start(): void {
-		this.server = createDashboardServer(this.port, {
-			listSpaces: () => this.listSpaces(),
-			startSpace: (id) => this.startSpace(id),
-			stopSpace: (id) => this.stopSpace(id),
-			createSpace: (name) => this.createSpace(name),
-			removeSpace: (id) => this.removeSpace(id),
-			fetchState: (id) => this.callSpace(id, 'state'),
-			readConfig: (id) => this.callSpace(id, 'read_config'),
-			writeConfig: (config, id) => this.callSpace(id, 'write_config', { config }),
-			readIdentity: (id) => this.callSpace(id, 'read_identity'),
-			writeIdentity: (filename, content, id) =>
-				this.callSpace(id, 'write_identity', { filename, content }),
-			restartEngine: (id) => this.callSpace(id, 'restart'),
-			listAvailablePaws: () => this.listAvailablePaws(),
-			installPaw: (name, id) => this.installPawInSpace(id, name),
-			submitTask: (input, sessionId, id) => this.callSpace(id, 'submit', { input, sessionId }),
-			chatHistory: (sessionId, id) => this.callSpace(id, 'chat_history', { sessionId }),
-			chatSessions: (id) => this.callSpace(id, 'chat_sessions'),
-			chatClear: (sessionId, id) => this.callSpace(id, 'chat_clear', { sessionId }),
-			volenetInstances: (id) => this.callSpace(id, 'volenet_instances'),
-			volenetChatHistory: (peerId, id) => this.callSpace(id, 'volenet_chat_history', { peerId }),
-			volenetChatSend: (peerId, text, id) =>
-				this.callSpace(id, 'volenet_chat_send', { peerId, text }),
-			volenetChatClear: (peerId, id) => this.callSpace(id, 'volenet_chat_clear', { peerId }),
-			getPanelHtml: (spaceId, paw) => this.callSpace(spaceId, 'panel_html', { paw }),
-			callPawTool: (spaceId, name, params) => this.callSpace(spaceId, 'tool', { name, params }),
-		}, { host: this.host, token: this.token })
+		this.server = createDashboardServer(
+			this.port,
+			{
+				listSpaces: () => this.listSpaces(),
+				startSpace: (id) => this.startSpace(id),
+				stopSpace: (id) => this.stopSpace(id),
+				createSpace: (name) => this.createSpace(name),
+				removeSpace: (id) => this.removeSpace(id),
+				fetchState: (id) => this.callSpace(id, 'state'),
+				readConfig: (id) => this.callSpace(id, 'read_config'),
+				writeConfig: (config, id) => this.callSpace(id, 'write_config', { config }),
+				readIdentity: (id) => this.callSpace(id, 'read_identity'),
+				writeIdentity: (filename, content, id) =>
+					this.callSpace(id, 'write_identity', { filename, content }),
+				restartEngine: (id) => this.callSpace(id, 'restart'),
+				listAvailablePaws: () => this.listAvailablePaws(),
+				installPaw: (name, id) => this.installPawInSpace(id, name),
+				submitTask: (input, sessionId, id) => this.callSpace(id, 'submit', { input, sessionId }),
+				chatHistory: (sessionId, id) => this.callSpace(id, 'chat_history', { sessionId }),
+				chatSessions: (id) => this.callSpace(id, 'chat_sessions'),
+				chatClear: (sessionId, id) => this.callSpace(id, 'chat_clear', { sessionId }),
+				volenetInstances: (id) => this.callSpace(id, 'volenet_instances'),
+				volenetChatHistory: (peerId, id) => this.callSpace(id, 'volenet_chat_history', { peerId }),
+				volenetChatSend: (peerId, text, id) =>
+					this.callSpace(id, 'volenet_chat_send', { peerId, text }),
+				volenetChatClear: (peerId, id) => this.callSpace(id, 'volenet_chat_clear', { peerId }),
+				getPanelHtml: (spaceId, paw) => this.callSpace(spaceId, 'panel_html', { paw }),
+				callPawTool: (spaceId, name, params) => this.callSpace(spaceId, 'tool', { name, params }),
+			},
+			{ host: this.host, token: this.token },
+		)
 	}
 
 	async listSpaces(): Promise<SpaceSummary[]> {
@@ -100,6 +108,7 @@ export class ControlPlane {
 			name: s.name,
 			state: this.children.has(s.id) ? 'running' : 'stopped',
 			pid: this.children.get(s.id)?.proc.pid,
+			orchestrator: s.orchestrator === true,
 		}))
 	}
 
@@ -117,6 +126,10 @@ export class ControlPlane {
 				...process.env,
 				VOLE_DASHBOARD_URL: `http://127.0.0.1:${this.port}`,
 				VOLE_SPACE_ID: entry.id,
+				// Always set explicitly ('1'/'0') so a stray VOLE_ORCHESTRATOR in the serve
+				// process's own env can't leak orchestrator tooling into every space. The
+				// authoritative check stays parent-side (registry flag, per request).
+				VOLE_ORCHESTRATOR: entry.orchestrator ? '1' : '0',
 				...(this.token ? { VOLE_DASHBOARD_TOKEN: this.token } : {}),
 			},
 			stdio: ['ignore', 'ignore', 'ignore', 'ipc'],
@@ -239,6 +252,130 @@ export class ControlPlane {
 		)
 	}
 
+	/**
+	 * Answer a reverse-RPC request from an orchestrator space. The sender's authority is
+	 * checked against the registry on EVERY request (fresh read), so revoking the flag via
+	 * `vole space orchestrate <name> off` takes effect immediately. Never throws — errors go
+	 * back to the sender as `{cres:{id,error}}`. Public (with an injectable reply) for tests.
+	 */
+	async handleOrchestrateRequest(
+		senderId: string,
+		req: { id: number; method: string; params?: Record<string, unknown> },
+		reply?: (msg: { cres: { id: number; result?: unknown; error?: string } }) => void,
+	): Promise<void> {
+		const send =
+			reply ??
+			((msg: { cres: { id: number; result?: unknown; error?: string } }): void => {
+				const child = this.children.get(senderId)
+				if (!child?.proc.connected) return // sender exited mid-request — nothing to reply to
+				try {
+					child.proc.send?.(msg)
+				} catch {
+					/* channel closed between the check and the send */
+				}
+			})
+		try {
+			const reg = await this.manager.readRegistry()
+			const sender = reg.spaces.find((s) => s.id === senderId)
+			if (sender?.orchestrator !== true) {
+				throw new Error(`Space "${senderId}" is not an orchestrator`)
+			}
+			const result = await this.dispatchOrchestrate(senderId, req.method, req.params ?? {})
+			send({ cres: { id: req.id, result } })
+		} catch (err) {
+			send({ cres: { id: req.id, error: err instanceof Error ? err.message : String(err) } })
+		}
+	}
+
+	/** Execute one orchestrator method. Targets resolve by id OR name; calls use the id. */
+	private async dispatchOrchestrate(
+		senderId: string,
+		method: string,
+		params: Record<string, unknown>,
+	): Promise<unknown> {
+		if (method === 'list') return this.listSpaces()
+		if (method === 'create') return this.createSpace(params.name as string)
+
+		const t = params.target as string
+		const reg = await this.manager.readRegistry()
+		const entry = reg.spaces.find((s) => s.id === t || s.name === t)
+		if (!entry) throw new Error(`Space not found: ${t}`)
+		if (['start', 'stop', 'restart'].includes(method) && entry.id === senderId) {
+			throw new Error(`Refusing to ${method} the orchestrator itself`)
+		}
+		switch (method) {
+			case 'state':
+				return this.summarizeState(await this.callSpace(entry.id, 'state'))
+			case 'task_status':
+				return this.callSpace(entry.id, 'task_status', { taskId: params.taskId })
+			case 'submit':
+				return this.callSpace(entry.id, 'submit', {
+					input: params.input,
+					sessionId: params.sessionId,
+				})
+			case 'read_config':
+				return this.callSpace(entry.id, 'read_config')
+			case 'write_config':
+				// The target's adapter guards apply (demo mode, sandbox-weakening refusal).
+				return this.callSpace(entry.id, 'write_config', { config: params.config })
+			case 'read_identity':
+				return this.callSpace(entry.id, 'read_identity')
+			case 'write_identity':
+				return this.callSpace(entry.id, 'write_identity', {
+					filename: params.filename,
+					content: params.content,
+				})
+			case 'restart':
+				return this.callSpace(entry.id, 'restart')
+			case 'start':
+				return this.startSpace(entry.id)
+			case 'stop':
+				return this.stopSpace(entry.id)
+			default:
+				// Deliberately no 'remove' — destroying a space stays a human decision.
+				throw new Error(`Unknown orchestrate method: ${method}`)
+		}
+	}
+
+	/** Trim a space's full dashboard state down to an LLM-friendly summary. */
+	private summarizeState(raw: unknown): Record<string, unknown> {
+		const s = (raw ?? {}) as Record<string, unknown>
+		const paws = Array.isArray(s.paws) ? (s.paws as Array<Record<string, unknown>>) : []
+		const skills = Array.isArray(s.skills) ? (s.skills as Array<Record<string, unknown>>) : []
+		const tasks = Array.isArray(s.tasks) ? (s.tasks as Array<Record<string, unknown>>) : []
+		const schedules = Array.isArray(s.schedules)
+			? (s.schedules as Array<Record<string, unknown>>)
+			: []
+		const recent = [...tasks]
+			.sort((a, b) => String(b.createdAt ?? '').localeCompare(String(a.createdAt ?? '')))
+			.slice(0, ORCH_STATE_TASKS)
+			.map((t) => ({
+				id: t.id,
+				source: t.source,
+				status: t.status,
+				input:
+					typeof t.input === 'string' && t.input.length > ORCH_INPUT_CLIP
+						? `${t.input.slice(0, ORCH_INPUT_CLIP)}…`
+						: t.input,
+				createdAt: t.createdAt,
+				completedAt: t.completedAt ?? null,
+			}))
+		return {
+			toolCount: Array.isArray(s.tools) ? s.tools.length : 0,
+			paws: paws.map((p) => ({ name: p.name, healthy: p.healthy })),
+			skills: {
+				active: skills.filter((k) => k.active).map((k) => k.name),
+				inactive: skills
+					.filter((k) => !k.active)
+					.map((k) => ({ name: k.name, missingTools: k.missingTools })),
+			},
+			tasks: recent,
+			queuedCount: tasks.filter((t) => t.status === 'queued').length,
+			runningCount: tasks.filter((t) => t.status === 'running').length,
+			schedules: schedules.map((c) => ({ id: c.id, cron: c.cron, nextRun: c.nextRun })),
+		}
+	}
+
 	private onChildMessage(spaceId: string, msg: unknown): void {
 		const m = msg as {
 			id?: number
@@ -250,6 +387,13 @@ export class ControlPlane {
 		if (m == null) return
 		if ((m as { ready?: boolean }).ready) {
 			this.children.get(spaceId)?.markReady()
+			return
+		}
+		// Reverse-RPC: a space asking the control plane to act on its siblings.
+		const creq = (m as { creq?: { id: number; method: string; params?: Record<string, unknown> } })
+			.creq
+		if (creq && typeof creq.id === 'number' && typeof creq.method === 'string') {
+			void this.handleOrchestrateRequest(spaceId, creq)
 			return
 		}
 		if (m.id !== undefined && (m.result !== undefined || m.error !== undefined)) {
