@@ -19,7 +19,7 @@ hero:
       link: https://github.com/openvole/openvole
 features:
   - title: 🏠 Self-hosted & private
-    details: Your agents, your hardware, your data. Point a space at a local Ollama model and nothing ever touches the cloud.
+    details: Your agents, your hardware, your data. Point an agent at a local Ollama model and nothing ever touches the cloud.
   - title: 🔌 Model-agnostic
     details: One unified brain paw speaks Anthropic, OpenAI, Gemini, xAI, and Ollama. Switch providers per agent with a single env var.
   - title: 🖥️ A server, not a script
@@ -34,10 +34,10 @@ features:
 
 <div style="max-width: 960px; margin: 4rem auto 0; padding: 0 24px;">
 
-![The OpenVole control plane managing a running space](/dashboard.png)
+![The OpenVole control plane managing a running agent](/dashboard.png)
 
 <p style="text-align: center; color: var(--vp-c-text-2); font-size: 0.9rem; margin-top: 0.5rem;">
-One <code>vole serve</code> control plane managing a fleet of agents — each its own isolated space.
+One <code>vole serve</code> control plane managing a fleet of agents — each its own isolated agent.
 </p>
 
 </div>

@@ -2,11 +2,16 @@
 
 ## Unreleased
 
-### Orchestrator spaces — one agent supervising the fleet
-- **A space can be granted orchestrator authority** (`vole space create <name> --orchestrator`, `vole space orchestrate <name> on|off`) and gets `space_*` core tools under `vole serve`: list siblings, submit tasks (with result readback via `space_task_status`), read/write sibling config + identity files, restart/start/stop siblings, and create new spaces.
-- Built as **reverse-RPC on the existing control-plane IPC channel** (`{creq}`/`{cres}` envelopes). The flag lives in the server registry — outside every space's sandbox — and is re-verified per request, so revocation is immediate. The dashboard's config guards (demo mode, sandbox-weakening refusal) apply unchanged; self-lifecycle ops and space removal are refused.
-- New VoleHub skill **`vole-orchestrate`** — the supervisor playbook (delegation briefs, sessionId continuity, identity-file conventions, lifecycle rules); activates only in spaces that have the tools.
-- Dashboard: spaces list shows an **orchestrator badge**.
+### Spaces are now Agents
+- **The "space" concept is renamed to "agent"** — each one always was an isolated agent under your `vole serve` server; now the name says so. `vole agent create/list/start/stop/status/switch/remove/template/orchestrate` replace `vole space …`, the dashboard says **Your Agents**, and the registry is `agents.json`.
+- **Nothing breaks.** `vole space …` remains a deprecated alias, a legacy `spaces.json` registry is read transparently (the next write migrates it to `agents.json`), an existing `space-template` is honored, the old `__run-space` daemon entry still works, and both `VOLE_AGENT_ID` and the legacy `VOLE_SPACE_ID` are injected into each agent (published paws read the old name). `openvole` still exports `SpaceManager`/`Space*` types as deprecated aliases, and `@openvole/dashboard-server` keeps a deprecated `SpaceSummary` alias.
+- The dashboard's config section for `spawn_agent` profiles is relabeled **Sub-agents** to keep it distinct from the server's agents (the config key stays `agents`).
+
+### Orchestrator agents — one agent supervising the fleet
+- **An agent can be granted orchestrator authority** (`vole agent create <name> --orchestrator`, `vole agent orchestrate <name> on|off`) and gets `agent_*` core tools under `vole serve`: list siblings, submit tasks (with result readback via `agent_task_status`), read/write sibling config + identity files, restart/start/stop siblings, and create new agents.
+- Built as **reverse-RPC on the existing control-plane IPC channel** (`{creq}`/`{cres}` envelopes). The flag lives in the server registry — outside every agent's sandbox — and is re-verified per request, so revocation is immediate. The dashboard's config guards (demo mode, sandbox-weakening refusal) apply unchanged; self-lifecycle ops and agent removal are refused.
+- New VoleHub skill **`vole-orchestrate`** — the supervisor playbook (delegation briefs, sessionId continuity, identity-file conventions, lifecycle rules); activates only in agents that have the tools.
+- Dashboard: the agents list shows an **orchestrator badge**.
 
 ## v4.5.0 (2026-07-07)
 

@@ -2,7 +2,7 @@ import { z } from 'zod'
 import type { ToolDefinition } from './types.js'
 
 /**
- * Orchestrator tools: let a space flagged `orchestrator` in the spaces registry supervise
+ * Orchestrator tools: let an agent flagged `orchestrator` in the agents registry supervise
  * its siblings through the ControlPlane parent (reverse-RPC over the IPC channel). Only
  * registered when the daemon runs under `vole serve` with VOLE_ORCHESTRATOR=1; the parent
  * re-checks the registry flag on every request, so these fail cleanly if authority is revoked.
@@ -13,7 +13,7 @@ const IDENTITY_TARGETS = ['SOUL.md', 'USER.md', 'AGENT.md', 'HEARTBEAT.md'] as c
 
 export function createOrchestrateTools(
 	callParent: (method: string, params?: Record<string, unknown>) => Promise<unknown>,
-	selfSpaceId: string,
+	selfAgentId: string,
 ): ToolDefinition[] {
 	// Tools never throw — parent/transport errors come back as { ok:false, error }.
 	const run = async (
@@ -32,27 +32,27 @@ export function createOrchestrateTools(
 
 	// Fast-fail UX guard; the parent's check (against resolved ids) stays authoritative.
 	const guardSelf = (target: string, op: string): Record<string, unknown> | undefined =>
-		target === selfSpaceId
-			? { ok: false, error: `Refusing to ${op} your own space ("${selfSpaceId}")` }
+		target === selfAgentId
+			? { ok: false, error: `Refusing to ${op} your own agent ("${selfAgentId}")` }
 			: undefined
 
 	return [
 		{
-			name: 'space_list',
+			name: 'agent_list',
 			description:
-				'List all sibling spaces in this vole server: id, name, running/stopped state, and whether each is an orchestrator. Start here before any other space_* call.',
+				'List all sibling agents in this vole server: id, name, running/stopped state, and whether each is an orchestrator. Start here before any other agent_* call.',
 			parameters: z.object({}),
 			async execute() {
 				const r = await run('list')
-				return Array.isArray(r) ? { ok: true, spaces: r } : r
+				return Array.isArray(r) ? { ok: true, agents: r } : r
 			},
 		},
 		{
-			name: 'space_state',
+			name: 'agent_state',
 			description:
-				'Summarized live state of a running sibling space: paw health, active/inactive skills, recent tasks (with status), queue counts, and schedules. Use space_task_status to read a specific task result.',
+				'Summarized live state of a running sibling agent: paw health, active/inactive skills, recent tasks (with status), queue counts, and schedules. Use agent_task_status to read a specific task result.',
 			parameters: z.object({
-				target: z.string().describe('Space id or name'),
+				target: z.string().describe('Agent id or name'),
 			}),
 			async execute(params) {
 				const { target } = params as { target: string }
@@ -60,12 +60,12 @@ export function createOrchestrateTools(
 			},
 		},
 		{
-			name: 'space_task_status',
+			name: 'agent_task_status',
 			description:
-				'Status and result of a task previously submitted to a sibling space with space_submit. Poll this (e.g. on your heartbeat) instead of busy-looping; the result text is clipped to ~8k chars.',
+				'Status and result of a task previously submitted to a sibling agent with agent_submit. Poll this (e.g. on your heartbeat) instead of busy-looping; the result text is clipped to ~8k chars.',
 			parameters: z.object({
-				target: z.string().describe('Space id or name'),
-				taskId: z.string().describe('The taskId returned by space_submit'),
+				target: z.string().describe('Agent id or name'),
+				taskId: z.string().describe('The taskId returned by agent_submit'),
 			}),
 			async execute(params) {
 				const { target, taskId } = params as { target: string; taskId: string }
@@ -73,11 +73,11 @@ export function createOrchestrateTools(
 			},
 		},
 		{
-			name: 'space_submit',
+			name: 'agent_submit',
 			description:
-				'Submit a task (a prompt) to a running sibling space. Write a self-contained brief — the sibling has none of your context. Returns a taskId to poll with space_task_status. Reuse one stable sessionId per ongoing project so the sibling keeps continuity.',
+				'Submit a task (a prompt) to a running sibling agent — a separate, isolated vole engine under this server, NOT an in-process sub-agent (use spawn_agent for those). Write a self-contained brief — the sibling has none of your context. Returns a taskId to poll with agent_task_status. Reuse one stable sessionId per ongoing project so the sibling keeps continuity.',
 			parameters: z.object({
-				target: z.string().describe('Space id or name'),
+				target: z.string().describe('Agent id or name'),
 				input: z.string().describe('The task brief — self-contained, with all needed context'),
 				sessionId: z
 					.string()
@@ -94,10 +94,10 @@ export function createOrchestrateTools(
 			},
 		},
 		{
-			name: 'space_read_config',
-			description: "Read a running sibling space's vole.config.json.",
+			name: 'agent_read_config',
+			description: "Read a running sibling agent's vole.config.json.",
 			parameters: z.object({
-				target: z.string().describe('Space id or name'),
+				target: z.string().describe('Agent id or name'),
 			}),
 			async execute(params) {
 				const { target } = params as { target: string }
@@ -106,11 +106,11 @@ export function createOrchestrateTools(
 			},
 		},
 		{
-			name: 'space_write_config',
+			name: 'agent_write_config',
 			description:
-				"Replace a running sibling space's vole.config.json. Pass the FULL config (read it first, modify, write back). Weakening the sandbox (security.sandboxFilesystem / allowedPaths) is refused. Changes apply after space_restart.",
+				"Replace a running sibling agent's vole.config.json. Pass the FULL config (read it first, modify, write back). Weakening the sandbox (security.sandboxFilesystem / allowedPaths) is refused. Changes apply after agent_restart.",
 			parameters: z.object({
-				target: z.string().describe('Space id or name'),
+				target: z.string().describe('Agent id or name'),
 				config: z.record(z.any()).describe('The complete new vole.config.json contents'),
 			}),
 			async execute(params) {
@@ -119,11 +119,11 @@ export function createOrchestrateTools(
 			},
 		},
 		{
-			name: 'space_read_identity',
+			name: 'agent_read_identity',
 			description:
-				"Read a running sibling space's identity files (SOUL.md, USER.md, AGENT.md, HEARTBEAT.md, BRAIN.md) — its role, temperament, and recurring duties.",
+				"Read a running sibling agent's identity files (SOUL.md, USER.md, AGENT.md, HEARTBEAT.md, BRAIN.md) — its role, temperament, and recurring duties.",
 			parameters: z.object({
-				target: z.string().describe('Space id or name'),
+				target: z.string().describe('Agent id or name'),
 			}),
 			async execute(params) {
 				const { target } = params as { target: string }
@@ -132,11 +132,11 @@ export function createOrchestrateTools(
 			},
 		},
 		{
-			name: 'space_write_identity',
+			name: 'agent_write_identity',
 			description:
-				"Write one identity file of a running sibling space — this is how you define or update its project brief: AGENT.md (role/duties), SOUL.md (temperament), USER.md (who it serves), HEARTBEAT.md (recurring jobs). Read first, write the FULL file back. Takes effect on the sibling's next task.",
+				"Write one identity file of a running sibling agent — this is how you define or update its project brief: AGENT.md (role/duties), SOUL.md (temperament), USER.md (who it serves), HEARTBEAT.md (recurring jobs). Read first, write the FULL file back. Takes effect on the sibling's next task.",
 			parameters: z.object({
-				target: z.string().describe('Space id or name'),
+				target: z.string().describe('Agent id or name'),
 				filename: z.enum(IDENTITY_TARGETS).describe('Which identity file to write'),
 				content: z.string().describe('The complete new file contents'),
 			}),
@@ -150,11 +150,11 @@ export function createOrchestrateTools(
 			},
 		},
 		{
-			name: 'space_restart',
+			name: 'agent_restart',
 			description:
-				"Restart a sibling space's engine in place so it rereads vole.config.json and identity files. Check space_state for running tasks first. Cannot target your own space.",
+				"Restart a sibling agent's engine in place so it rereads vole.config.json and identity files. Check agent_state for running tasks first. Cannot target your own agent.",
 			parameters: z.object({
-				target: z.string().describe('Space id or name'),
+				target: z.string().describe('Agent id or name'),
 			}),
 			async execute(params) {
 				const { target } = params as { target: string }
@@ -162,10 +162,10 @@ export function createOrchestrateTools(
 			},
 		},
 		{
-			name: 'space_start',
-			description: 'Start a stopped sibling space (no-op if already running).',
+			name: 'agent_start',
+			description: 'Start a stopped sibling agent (no-op if already running).',
 			parameters: z.object({
-				target: z.string().describe('Space id or name'),
+				target: z.string().describe('Agent id or name'),
 			}),
 			async execute(params) {
 				const { target } = params as { target: string }
@@ -173,11 +173,11 @@ export function createOrchestrateTools(
 			},
 		},
 		{
-			name: 'space_stop',
+			name: 'agent_stop',
 			description:
-				'Stop a running sibling space. Check space_state for running tasks first — stopping kills them. Cannot target your own space.',
+				'Stop a running sibling agent. Check agent_state for running tasks first — stopping kills them. Cannot target your own agent.',
 			parameters: z.object({
-				target: z.string().describe('Space id or name'),
+				target: z.string().describe('Agent id or name'),
 			}),
 			async execute(params) {
 				const { target } = params as { target: string }
@@ -185,11 +185,11 @@ export function createOrchestrateTools(
 			},
 		},
 		{
-			name: 'space_create',
+			name: 'agent_create',
 			description:
-				'Create a new sibling space (scaffolded from the server template if one exists). It starts stopped and WITHOUT orchestrator authority; call space_start next, then define it with space_write_identity.',
+				'Create a new sibling agent (scaffolded from the server template if one exists). It starts stopped and WITHOUT orchestrator authority; call agent_start next, then define it with agent_write_identity.',
 			parameters: z.object({
-				name: z.string().describe('Human-friendly space name (id becomes its slug)'),
+				name: z.string().describe('Human-friendly agent name (id becomes its slug)'),
 			}),
 			async execute(params) {
 				const { name } = params as { name: string }

@@ -3,11 +3,7 @@
 import 'dotenv/config'
 import * as path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import {
-	addSkillToConfig,
-	removePawFromConfig,
-	removeSkillFromConfig,
-} from './config/index.js'
+import { addSkillToConfig, removePawFromConfig, removeSkillFromConfig } from './config/index.js'
 import { createLogger, setLoggerSilent } from './core/logger.js'
 import { createEngine } from './index.js'
 
@@ -19,15 +15,15 @@ async function main(): Promise<void> {
 
 	const projectRoot = process.cwd()
 
-	// Show CLI output on the console. The noisy agent loop only runs in the __run-space daemon
+	// Show CLI output on the console. The noisy agent loop only runs in the __run-agent daemon
 	// (whose stdout is ignored), so foreground commands can log freely.
 	setLoggerSilent(false)
 
-	// The single-engine workflow was removed — OpenVole now runs as a server (spaces).
+	// The single-engine workflow was removed — OpenVole now runs as a server (agents).
 	if (command === 'start' || command === 'run' || command === 'init') {
 		logger.error(`"vole ${command}" has been removed — OpenVole now runs as a server.`)
 		logger.info(
-			'Run "vole serve" to manage spaces in the dashboard, or "vole space create <name>" to add one.',
+			'Run "vole serve" to manage agents in the dashboard, or "vole agent create <name>" to add one.',
 		)
 		process.exit(1)
 	}
@@ -40,8 +36,11 @@ async function main(): Promise<void> {
 		command !== '--version' &&
 		command !== '-v' &&
 		command !== 'upgrade' &&
-		command !== 'space' &&
-		command !== '__run-space' &&
+		command !== 'agent' &&
+		command !== 'space' && // deprecated alias for 'agent'
+		command !== '__run-agent' &&
+		command !== '__run-space' && // deprecated alias
+
 		command !== 'serve' &&
 		command !== undefined
 	) {
@@ -50,7 +49,7 @@ async function main(): Promise<void> {
 			await fsCheck.access(path.join(projectRoot, 'vole.config.json'))
 		} catch {
 			logger.error('vole.config.json not found in current directory')
-			logger.info('cd into a space directory, or run "vole serve" to manage spaces')
+			logger.info('cd into an agent directory, or run "vole serve" to manage agents')
 			process.exit(1)
 		}
 	}
@@ -84,17 +83,24 @@ async function main(): Promise<void> {
 			await runServe(projectRoot)
 			break
 
-		case 'space':
-			await handleSpaceCommand(args.slice(1))
+		case 'agent':
+			await handleAgentCommand(args.slice(1))
 			break
 
-		case '__run-space': {
-			const spacePath = args[1]
-			if (!spacePath) {
-				logger.error('Usage: vole __run-space <dir>')
+		case 'space':
+			logger.warn('`vole space` is deprecated — use `vole agent`.')
+			await handleAgentCommand(args.slice(1))
+			break
+
+		// Old entry name kept as an alias so anything spawning it keeps working.
+		case '__run-space':
+		case '__run-agent': {
+			const agentPath = args[1]
+			if (!agentPath) {
+				logger.error('Usage: vole __run-agent <dir>')
 				process.exit(1)
 			}
-			await runSpaceDaemon(path.resolve(spacePath))
+			await runAgentDaemon(path.resolve(agentPath))
 			break
 		}
 
@@ -129,7 +135,7 @@ function printHelp(): void {
 OpenVole — Micro Agent Core
 
 Usage:
-  vole serve                             Start the control-plane dashboard — manage all spaces (main entrypoint)
+  vole serve                             Start the control-plane dashboard — manage all agents (main entrypoint)
 
 Paw management:
   vole paw create <name>                 Scaffold a new Paw in paws/
@@ -167,17 +173,17 @@ VoleNet (distributed networking):
   vole net peers                         List trusted peers
   vole net status                        Network status overview
 
-Space management:
-  vole serve                             Control-plane dashboard for this dir's spaces (empty dir = new root; VOLE_HOME overrides)
-  vole space create <name>               Scaffold a new space (clones your template if set; --orchestrator to let it manage siblings)
-  vole space orchestrate <name> [on|off] Grant/revoke a space's sibling-management authority (vole serve)
-  vole space template                    Create/locate the template new spaces clone
-  vole space list                        List spaces and running status
-  vole space start <name>                Start a space's engine (lazy, own process)
-  vole space stop <name> | --all         Stop a space (or all spaces)
-  vole space status [name]               Show live status (pid, port)
-  vole space switch <name>               Set the active space
-  vole space remove <name> [--purge]     Remove a space (--purge deletes files)
+Agent management ("vole space" is a deprecated alias):
+  vole serve                             Control-plane dashboard for this dir's agents (empty dir = new root; VOLE_HOME overrides)
+  vole agent create <name>               Scaffold a new agent (clones your template if set; --orchestrator to let it manage siblings)
+  vole agent orchestrate <name> [on|off] Grant/revoke an agent's sibling-management authority (vole serve)
+  vole agent template                    Create/locate the template new agents clone
+  vole agent list                        List agents and running status
+  vole agent start <name>                Start an agent's engine (lazy, own process)
+  vole agent stop <name> | --all         Stop an agent (or all agents)
+  vole agent status [name]               Show live status (pid, port)
+  vole agent switch <name>               Set the active agent
+  vole agent remove <name> [--purge]     Remove an agent (--purge deletes files)
 
 Task management:
   vole task list                         Show task queue
@@ -562,7 +568,9 @@ async function handleSkillCommand(args: string[], projectRoot: string): Promise<
 				logger.info(`  version: ${prepared.version}`)
 				logger.info(`  description: ${prepared.description}`)
 				logger.info(`  hash: ${prepared.contentHash}`)
-				logger.info(`  files: ${prepared.files.length} (${prepared.files.map((f) => f.path).join(', ')})`)
+				logger.info(
+					`  files: ${prepared.files.length} (${prepared.files.map((f) => f.path).join(', ')})`,
+				)
 				logger.info(`  tools: ${prepared.requiredTools.join(', ') || 'none'}`)
 				logger.info(`  tags: ${prepared.tags.join(', ') || 'none'}`)
 				logger.info('')
@@ -765,14 +773,18 @@ async function handleToolCommand(args: string[], projectRoot: string): Promise<v
 						}
 					}
 				} catch {
-					logger.warn('VoleNet instance not reachable — is a space running? (vole serve, or vole space start)')
+					logger.warn(
+						'VoleNet instance not reachable — is an agent running? (vole serve, or vole agent start)',
+					)
 				}
 			}
 
 			const tool = toolRegistry.get(toolName)
 			if (!tool) {
 				logger.error(`Tool "${toolName}" not found in core tools`)
-				logger.info('Core tools only — paw tools require a running space (vole serve, or vole space start)')
+				logger.info(
+					'Core tools only — paw tools require a running agent (vole serve, or vole agent start)',
+				)
 				process.exit(1)
 			}
 
@@ -1370,7 +1382,9 @@ async function handleNetCommand(args: string[], projectRoot: string): Promise<vo
 				return
 			}
 			if (resp.pending) {
-				logger.info(resp.message ?? 'Join request submitted — pending approval by the hub operator.')
+				logger.info(
+					resp.message ?? 'Join request submitted — pending approval by the hub operator.',
+				)
 				break
 			}
 			if (!resp.hubPublicKey) {
@@ -1461,11 +1475,11 @@ async function handleNetCommand(args: string[], projectRoot: string): Promise<vo
 	}
 }
 
-async function handleSpaceCommand(args: string[]): Promise<void> {
+async function handleAgentCommand(args: string[]): Promise<void> {
 	const { setLoggerSilent } = await import('./core/logger.js')
 	setLoggerSilent(false) // user-facing command — show logger output on the console
-	const { SpaceManager } = await import('./space/manager.js')
-	const mgr = new SpaceManager()
+	const { AgentManager } = await import('./agent/manager.js')
+	const mgr = new AgentManager()
 	const subcommand = args[0]
 
 	switch (subcommand) {
@@ -1488,31 +1502,33 @@ async function handleSpaceCommand(args: string[]): Promise<void> {
 			}
 			const name = nameParts.join(' ')
 			if (!name) {
-				logger.error('Usage: vole space create <name> [--path <dir>] [--orchestrator]')
+				logger.error('Usage: vole agent create <name> [--path <dir>] [--orchestrator]')
 				process.exit(1)
 			}
 			const entry = await mgr.create(name, { path: customPath, orchestrator })
-			logger.info(`Created space "${entry.id}"`)
+			logger.info(`Created agent "${entry.id}"`)
 			logger.info(`  path: ${entry.path}`)
 			if (entry.orchestrator) {
-				logger.info('  This space is an ORCHESTRATOR — under "vole serve" it can manage its siblings.')
+				logger.info(
+					'  This agent is an ORCHESTRATOR — under "vole serve" it can manage its siblings.',
+				)
 			}
 			logger.info('')
-			logger.info(`Next: vole space start ${entry.id}  (or manage all spaces in: vole serve)`)
-			logger.info('Tip: pre-equip new spaces by setting up a template — vole space template')
+			logger.info(`Next: vole agent start ${entry.id}  (or manage all agents in: vole serve)`)
+			logger.info('Tip: pre-equip new agents by setting up a template — vole agent template')
 			break
 		}
 
 		case 'list':
 		case 'status': {
 			const target = subcommand === 'status' ? args[1] : undefined
-			const spaces = await mgr.status(target)
-			if (spaces.length === 0) {
-				logger.info('No spaces. Create one with "vole space create <name>".')
+			const agents = await mgr.status(target)
+			if (agents.length === 0) {
+				logger.info('No agents. Create one with "vole agent create <name>".')
 				break
 			}
 			const reg = await mgr.readRegistry()
-			for (const s of spaces) {
+			for (const s of agents) {
 				const active = reg.activeId === s.id ? '*' : ' '
 				const state = s.state === 'running' ? `running (pid ${s.pid})` : 'stopped'
 				const orch = s.orchestrator ? ' [orchestrator]' : ''
@@ -1524,19 +1540,21 @@ async function handleSpaceCommand(args: string[]): Promise<void> {
 		case 'start': {
 			const id = args[1]
 			if (!id) {
-				logger.error('Usage: vole space start <name>')
+				logger.error('Usage: vole agent start <name>')
 				process.exit(1)
 			}
 			const cliPath = fileURLToPath(import.meta.url)
 			const { pid, reused } = await mgr.start(id, { cliPath })
 			logger.info(
 				reused
-					? `Space "${id}" already running (pid ${pid})`
-					: `Started space "${id}" (pid ${pid})`,
+					? `Agent "${id}" already running (pid ${pid})`
+					: `Started agent "${id}" (pid ${pid})`,
 			)
 			const reg = await mgr.readRegistry()
-			if (reg.spaces.find((s) => s.id === id || s.name === id)?.orchestrator) {
-				logger.info('Note: orchestrator tools (space_*) require "vole serve" — detached spaces have no control channel.')
+			if (reg.agents.find((s) => s.id === id || s.name === id)?.orchestrator) {
+				logger.info(
+					'Note: orchestrator tools (agent_*) require "vole serve" — detached agents have no control channel.',
+				)
 			}
 			break
 		}
@@ -1544,39 +1562,39 @@ async function handleSpaceCommand(args: string[]): Promise<void> {
 		case 'stop': {
 			if (args[1] === '--all') {
 				const n = await mgr.stopAll()
-				logger.info(`Stopped ${n} space(s)`)
+				logger.info(`Stopped ${n} agent(s)`)
 				break
 			}
 			const id = args[1]
 			if (!id) {
-				logger.error('Usage: vole space stop <name> | --all')
+				logger.error('Usage: vole agent stop <name> | --all')
 				process.exit(1)
 			}
 			const stopped = await mgr.stop(id)
-			logger.info(stopped ? `Stopped space "${id}"` : `Space "${id}" was not running`)
+			logger.info(stopped ? `Stopped agent "${id}"` : `Agent "${id}" was not running`)
 			break
 		}
 
 		case 'switch': {
 			const id = args[1]
 			if (!id) {
-				logger.error('Usage: vole space switch <name>')
+				logger.error('Usage: vole agent switch <name>')
 				process.exit(1)
 			}
 			const entry = await mgr.switchTo(id)
-			logger.info(`Active space: "${entry.id}"`)
+			logger.info(`Active agent: "${entry.id}"`)
 			break
 		}
 
 		case 'remove': {
 			const id = args.slice(1).find((a) => !a.startsWith('--'))
 			if (!id) {
-				logger.error('Usage: vole space remove <name> [--purge]')
+				logger.error('Usage: vole agent remove <name> [--purge]')
 				process.exit(1)
 			}
 			const purge = args.includes('--purge')
 			await mgr.remove(id, { purge })
-			logger.info(`Removed space "${id}"${purge ? ' (files deleted)' : ''}`)
+			logger.info(`Removed agent "${id}"${purge ? ' (files deleted)' : ''}`)
 			break
 		}
 
@@ -1584,14 +1602,14 @@ async function handleSpaceCommand(args: string[]): Promise<void> {
 			const id = args[1]
 			const mode = args[2] ?? 'on'
 			if (!id || !['on', 'off'].includes(mode)) {
-				logger.error('Usage: vole space orchestrate <name> [on|off]')
+				logger.error('Usage: vole agent orchestrate <name> [on|off]')
 				process.exit(1)
 			}
 			const entry = await mgr.setOrchestrator(id, mode === 'on')
-			logger.info(`Space "${entry.id}" orchestrator: ${mode.toUpperCase()}`)
-			logger.info('Applies to spaces run under "vole serve".')
+			logger.info(`Agent "${entry.id}" orchestrator: ${mode.toUpperCase()}`)
+			logger.info('Applies to agents run under "vole serve".')
 			if (mode === 'on') {
-				logger.info('Restart the space (under vole serve) to register its space_* tools.')
+				logger.info('Restart the agent (under vole serve) to register its agent_* tools.')
 			} else {
 				logger.info('Revocation is immediate — pending requests from it will be refused.')
 			}
@@ -1601,18 +1619,18 @@ async function handleSpaceCommand(args: string[]): Promise<void> {
 		case 'template': {
 			const { path: tdir, created } = await mgr.ensureTemplate()
 			if (created) {
-				logger.info(`Created space template: ${tdir}`)
-				logger.info('Equip it (add paws to vole.config.json) — new spaces clone it:')
-				logger.info('  vole space create <name>')
+				logger.info(`Created agent template: ${tdir}`)
+				logger.info('Equip it (add paws to vole.config.json) — new agents clone it:')
+				logger.info('  vole agent create <name>')
 			} else {
-				logger.info(`Space template: ${tdir}`)
-				logger.info('Edit its vole.config.json to change what new spaces inherit.')
+				logger.info(`Agent template: ${tdir}`)
+				logger.info('Edit its vole.config.json to change what new agents inherit.')
 			}
 			break
 		}
 
 		default:
-			logger.error(`Unknown space command: ${subcommand}`)
+			logger.error(`Unknown agent command: ${subcommand}`)
 			logger.info(
 				'Available: create, template, list, start, stop, status, switch, remove, orchestrate',
 			)
@@ -1621,9 +1639,9 @@ async function handleSpaceCommand(args: string[]): Promise<void> {
 }
 
 /**
- * Persistent control-plane process — one web server managing the spaces under an OpenVole root
+ * Persistent control-plane process — one web server managing the agents under an OpenVole root
  * (`vole serve`). The root is resolved from VOLE_HOME, else the current directory when it is empty
- * (becomes a fresh root) or already an OpenVole root (has spaces.json); otherwise it refuses, so
+ * (becomes a fresh root) or already an OpenVole root (has agents.json); otherwise it refuses, so
  * `serve` is scoped to where it's run rather than an implicit global ~/.openvole.
  */
 async function runServe(projectRoot: string): Promise<void> {
@@ -1632,14 +1650,18 @@ async function runServe(projectRoot: string): Promise<void> {
 	const fs = await import('node:fs/promises')
 	const os = await import('node:os')
 
-	// Marker of an existing OpenVole root: the spaces registry file.
+	// Marker of an existing OpenVole root: the agents registry file.
 	const hasRegistry = async (dir: string): Promise<boolean> => {
-		try {
-			await fs.access(path.join(dir, 'spaces.json'))
-			return true
-		} catch {
-			return false
+		// Legacy pre-rename roots have spaces.json — still a valid root.
+		for (const name of ['agents.json', 'spaces.json']) {
+			try {
+				await fs.access(path.join(dir, name))
+				return true
+			} catch {
+				/* keep looking */
+			}
 		}
+		return false
 	}
 
 	// Resolve the root to serve. Explicit VOLE_HOME always wins. Otherwise use the current
@@ -1660,7 +1682,7 @@ async function runServe(projectRoot: string): Promise<void> {
 			logger.error('vole serve: the current directory is not an OpenVole root and is not empty.')
 			logger.info(`  ${projectRoot}`)
 			logger.info(
-				'Run `vole serve` in an empty directory (it becomes a new root) or in an existing root (one that has spaces.json).',
+				'Run `vole serve` in an empty directory (it becomes a new root) or in an existing root (one that has agents.json).',
 			)
 			// A setup.sh sitting here almost always means this is an example template not yet initialized.
 			if (
@@ -1670,12 +1692,12 @@ async function runServe(projectRoot: string): Promise<void> {
 					.catch(() => false)
 			) {
 				logger.info(
-					'This looks like an example — run `bash setup.sh` first (it installs paws, generates the key, and writes spaces.json).',
+					'This looks like an example — run `bash setup.sh` first (it installs paws, generates the key, and writes agents.json).',
 				)
 			}
 			const legacy = path.join(os.homedir(), '.openvole')
 			if (await hasRegistry(legacy)) {
-				logger.info(`Your existing spaces live at ${legacy} — manage them with:`)
+				logger.info(`Your existing agents live at ${legacy} — manage them with:`)
 				logger.info(`  cd ${legacy} && vole serve`)
 				logger.info(`  (or)  VOLE_HOME=${legacy} vole serve`)
 			}
@@ -1684,7 +1706,7 @@ async function runServe(projectRoot: string): Promise<void> {
 	}
 
 	const fresh = !(await hasRegistry(home))
-	const { ControlPlane } = await import('./space/control-plane.js')
+	const { ControlPlane } = await import('./agent/control-plane.js')
 	const port = Number(process.env.VOLE_DASHBOARD_PORT) || 3000
 	const host = process.env.VOLE_DASHBOARD_HOST || '0.0.0.0'
 	// Session token gating the dashboard (page, WebSocket, panels). Persisted so the URL is stable.
@@ -1708,7 +1730,7 @@ async function runServe(projectRoot: string): Promise<void> {
 	cp.start()
 	logger.info(`OpenVole root: ${home}${fresh ? '  (new)' : ''}`)
 	const shownHost = host === '0.0.0.0' || host === '::' ? 'localhost' : host
-	logger.info(`Manage your spaces at http://${shownHost}:${port}/?token=${token}`)
+	logger.info(`Manage your agents at http://${shownHost}:${port}/?token=${token}`)
 	if (host === '0.0.0.0' || host === '::') {
 		logger.info(
 			`Dashboard is reachable on your network and gated by the token above. Firewall port ${port} (or set VOLE_DASHBOARD_HOST=127.0.0.1) on public servers.`,
@@ -1724,25 +1746,29 @@ async function runServe(projectRoot: string): Promise<void> {
 	await new Promise<void>(() => {})
 }
 
-/** Daemon entry — runs a single space's engine in this (subprocess) process until SIGTERM. */
-async function runSpaceDaemon(projectRoot: string): Promise<void> {
-	const { installControlAdapter } = await import('./space/control-adapter.js')
+/** Daemon entry — runs a single agent's engine in this (subprocess) process until SIGTERM. */
+async function runAgentDaemon(projectRoot: string): Promise<void> {
+	const { installControlAdapter } = await import('./agent/control-adapter.js')
 	let engine = await createEngine(projectRoot)
 	// When spawned as an IPC child by the control plane, bridge engine ↔ parent.
 	const adapter = process.send ? installControlAdapter(engine, projectRoot) : undefined
 
-	// Orchestrator space (flag lives in the parent's registry; env is just the spawn-time
-	// signal): register the space_* sibling-management tools. The reverse-RPC client is
+	// Orchestrator agent (flag lives in the parent's registry; env is just the spawn-time
+	// signal): register the agent_* sibling-management tools. The reverse-RPC client is
 	// created once per process — only the tools re-register per engine instance.
 	let installOrchestrateTools: (eng: typeof engine) => void = () => {}
 	if (process.send && process.env.VOLE_ORCHESTRATOR === '1') {
-		const { createParentClient } = await import('./space/orchestrate-client.js')
+		const { createParentClient } = await import('./agent/orchestrate-client.js')
 		const { createOrchestrateTools } = await import('./tool/orchestrate-tools.js')
 		const client = createParentClient()
-		const selfId = process.env.VOLE_SPACE_ID ?? ''
+		const selfId = process.env.VOLE_AGENT_ID ?? process.env.VOLE_SPACE_ID ?? ''
 		installOrchestrateTools = (eng) => {
-			eng.toolRegistry.register('__orchestrate__', createOrchestrateTools(client.call, selfId), true)
-			// Keep space_* visible under tool horizon — an orchestrator's core job.
+			eng.toolRegistry.register(
+				'__orchestrate__',
+				createOrchestrateTools(client.call, selfId),
+				true,
+			)
+			// Keep agent_* visible under tool horizon — an orchestrator's core job.
 			eng.toolRegistry.addAlwaysVisiblePaw('__orchestrate__')
 		}
 	}
@@ -1763,7 +1789,7 @@ async function runSpaceDaemon(projectRoot: string): Promise<void> {
 	wireRestart(engine)
 	await engine.start()
 
-	// Keep the event loop alive even if the space has no listening paws yet
+	// Keep the event loop alive even if the agent has no listening paws yet
 	// (a pending promise alone would let Node exit once the loop drains).
 	const keepAlive = setInterval(() => {}, 1 << 30)
 

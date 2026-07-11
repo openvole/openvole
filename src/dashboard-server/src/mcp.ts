@@ -4,21 +4,21 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
 
 /**
- * Bridges OpenVole's per-space tools to an MCP client (e.g. Claude Code as a brain).
+ * Bridges OpenVole's per-agent tools to an MCP client (e.g. Claude Code as a brain).
  * Uses the official MCP SDK server — no hand-rolled protocol, no paw-mcp (client-side) code.
  * Tool execution is delegated back to the engine via the same path the dashboard panels use.
  */
 export interface McpDeps {
-	/** Tools available in this space (name + description + optional JSON-schema params). */
+	/** Tools available in this agent (name + description + optional JSON-schema params). */
 	listTools: () => Promise<Array<{ name: string; description?: string; parameters?: unknown }>>
-	/** Execute a tool in this space and return its raw result. */
+	/** Execute a tool in this agent and return its raw result. */
 	callTool: (name: string, args: Record<string, unknown>) => Promise<unknown>
 }
 
 const isJsonSchema = (v: unknown): v is Record<string, unknown> =>
 	!!v && typeof v === 'object' && ('type' in v || 'properties' in v)
 
-/** Handle one MCP HTTP request (stateless) for a single space. */
+/** Handle one MCP HTTP request (stateless) for a single agent. */
 export async function handleMcpRequest(
 	req: http.IncomingMessage,
 	res: http.ServerResponse,
@@ -41,8 +41,15 @@ export async function handleMcpRequest(
 	})
 
 	server.setRequestHandler(CallToolRequestSchema, async (request) => {
-		const out = await deps.callTool(request.params.name, (request.params.arguments ?? {}) as Record<string, unknown>)
-		return { content: [{ type: 'text' as const, text: typeof out === 'string' ? out : JSON.stringify(out) }] }
+		const out = await deps.callTool(
+			request.params.name,
+			(request.params.arguments ?? {}) as Record<string, unknown>,
+		)
+		return {
+			content: [
+				{ type: 'text' as const, text: typeof out === 'string' ? out : JSON.stringify(out) },
+			],
+		}
 	})
 
 	// Stateless: a fresh transport+server per request (no session tracking needed for tools).

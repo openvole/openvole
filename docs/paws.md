@@ -14,7 +14,7 @@ vole paw list
 
 ## Build an Embedded App
 
-A paw can ship its own UI — a **panel** — that appears under the dashboard's **Apps** tab whenever the paw is loaded in a space. It renders as a sandboxed `iframe` served by the control plane, with **no per-paw web server and no extra port**. [`@openvole/paw-markets`](/dashboard#apps-embedded-paw-panels) is a complete working example.
+A paw can ship its own UI — a **panel** — that appears under the dashboard's **Apps** tab whenever the paw is loaded in an agent. It renders as a sandboxed `iframe` served by the control plane, with **no per-paw web server and no extra port**. [`@openvole/paw-markets`](/dashboard#apps-embedded-paw-panels) is a complete working example.
 
 ### 1. Declare the panel in the manifest
 
@@ -40,7 +40,7 @@ A self-contained HTML file. Call your paw's tools with a **relative** `fetch` to
     <button id="go">Quote AAPL</button>
     <pre id="out"></pre>
     <script>
-      // Relative to the panel URL (/panel/<space>/<paw>/) — calls the paw's tool directly.
+      // Relative to the panel URL (/panel/<agent>/<paw>/) — calls the paw's tool directly.
       function callTool(name, params) {
         return fetch('tool/' + name, {
           method: 'POST',
@@ -58,7 +58,7 @@ A self-contained HTML file. Call your paw's tools with a **relative** `fetch` to
 ```
 
 ::: warning
-Every asset path in `panel.html` must be **relative** — the panel is served under `/panel/<space>/<paw>/`, so absolute paths like `/style.css` won't resolve. Inline your CSS/JS, or reference files relatively.
+Every asset path in `panel.html` must be **relative** — the panel is served under `/panel/<agent>/<paw>/`, so absolute paths like `/style.css` won't resolve. Inline your CSS/JS, or reference files relatively.
 :::
 
 ### 3. Ship the file
@@ -71,12 +71,12 @@ Add `panel.html` to your `package.json` `files` array so it's published with the
 
 ### 4. Try it
 
-Install the paw into a space (the **Config** tab, or `vole paw add` inside the space's directory) and start the space — your panel appears under the **Apps** tab.
+Install the paw into an agent (the **Config** tab, or `vole paw add` inside the agent's directory) and start the agent — your panel appears under the **Apps** tab.
 
 ### How it's served
 
-- **HTML** → `GET /panel/<space>/<paw>/`
-- **Tools** → `POST /panel/<space>/<paw>/tool/<toolName>` → runs `tool.execute(params)` over IPC and returns its JSON
+- **HTML** → `GET /panel/<agent>/<paw>/`
+- **Tools** → `POST /panel/<agent>/<paw>/tool/<toolName>` → runs `tool.execute(params)` over IPC and returns its JSON
 
 Because tool calls go straight to your paw with no Brain, panels are deterministic and free — ideal for dashboards, forms, and live views over your paw's data.
 

@@ -86,7 +86,7 @@ Prevent runaway costs with configurable limits on:
 - **Session token.** `vole serve` generates a token on first run — persisted at `<root>/.openvole/dashboard-token` (mode `0600`), or supplied via `VOLE_DASHBOARD_TOKEN` — and prints a tokenized URL. The token is required on the page, the WebSocket, and panel routes, so reaching the port is **not** enough to control the dashboard.
 - **Bind address.** Binds all interfaces (`0.0.0.0`) by default for convenience. Set `VOLE_DASHBOARD_HOST=127.0.0.1` to restrict it to localhost.
 - **Same-origin enforcement.** The WebSocket and panel-tool routes require a matching `Origin`, blocking cross-site WebSocket hijacking and token-less cross-site tool calls.
-- **Sandboxed paw panels.** Paw-rendered panels run in a null-origin (`sandbox="allow-scripts"`) iframe and never receive the token; their tool calls are proxied through the authenticated WebSocket, scoped to that panel's own space. A malicious paw panel can't read the token or drive other spaces.
+- **Sandboxed paw panels.** Paw-rendered panels run in a null-origin (`sandbox="allow-scripts"`) iframe and never receive the token; their tool calls are proxied through the authenticated WebSocket, scoped to that panel's own agent. A malicious paw panel can't read the token or drive other agents.
 - **Config-downgrade guard.** Editing config from the dashboard cannot weaken the sandbox (`sandboxFilesystem: false` or broadening `allowedPaths`); those require editing `vole.config.json` on the server directly, closing a remote-RCE path.
 
 ::: warning Public exposure

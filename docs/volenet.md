@@ -459,7 +459,7 @@ Normally peers trust each other **manually** (`vole net trust` on both sides). A
 instead lets unknown peers **self-register** over HTTP and join at a restricted **guest** trust
 level — so you can run an internet-wide mesh that your community joins with one command.
 
-Enable it on the hub's space config:
+Enable it on the hub's agent config:
 
 ```jsonc
 "net": {
@@ -491,14 +491,14 @@ and chat aren't sent in the clear.
 
 ### Joining a hub (followers)
 
-From a space that has its own brain (your own LLM key):
+From an agent that has its own brain (your own LLM key):
 
 ```bash
 vole net join http://hub-host:9700 --name your-name
 ```
 
 This registers your public key with the hub, trusts the hub's key locally, and adds the hub as a
-peer in your `vole.config.json`. Start your space and you're on the mesh.
+peer in your `vole.config.json`. Start your agent and you're on the mesh.
 
 A ready-to-host hub (with `demo` lockdown) lives in
 [`examples/public-hub`](https://github.com/openvole/openvole/tree/main/examples/public-hub).
@@ -520,13 +520,13 @@ vole net status              # Show VoleNet status (instance, leader, peers, too
 ### 1. Set Up Two Instances
 
 > [!NOTE]
-> Each instance is a **space**: run [`vole serve`](/dashboard) → New space to scaffold its `vole.config.json` and install paws, then `vole net init <name>` in that space's directory. For ready-to-run meshes, see [`examples/volenet-mesh`](https://github.com/openvole/openvole/tree/main/examples/volenet-mesh) and [`examples/public-hub`](https://github.com/openvole/openvole/tree/main/examples/public-hub).
+> Each instance is a **agent**: run [`vole serve`](/dashboard) → New agent to scaffold its `vole.config.json` and install paws, then `vole net init <name>` in that agent's directory. For ready-to-run meshes, see [`examples/volenet-mesh`](https://github.com/openvole/openvole/tree/main/examples/volenet-mesh) and [`examples/public-hub`](https://github.com/openvole/openvole/tree/main/examples/public-hub).
 
 ```bash
-# Coordinator (brain) — run inside its space directory
+# Coordinator (brain) — run inside its agent directory
 vole net init coordinator
 
-# Worker (shell) — run inside its space directory
+# Worker (shell) — run inside its agent directory
 vole net init worker
 ```
 

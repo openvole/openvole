@@ -1,12 +1,12 @@
 /**
- * Reverse-RPC client: lets an orchestrator space call its ControlPlane parent over the
+ * Reverse-RPC client: lets an orchestrator agent call its ControlPlane parent over the
  * Node IPC channel it was spawned with. Sends `{creq:{id,method,params}}`, resolves on the
  * matching `{cres:{id,result|error}}`. Holds no engine references — create it ONCE per
  * process (it survives in-process engine restarts; only the tools are re-registered).
  */
 
 // Longer than the control plane's own 15s child-RPC timeout, so when the parent's nested
-// callSpace(target) times out, its descriptive error reaches us as a message instead of
+// callAgent(target) times out, its descriptive error reaches us as a message instead of
 // being masked by our own generic timeout.
 const ORCHESTRATE_TIMEOUT_MS = 20_000
 

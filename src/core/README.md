@@ -29,7 +29,7 @@ mkdir my-agents && cd my-agents
 vole serve
 ```
 
-Open the dashboard, click **New space**, and the onboarding installs the essential paws (brain, session, memory, compact, shell). Each space has its own `vole.config.json`:
+Open the dashboard, click **New agent**, and the onboarding installs the essential paws (brain, session, memory, compact, shell). Each agent has its own `vole.config.json`:
 
 ```json
 {
@@ -68,7 +68,7 @@ Run and manage your agents from the control-plane dashboard:
 vole serve
 ```
 
-This opens a dashboard at `http://localhost:3000` that manages all your agents ("spaces") — create, start, stop, configure, and chat with each from the browser.
+This opens a dashboard at `http://localhost:3000` that manages all your agents — create, start, stop, configure, and chat with each from the browser.
 
 Or use a preset:
 
@@ -87,7 +87,7 @@ curl -fsSL https://raw.githubusercontent.com/openvole/openvole/main/presets/full
 
 ```
                       vole serve (control plane)
-                       one server · many spaces
+                       one server · many agents
                               |
                               v
 ┌─────────────────────────────────────────────────────────────┐
@@ -237,7 +237,7 @@ Bridge 1000+ community MCP servers into the tool registry via `paw-mcp`. MCP too
 - **Late tool registration** — tools appear after the engine starts, not at boot
 - MCP config lives in `.openvole/paws/paw-mcp/servers.json` (not in the installed package)
 
-The control plane also **serves** MCP: `vole serve` exposes each space's own tools to MCP clients at a token-gated `/mcp/<space>` endpoint. This is how the `claude-code` brain provider lets Claude Code call OpenVole's tools.
+The control plane also **serves** MCP: `vole serve` exposes each agent's own tools to MCP clients at a token-gated `/mcp/<agent>` endpoint. This is how the `claude-code` brain provider lets Claude Code call OpenVole's tools.
 
 Example `.openvole/paws/paw-mcp/servers.json`:
 
@@ -319,13 +319,13 @@ When context grows too large, `paw-compact` summarizes old messages while preser
 
 ### Dashboard
 
-Run `vole serve` to start the **control-plane dashboard** — one web server that manages all your agents ("spaces") from the browser:
+Run `vole serve` to start the **control-plane dashboard** — one web server that manages all your agents from the browser:
 
 ```bash
 vole serve   # http://localhost:3000
 ```
 
-Each space is an isolated agent with its own config, paws, identity, and data. The dashboard has Overview, Chat, Apps, Config, and Identity tabs, plus a space switcher to create / start / stop / delete spaces. Any paw can also contribute an embedded UI panel (declared via a `panel` field in its manifest) that appears under the **Apps** tab — no per-paw servers, no extra ports.
+Each agent is fully isolated, with its own config, paws, identity, and data. The dashboard has Overview, Chat, Apps, Config, and Identity tabs, plus an agent switcher to create / start / stop / delete agents. Any paw can also contribute an embedded UI panel (declared via a `panel` field in its manifest) that appears under the **Apps** tab — no per-paw servers, no extra ports.
 
 > The legacy `@openvole/paw-dashboard` (single-engine web dashboard paw) is **deprecated** in favor of `vole serve`. It still works but logs a deprecation warning and will be removed in a future release.
 
@@ -389,8 +389,8 @@ vole paw add @openvole/paw-browser
 ## CLI
 
 ```bash
-vole serve                             # Control-plane dashboard for all your agents (spaces)
-vole space create <name>               # Create a new space (agent)
+vole serve                             # Control-plane dashboard for all your agents (agents)
+vole agent create <name>               # Create a new agent (agent)
 
 vole paw add @openvole/paw-telegram    # Install a Paw
 vole paw list                          # List loaded Paws

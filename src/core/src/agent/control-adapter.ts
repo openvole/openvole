@@ -108,7 +108,7 @@ export interface ControlAdapter {
 }
 
 /**
- * Bridge a space-engine to its control-plane parent over the Node IPC channel: answers
+ * Bridge an agent-engine to its control-plane parent over the Node IPC channel: answers
  * `{id,method,params}` requests via direct engine calls and forwards bus events as
  * `{event,data}` notifications. Only meaningful when spawned with an IPC channel.
  */
@@ -149,7 +149,7 @@ export function installControlAdapter(engine: VoleEngine, projectRoot: string): 
 					const onDisk = await readConfigFile(projectRoot)
 					if (onDisk.demo === true) {
 						throw new Error(
-							'This space is in demo mode — configuration is read-only from the dashboard. Edit vole.config.json on the server to change it.',
+							'This agent is in demo mode — configuration is read-only from the dashboard. Edit vole.config.json on the server to change it.',
 						)
 					}
 					const newCfg = params.config as Record<string, unknown>
@@ -179,7 +179,7 @@ export function installControlAdapter(engine: VoleEngine, projectRoot: string): 
 					const onDisk = await readConfigFile(projectRoot)
 					if (onDisk.demo === true) {
 						throw new Error(
-							'This space is in demo mode — identity files are read-only from the dashboard.',
+							'This agent is in demo mode — identity files are read-only from the dashboard.',
 						)
 					}
 					result = await writeIdentityFile(
@@ -236,7 +236,7 @@ export function installControlAdapter(engine: VoleEngine, projectRoot: string): 
 					const tool = current.toolRegistry.get('session_clear')
 					result = tool
 						? await tool.execute({ sessionId: params.sessionId })
-						: { ok: false, error: 'paw-session is not loaded in this space' }
+						: { ok: false, error: 'paw-session is not loaded in this agent' }
 					break
 				}
 				case 'volenet_instances': {
@@ -252,7 +252,7 @@ export function installControlAdapter(engine: VoleEngine, projectRoot: string): 
 				}
 				case 'volenet_chat_send': {
 					const vn = (globalThis as any).__volenet__
-					if (!vn?.isActive()) throw new Error('VoleNet is not active in this space')
+					if (!vn?.isActive()) throw new Error('VoleNet is not active in this agent')
 					result = await vn.sendChat(params.peerId as string, params.text as string)
 					break
 				}

@@ -11,46 +11,49 @@ const logger = {
 
 export interface DashboardServer {
 	/** Broadcast a message to all connected WebSocket clients */
-	broadcast(type: string, data: unknown, event?: string, spaceId?: string): void
+	broadcast(type: string, data: unknown, event?: string, agentId?: string): void
 	/** Shut down the server */
 	close(): Promise<void>
 }
 
-export interface SpaceSummary {
+export interface AgentSummary {
 	id: string
 	name: string
 	state: 'running' | 'stopped'
 	pid?: number
-	/** This space can manage its siblings via the control plane (space_* tools). */
+	/** This agent can manage its siblings via the control plane (agent_* tools). */
 	orchestrator?: boolean
 }
 
+/** @deprecated Pre-rename alias — use AgentSummary. */
+export type SpaceSummary = AgentSummary
+
 export interface DashboardCallbacks {
-	/** Multi-space (control plane). Omitted by the single-engine paw. */
-	listSpaces?: () => Promise<SpaceSummary[]>
-	createSpace?: (name: string) => Promise<unknown>
-	removeSpace?: (spaceId: string) => Promise<unknown>
-	startSpace?: (spaceId: string) => Promise<unknown>
-	stopSpace?: (spaceId: string) => Promise<unknown>
+	/** Multi-agent (control plane). Omitted by the single-engine paw. */
+	listAgents?: () => Promise<AgentSummary[]>
+	createAgent?: (name: string) => Promise<unknown>
+	removeAgent?: (agentId: string) => Promise<unknown>
+	startAgent?: (agentId: string) => Promise<unknown>
+	stopAgent?: (agentId: string) => Promise<unknown>
 	listAvailablePaws?: () => Promise<unknown>
-	installPaw?: (name: string, spaceId?: string) => Promise<unknown>
-	submitTask?: (input: string, sessionId?: string, spaceId?: string) => Promise<unknown>
-	chatHistory?: (sessionId?: string, spaceId?: string) => Promise<unknown>
-	chatSessions?: (spaceId?: string) => Promise<unknown>
-	chatClear?: (sessionId: string, spaceId?: string) => Promise<unknown>
-	volenetInstances?: (spaceId?: string) => Promise<unknown>
-	volenetChatHistory?: (peerId?: string, spaceId?: string) => Promise<unknown>
-	volenetChatSend?: (peerId: string, text: string, spaceId?: string) => Promise<unknown>
-	volenetChatClear?: (peerId: string, spaceId?: string) => Promise<unknown>
-	getPanelHtml?: (spaceId: string, paw: string) => Promise<unknown>
-	callPawTool?: (spaceId: string, name: string, params: unknown) => Promise<unknown>
-	/** Per-space; spaceId is undefined in single-engine mode. */
-	fetchState: (spaceId?: string) => Promise<unknown>
-	readConfig: (spaceId?: string) => Promise<unknown>
-	writeConfig: (config: unknown, spaceId?: string) => Promise<unknown>
-	readIdentity: (spaceId?: string) => Promise<unknown>
-	writeIdentity: (filename: string, content: string, spaceId?: string) => Promise<unknown>
-	restartEngine: (spaceId?: string) => Promise<unknown>
+	installPaw?: (name: string, agentId?: string) => Promise<unknown>
+	submitTask?: (input: string, sessionId?: string, agentId?: string) => Promise<unknown>
+	chatHistory?: (sessionId?: string, agentId?: string) => Promise<unknown>
+	chatSessions?: (agentId?: string) => Promise<unknown>
+	chatClear?: (sessionId: string, agentId?: string) => Promise<unknown>
+	volenetInstances?: (agentId?: string) => Promise<unknown>
+	volenetChatHistory?: (peerId?: string, agentId?: string) => Promise<unknown>
+	volenetChatSend?: (peerId: string, text: string, agentId?: string) => Promise<unknown>
+	volenetChatClear?: (peerId: string, agentId?: string) => Promise<unknown>
+	getPanelHtml?: (agentId: string, paw: string) => Promise<unknown>
+	callPawTool?: (agentId: string, name: string, params: unknown) => Promise<unknown>
+	/** Per-agent; agentId is undefined in single-engine mode. */
+	fetchState: (agentId?: string) => Promise<unknown>
+	readConfig: (agentId?: string) => Promise<unknown>
+	writeConfig: (config: unknown, agentId?: string) => Promise<unknown>
+	readIdentity: (agentId?: string) => Promise<unknown>
+	writeIdentity: (filename: string, content: string, agentId?: string) => Promise<unknown>
+	restartEngine: (agentId?: string) => Promise<unknown>
 }
 
 // Injected into every served panel. The panel runs in a sandboxed (null-origin) iframe so it
@@ -77,7 +80,7 @@ export function createDashboardServer(
 	options?: { host?: string; token?: string },
 ): DashboardServer {
 	const clients = new Set<WebSocket>()
-	// Per-connection selected space (control-plane mode); undefined = single-engine.
+	// Per-connection selected agent (control-plane mode); undefined = single-engine.
 	const selected = new Map<WebSocket, string | undefined>()
 	const host = options?.host ?? '0.0.0.0'
 	const token = options?.token
@@ -116,14 +119,14 @@ export function createDashboardServer(
 		'.svg': 'image/svg+xml',
 	}
 
-	// Serve an embedded paw panel (HTML) and proxy its tool calls, all over IPC to the space.
+	// Serve an embedded paw panel (HTML) and proxy its tool calls, all over IPC to the agent.
 	async function servePanel(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
 		try {
 			const u = new URL(req.url || '/', 'http://localhost')
-			const parts = u.pathname.split('/').filter(Boolean) // ['panel', space, encPaw, ...]
-			const space = parts[1] ? decodeURIComponent(parts[1]) : ''
+			const parts = u.pathname.split('/').filter(Boolean) // ['panel', agent, encPaw, ...]
+			const agent = parts[1] ? decodeURIComponent(parts[1]) : ''
 			const paw = parts[2] ? decodeURIComponent(parts[2]) : ''
-			if (!space || !paw) {
+			if (!agent || !paw) {
 				res.writeHead(404)
 				res.end()
 				return
@@ -132,12 +135,12 @@ export function createDashboardServer(
 				let body = ''
 				for await (const chunk of req) body += chunk
 				const params = body ? JSON.parse(body) : {}
-				const result = await callbacks.callPawTool?.(space, decodeURIComponent(parts[4]), params)
+				const result = await callbacks.callPawTool?.(agent, decodeURIComponent(parts[4]), params)
 				res.writeHead(200, { 'Content-Type': 'application/json' })
 				res.end(JSON.stringify(result ?? {}))
 				return
 			}
-			const r = (await callbacks.getPanelHtml?.(space, paw)) as { html?: string } | undefined
+			const r = (await callbacks.getPanelHtml?.(agent, paw)) as { html?: string } | undefined
 			if (!r?.html) {
 				res.writeHead(404)
 				res.end('panel not found')
@@ -198,7 +201,7 @@ export function createDashboardServer(
 			return
 		}
 
-		// MCP endpoint: /mcp/<space> — exposes the space's tools to an MCP client (e.g. a
+		// MCP endpoint: /mcp/<agent> — exposes the agent's tools to an MCP client (e.g. a
 		// Claude Code brain). Token-gated; a non-browser MCP client sends no Origin, so the
 		// token is the gate. Tool execution reuses the same engine path as the panels.
 		if (req.url?.startsWith('/mcp/')) {
@@ -207,10 +210,10 @@ export function createDashboardServer(
 				res.end()
 				return
 			}
-			const space = decodeURIComponent(
+			const agent = decodeURIComponent(
 				new URL(req.url, 'http://localhost').pathname.split('/').filter(Boolean)[1] ?? '',
 			)
-			if (!space) {
+			if (!agent) {
 				res.writeHead(404)
 				res.end()
 				return
@@ -223,13 +226,15 @@ export function createDashboardServer(
 					const { handleMcpRequest } = await import('./mcp.js')
 					await handleMcpRequest(req, res, body, {
 						listTools: async () => {
-							const state = (await callbacks.fetchState(space)) as {
+							const state = (await callbacks.fetchState(agent)) as {
 								tools?: Array<{ name: string; description?: string; parameters?: unknown }>
 							}
 							return state?.tools ?? []
 						},
 						callTool: async (name, args) =>
-							(await callbacks.callPawTool?.(space, name, args)) ?? { error: 'tool execution unavailable' },
+							(await callbacks.callPawTool?.(agent, name, args)) ?? {
+								error: 'tool execution unavailable',
+							},
 					})
 				} catch (e) {
 					if (!res.headersSent) {
@@ -241,7 +246,7 @@ export function createDashboardServer(
 			return
 		}
 
-		// Embedded paw panels: /panel/<space>/<encodedPaw>/  and  .../tool/<name>
+		// Embedded paw panels: /panel/<agent>/<encodedPaw>/  and  .../tool/<name>
 		if (req.url?.startsWith('/panel/')) {
 			const isTool = req.url.includes('/tool/')
 			if (isTool) {
@@ -298,15 +303,15 @@ export function createDashboardServer(
 		try {
 			const sel = (): string | undefined => selected.get(ws)
 			switch (cmd.type) {
-				case 'list_spaces':
-					respond((await callbacks.listSpaces?.()) ?? [])
+				case 'list_agents':
+					respond((await callbacks.listAgents?.()) ?? [])
 					break
 				case 'list_available_paws':
 					respond((await callbacks.listAvailablePaws?.()) ?? [])
 					break
 				case 'install_paw': {
-					const p = cmd.params as { name: string; spaceId?: string }
-					respond(await callbacks.installPaw?.(p?.name, p?.spaceId ?? sel()))
+					const p = cmd.params as { name: string; agentId?: string }
+					respond(await callbacks.installPaw?.(p?.name, p?.agentId ?? sel()))
 					break
 				}
 				case 'submit': {
@@ -324,9 +329,15 @@ export function createDashboardServer(
 					break
 				case 'call_paw_tool': {
 					// Sandboxed panels proxy tool calls here over the authenticated WS, scoped to the
-					// space the parent passes — the panel itself never holds the token.
-					const p = cmd.params as { space?: string; name?: string; params?: Record<string, unknown> }
-					respond(await callbacks.callPawTool?.(p?.space ?? sel() ?? '', p?.name ?? '', p?.params ?? {}))
+					// agent the parent passes — the panel itself never holds the token.
+					const p = cmd.params as {
+						agent?: string
+						name?: string
+						params?: Record<string, unknown>
+					}
+					respond(
+						await callbacks.callPawTool?.(p?.agent ?? sel() ?? '', p?.name ?? '', p?.params ?? {}),
+					)
 					break
 				}
 				case 'chat_clear': {
@@ -352,30 +363,30 @@ export function createDashboardServer(
 					respond(await callbacks.volenetChatClear?.(p?.peerId, sel()))
 					break
 				}
-				case 'select_space': {
-					const p = cmd.params as { spaceId?: string }
-					selected.set(ws, p?.spaceId)
-					respond(await callbacks.fetchState(p?.spaceId))
+				case 'select_agent': {
+					const p = cmd.params as { agentId?: string }
+					selected.set(ws, p?.agentId)
+					respond(await callbacks.fetchState(p?.agentId))
 					break
 				}
-				case 'create_space': {
+				case 'create_agent': {
 					const p = cmd.params as { name: string }
-					respond(await callbacks.createSpace?.(p?.name))
+					respond(await callbacks.createAgent?.(p?.name))
 					break
 				}
-				case 'remove_space': {
-					const p = cmd.params as { spaceId: string }
-					respond(await callbacks.removeSpace?.(p?.spaceId))
+				case 'remove_agent': {
+					const p = cmd.params as { agentId: string }
+					respond(await callbacks.removeAgent?.(p?.agentId))
 					break
 				}
-				case 'start_space': {
-					const p = cmd.params as { spaceId: string }
-					respond(await callbacks.startSpace?.(p?.spaceId))
+				case 'start_agent': {
+					const p = cmd.params as { agentId: string }
+					respond(await callbacks.startAgent?.(p?.agentId))
 					break
 				}
-				case 'stop_space': {
-					const p = cmd.params as { spaceId: string }
-					respond(await callbacks.stopSpace?.(p?.spaceId))
+				case 'stop_agent': {
+					const p = cmd.params as { agentId: string }
+					respond(await callbacks.stopAgent?.(p?.agentId))
 					break
 				}
 				case 'fetch_state':
@@ -443,10 +454,10 @@ export function createDashboardServer(
 			}
 		})
 
-		// Send initial snapshot: spaces list (control plane) or state (single-engine paw)
+		// Send initial snapshot: agents list (control plane) or state (single-engine paw)
 		try {
-			if (callbacks.listSpaces) {
-				ws.send(JSON.stringify({ type: 'spaces', data: await callbacks.listSpaces() }))
+			if (callbacks.listAgents) {
+				ws.send(JSON.stringify({ type: 'agents', data: await callbacks.listAgents() }))
 			} else {
 				ws.send(JSON.stringify({ type: 'state', data: await callbacks.fetchState() }))
 			}
@@ -465,10 +476,10 @@ export function createDashboardServer(
 	})
 
 	return {
-		broadcast(type: string, data: unknown, event?: string, spaceId?: string) {
+		broadcast(type: string, data: unknown, event?: string, agentId?: string) {
 			const msg: Record<string, unknown> = { type, data }
 			if (event) msg.event = event
-			if (spaceId !== undefined) msg.spaceId = spaceId
+			if (agentId !== undefined) msg.agentId = agentId
 			const message = JSON.stringify(msg)
 			for (const client of clients) {
 				if (client.readyState === client.OPEN) {

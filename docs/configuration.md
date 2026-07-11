@@ -292,7 +292,7 @@ Controls the subprocess sandbox and isolation.
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `sandboxFilesystem` | `boolean` | `true` | Enable Node.js `--permission` sandbox for paw subprocesses. |
-| `allowedPaths` | `string[]` | `[]` | Extra absolute filesystem paths granted (read + write) to sandboxed paw subprocesses, beyond the space dir / `.openvole/`. |
+| `allowedPaths` | `string[]` | `[]` | Extra absolute filesystem paths granted (read + write) to sandboxed paw subprocesses, beyond the agent dir / `.openvole/`. |
 | `docker` | `object` | — | Docker container sandbox (optional, stronger isolation). |
 
 ```json
@@ -336,6 +336,8 @@ Runs paw subprocesses inside Docker containers for stronger isolation.
 ---
 
 ### `agents`
+
+**Named sub-agent profiles** for the `spawn_agent` tool — not to be confused with your server's agents (the isolated engines `vole serve` manages).
 
 Named agent profiles for sub-agent spawning via the `spawn_agent` core tool. Each profile defines a restricted execution context.
 
@@ -567,7 +569,7 @@ Each paw gets its own data directory at `.openvole/paws/<name>/`. The installed 
 
 ## Workspace
 
-Every space is scaffolded with a `.openvole/workspace/` directory — the agent's
+Every agent is scaffolded with a `.openvole/workspace/` directory — the agent's
 **writable scratch and project area**. It's the sanctioned place for anything the
 agent produces or fetches that isn't memory, config, or a paw's own data:
 

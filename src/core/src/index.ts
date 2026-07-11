@@ -25,8 +25,16 @@ export { VoleHubClient } from './skill/volehub.js'
 export type { VoleHubSkill, VoleHubIndex } from './skill/volehub.js'
 export { VoleNetManager } from './net/index.js'
 export type { VoleNetConfig } from './net/index.js'
-export { SpaceManager } from './space/manager.js'
-export type { SpaceEntry, SpaceRegistry, SpaceStatus, SpaceRunState } from './space/types.js'
+export { AgentManager } from './agent/manager.js'
+export type { AgentEntry, AgentRegistry, AgentStatus, AgentRunState } from './agent/types.js'
+// Deprecated pre-rename aliases ("space" era) — remove in a future major.
+export { AgentManager as SpaceManager } from './agent/manager.js'
+export type {
+	AgentEntry as SpaceEntry,
+	AgentRegistry as SpaceRegistry,
+	AgentStatus as SpaceStatus,
+	AgentRunState as SpaceRunState,
+} from './agent/types.js'
 export { buildSystemPrompt, loadSystemPromptContent } from './core/system-prompt.js'
 export type { SystemPromptContent } from './core/system-prompt.js'
 export { Vault } from './core/vault.js'

@@ -791,39 +791,39 @@ export function getDashboardHtml(wsPort: number): string {
   .vn-chat-head { font-size: 13px; font-weight: 600; color: var(--text); padding-bottom: 8px; border-bottom: 1px solid var(--border); margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
   .vn-empty { color: var(--text-dim); text-align: center; margin-top: 60px; font-size: 13px; }
 
-  /* ── Spaces launcher + view switching ── */
-  body[data-view="spaces"] .tab-bar,
-  body[data-view="spaces"] .main,
-  body[data-view="spaces"] #header-space,
-  body[data-view="spaces"] .header-right .stats,
-  body[data-view="spaces"] #btn-restart { display: none !important; }
-  body[data-view="dashboard"] #view-spaces { display: none !important; }
+  /* ── Agents launcher + view switching ── */
+  body[data-view="agents"] .tab-bar,
+  body[data-view="agents"] .main,
+  body[data-view="agents"] #header-agent,
+  body[data-view="agents"] .header-right .stats,
+  body[data-view="agents"] #btn-restart { display: none !important; }
+  body[data-view="dashboard"] #view-agents { display: none !important; }
 
-  .header-space { display: flex; align-items: center; gap: 10px; margin-right: 12px; }
+  .header-agent { display: flex; align-items: center; gap: 10px; margin-right: 12px; }
   .btn-back { background: transparent; border: 1px solid var(--border); color: var(--text-dim); padding: 5px 10px; border-radius: 6px; cursor: pointer; font-size: 12px; }
   .btn-back:hover { color: var(--text); border-color: var(--text-dim); }
-  .header-space-name { font-weight: 600; color: var(--text); font-size: 14px; }
+  .header-agent-name { font-weight: 600; color: var(--text); font-size: 14px; }
 
-  .view-spaces { flex: 1; overflow-y: auto; padding: 40px 24px; max-width: 1000px; width: 100%; margin: 0 auto; }
-  .spaces-hero { margin-bottom: 28px; }
-  .spaces-hero h1 { font-size: 26px; font-weight: 700; color: var(--text); margin-bottom: 8px; }
-  .spaces-hero p { color: var(--text-dim); font-size: 14px; max-width: 620px; margin-bottom: 16px; line-height: 1.5; }
-  .spaces-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px; }
-  .spaces-empty { color: var(--text-dim); padding: 40px; text-align: center; border: 1px dashed var(--border); border-radius: 10px; grid-column: 1 / -1; }
-  .space-card { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); padding: 16px; display: flex; flex-direction: column; gap: 10px; transition: border-color 0.15s, transform 0.15s; }
-  .space-card:hover { border-color: var(--accent); transform: translateY(-1px); }
-  .space-card-head { display: flex; align-items: center; justify-content: space-between; }
-  .space-card-name { font-weight: 600; font-size: 15px; color: var(--text); }
-  .space-orch-badge { font-size: 10px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.04em; color: var(--accent); border: 1px solid var(--accent); border-radius: 4px; padding: 1px 5px; margin-left: 6px; vertical-align: middle; }
-  .space-card-meta { color: var(--text-dim); font-size: 11px; font-family: ui-monospace, monospace; }
-  .space-card-actions { display: flex; gap: 8px; margin-top: 4px; }
-  .space-status { font-size: 10px; padding: 2px 8px; border-radius: 999px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
-  .space-status-running { background: rgba(0,200,100,0.15); color: var(--green); }
-  .space-status-stopped { background: var(--surface-hover); color: var(--text-dim); }
-  .space-btn { background: var(--surface-hover); border: 1px solid var(--border); color: var(--text); padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 12px; }
-  .space-btn:hover { border-color: var(--text-dim); }
-  .space-btn-danger:hover { color: var(--red); border-color: var(--red); }
-  /* ── Modal (create space + onboarding) ── */
+  .view-agents { flex: 1; overflow-y: auto; padding: 40px 24px; max-width: 1000px; width: 100%; margin: 0 auto; }
+  .agents-hero { margin-bottom: 28px; }
+  .agents-hero h1 { font-size: 26px; font-weight: 700; color: var(--text); margin-bottom: 8px; }
+  .agents-hero p { color: var(--text-dim); font-size: 14px; max-width: 620px; margin-bottom: 16px; line-height: 1.5; }
+  .agents-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px; }
+  .agents-empty { color: var(--text-dim); padding: 40px; text-align: center; border: 1px dashed var(--border); border-radius: 10px; grid-column: 1 / -1; }
+  .agent-card { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); padding: 16px; display: flex; flex-direction: column; gap: 10px; transition: border-color 0.15s, transform 0.15s; }
+  .agent-card:hover { border-color: var(--accent); transform: translateY(-1px); }
+  .agent-card-head { display: flex; align-items: center; justify-content: space-between; }
+  .agent-card-name { font-weight: 600; font-size: 15px; color: var(--text); }
+  .agent-orch-badge { font-size: 10px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.04em; color: var(--accent); border: 1px solid var(--accent); border-radius: 4px; padding: 1px 5px; margin-left: 6px; vertical-align: middle; }
+  .agent-card-meta { color: var(--text-dim); font-size: 11px; font-family: ui-monospace, monospace; }
+  .agent-card-actions { display: flex; gap: 8px; margin-top: 4px; }
+  .agent-status { font-size: 10px; padding: 2px 8px; border-radius: 999px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+  .agent-status-running { background: rgba(0,200,100,0.15); color: var(--green); }
+  .agent-status-stopped { background: var(--surface-hover); color: var(--text-dim); }
+  .agent-btn { background: var(--surface-hover); border: 1px solid var(--border); color: var(--text); padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 12px; }
+  .agent-btn:hover { border-color: var(--text-dim); }
+  .agent-btn-danger:hover { color: var(--red); border-color: var(--red); }
+  /* ── Modal (create agent + onboarding) ── */
   .modal-overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.55); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 16px; }
   .modal-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 24px; width: 460px; max-width: 100%; max-height: calc(100vh - 48px); overflow-y: auto; box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45); }
   .modal-title { font-size: 18px; font-weight: 600; margin: 0 0 4px; }
@@ -839,7 +839,7 @@ export function getDashboardHtml(wsPort: number): string {
   .onboard-desc { font-size: 12px; color: var(--text-dim); margin-top: 2px; line-height: 1.4; }
 </style>
 </head>
-<body data-view="spaces">
+<body data-view="agents">
 <header>
   <div class="logo-group">
     <a href="https://github.com/openvole/openvole" target="_blank" class="logo-link">
@@ -848,12 +848,12 @@ export function getDashboardHtml(wsPort: number): string {
     </a>
   </div>
   <div class="header-right">
-    <div class="header-space" id="header-space">
-      <button class="btn-back" onclick="showSpacesView()" title="Back to spaces">&#8592; Spaces</button>
-      <span class="header-space-name" id="header-space-name"></span>
-      <span class="space-status" id="header-space-status"></span>
-      <button class="btn-restart" id="btn-space-start" title="Start space" onclick="spaceAction('start_space')">Start</button>
-      <button class="btn-restart" id="btn-space-stop" title="Stop space" onclick="spaceAction('stop_space')">Stop</button>
+    <div class="header-agent" id="header-agent">
+      <button class="btn-back" onclick="showAgentsView()" title="Back to agents">&#8592; Agents</button>
+      <span class="header-agent-name" id="header-agent-name"></span>
+      <span class="agent-status" id="header-agent-status"></span>
+      <button class="btn-restart" id="btn-agent-start" title="Start agent" onclick="agentAction('start_agent')">Start</button>
+      <button class="btn-restart" id="btn-agent-stop" title="Stop agent" onclick="agentAction('stop_agent')">Stop</button>
     </div>
     <div class="stats">
       <span><span class="stat-val" id="stat-paws">0</span> paws</span>
@@ -873,13 +873,13 @@ export function getDashboardHtml(wsPort: number): string {
   </div>
 </header>
 
-<div id="view-spaces" class="view-spaces">
-  <div class="spaces-hero">
-    <h1>Your Spaces</h1>
-    <p>Each space is an isolated agent — its own brain, paws, memory, and identity. Open one to manage it, or create a new one.</p>
-    <button class="btn-primary" onclick="createSpacePrompt()">+ New space</button>
+<div id="view-agents" class="view-agents">
+  <div class="agents-hero">
+    <h1>Your Agents</h1>
+    <p>Each agent is fully isolated — its own brain, paws, memory, and identity. Open one to manage it, or create a new one.</p>
+    <button class="btn-primary" onclick="createAgentPrompt()">+ New agent</button>
   </div>
-  <div class="spaces-grid" id="spaces-grid"></div>
+  <div class="agents-grid" id="agents-grid"></div>
 </div>
 
 <div class="tab-bar">
@@ -1229,7 +1229,7 @@ export function getDashboardHtml(wsPort: number): string {
         </div>
         <div class="config-section-body">
           <div class="form-field">
-            <div class="form-help">Restrict which tools each task source may use. Allow = only these tools (empty = all); Deny = always blocked. Exact tool names — no wildcards. Suggestions come from the tools loaded in this space.</div>
+            <div class="form-help">Restrict which tools each task source may use. Allow = only these tools (empty = all); Deny = always blocked. Exact tool names — no wildcards. Suggestions come from the tools loaded in this agent.</div>
             <div id="tp-blocks"></div>
             <button class="btn-restart" type="button" onclick="addTpBlock('', {})" style="margin-top:6px">+ Add source profile</button>
             <datalist id="tool-name-options"></datalist>
@@ -1239,12 +1239,12 @@ export function getDashboardHtml(wsPort: number): string {
 
       <div class="config-section">
         <div class="config-section-header" onclick="toggleSection(this)">
-          <h3>Agents <a class="docs-link" href="https://openvole.github.io/openvole/configuration#agents" target="_blank" onclick="event.stopPropagation()">docs</a></h3>
+          <h3>Sub-agents <a class="docs-link" href="https://openvole.github.io/openvole/configuration#agents" target="_blank" onclick="event.stopPropagation()">docs</a></h3>
           <span class="config-section-arrow">&#9660;</span>
         </div>
         <div class="config-section-body">
           <div class="form-field">
-            <div class="form-help">Named agent profiles for sub-agent spawning. Each has a role, instructions, allow/deny tools, and a max-iterations cap. Tool suggestions come from the tools loaded in this space.</div>
+            <div class="form-help">Named agent profiles for sub-agent spawning. Each has a role, instructions, allow/deny tools, and a max-iterations cap. Tool suggestions come from the tools loaded in this agent.</div>
             <div id="ag-blocks"></div>
             <button class="btn-restart" type="button" onclick="addAgBlock('', {})" style="margin-top:6px">+ Add agent</button>
           </div>
@@ -1478,66 +1478,66 @@ function sendCommand(type, params, timeoutMs) {
   });
 }
 
-/* ── Spaces (control-plane mode) ── */
-var currentSpaceId = null;
-var lastSpaces = [];
+/* ── Agents (control-plane mode) ── */
+var currentAgentId = null;
+var lastAgents = [];
 var lastStatePaws = [];
 var lastStateTools = [];
 
-/* ── View switching: spaces launcher  <->  selected-space dashboard ── */
-function showSpacesView() {
-  currentSpaceId = null;
-  document.body.dataset.view = 'spaces';
-  sendCommand('list_spaces').then(renderSpaces).catch(function() {});
+/* ── View switching: agents launcher  <->  selected-agent dashboard ── */
+function showAgentsView() {
+  currentAgentId = null;
+  document.body.dataset.view = 'agents';
+  sendCommand('list_agents').then(renderAgents).catch(function() {});
 }
 function showDashboardView() {
   document.body.dataset.view = 'dashboard';
 }
-function openSpace(id) {
+function openAgent(id) {
   showDashboardView();
-  selectSpace(id);
+  selectAgent(id);
   switchTab('overview');
 }
 
-/* ── Spaces launcher (cards) ── */
-function renderSpaces(spaces) {
-  lastSpaces = spaces || [];
-  var grid = document.getElementById('spaces-grid');
+/* ── Agents launcher (cards) ── */
+function renderAgents(agents) {
+  lastAgents = agents || [];
+  var grid = document.getElementById('agents-grid');
   if (grid) {
-    if (lastSpaces.length === 0) {
-      grid.innerHTML = '<div class="spaces-empty">No spaces yet. Click <b>+ New space</b> to create your first agent.</div>';
+    if (lastAgents.length === 0) {
+      grid.innerHTML = '<div class="agents-empty">No agents yet. Click <b>+ New agent</b> to create your first agent.</div>';
     } else {
-      grid.innerHTML = lastSpaces.map(spaceCardHtml).join('');
-      wireSpaceCards();
+      grid.innerHTML = lastAgents.map(agentCardHtml).join('');
+      wireAgentCards();
     }
   }
-  if (currentSpaceId) updateSpaceHeader();
+  if (currentAgentId) updateAgentHeader();
 }
-function spaceCardHtml(s) {
+function agentCardHtml(s) {
   var running = s.state === 'running';
-  return '<div class="space-card">'
-    + '<div class="space-card-head">'
-    + '<span class="space-card-name">' + esc(s.name) + (s.orchestrator ? ' <span class="space-orch-badge">orchestrator</span>' : '') + '</span>'
-    + '<span class="space-status space-status-' + (running ? 'running' : 'stopped') + '">' + (running ? 'running' : 'stopped') + '</span>'
+  return '<div class="agent-card">'
+    + '<div class="agent-card-head">'
+    + '<span class="agent-card-name">' + esc(s.name) + (s.orchestrator ? ' <span class="agent-orch-badge">orchestrator</span>' : '') + '</span>'
+    + '<span class="agent-status agent-status-' + (running ? 'running' : 'stopped') + '">' + (running ? 'running' : 'stopped') + '</span>'
     + '</div>'
-    + '<div class="space-card-meta">' + esc(s.id) + (s.pid ? ' &middot; pid ' + s.pid : '') + '</div>'
-    + '<div class="space-card-actions">'
+    + '<div class="agent-card-meta">' + esc(s.id) + (s.pid ? ' &middot; pid ' + s.pid : '') + '</div>'
+    + '<div class="agent-card-actions">'
     + '<button class="btn-primary" data-act="open" data-id="' + esc(s.id) + '">Open</button>'
-    + '<button class="space-btn" data-act="' + (running ? 'stop_space' : 'start_space') + '" data-id="' + esc(s.id) + '">' + (running ? 'Stop' : 'Start') + '</button>'
-    + '<button class="space-btn space-btn-danger" data-act="remove" data-id="' + esc(s.id) + '">Remove</button>'
+    + '<button class="agent-btn" data-act="' + (running ? 'stop_agent' : 'start_agent') + '" data-id="' + esc(s.id) + '">' + (running ? 'Stop' : 'Start') + '</button>'
+    + '<button class="agent-btn agent-btn-danger" data-act="remove" data-id="' + esc(s.id) + '">Remove</button>'
     + '</div></div>';
 }
-function wireSpaceCards() {
-  var btns = document.querySelectorAll('#spaces-grid button[data-act]');
+function wireAgentCards() {
+  var btns = document.querySelectorAll('#agents-grid button[data-act]');
   for (var i = 0; i < btns.length; i++) {
     btns[i].addEventListener('click', function() {
       var act = this.getAttribute('data-act');
       var id = this.getAttribute('data-id');
-      if (act === 'open') { openSpace(id); return; }
-      if (act === 'remove') { removeSpaceById(id); return; }
-      sendCommand(act, { spaceId: id })
-        .then(function() { return sendCommand('list_spaces'); })
-        .then(renderSpaces)
+      if (act === 'open') { openAgent(id); return; }
+      if (act === 'remove') { removeAgentById(id); return; }
+      sendCommand(act, { agentId: id })
+        .then(function() { return sendCommand('list_agents'); })
+        .then(renderAgents)
         .catch(function(e) { showToast(e.message, 'error'); });
     });
   }
@@ -1559,42 +1559,42 @@ document.addEventListener('keydown', function(e) {
   var ov = document.getElementById('modal-overlay');
   if (ov && ov.style.display !== 'none') closeModal();
 });
-function createSpacePrompt() {
+function createAgentPrompt() {
   openModal(
-    '<h2 class="modal-title">New space</h2>'
-    + '<p class="modal-sub">A space is an isolated agent with its own config, paws, identity, and data.</p>'
-    + '<label class="form-label" for="new-space-name">Name</label>'
-    + '<input id="new-space-name" class="modal-input" type="text" placeholder="e.g. Research, Trading, Personal" autocomplete="off" spellcheck="false">'
-    + '<div id="new-space-err" style="color:var(--red);font-size:12px;margin-top:8px;display:none"></div>'
+    '<h2 class="modal-title">New agent</h2>'
+    + '<p class="modal-sub">An isolated agent with its own config, paws, identity, and data.</p>'
+    + '<label class="form-label" for="new-agent-name">Name</label>'
+    + '<input id="new-agent-name" class="modal-input" type="text" placeholder="e.g. Research, Trading, Personal" autocomplete="off" spellcheck="false">'
+    + '<div id="new-agent-err" style="color:var(--red);font-size:12px;margin-top:8px;display:none"></div>'
     + '<div class="modal-actions">'
     +   '<button class="btn-restart" type="button" onclick="closeModal()">Cancel</button>'
-    +   '<button class="btn-primary" type="button" id="new-space-submit" onclick="submitNewSpace()">Create space</button>'
+    +   '<button class="btn-primary" type="button" id="new-agent-submit" onclick="submitNewAgent()">Create agent</button>'
     + '</div>'
   );
-  var input = document.getElementById('new-space-name');
+  var input = document.getElementById('new-agent-name');
   if (input) {
     input.focus();
-    input.addEventListener('keydown', function(e) { if (e.key === 'Enter') { e.preventDefault(); submitNewSpace(); } });
+    input.addEventListener('keydown', function(e) { if (e.key === 'Enter') { e.preventDefault(); submitNewAgent(); } });
   }
 }
-function submitNewSpace() {
-  var input = document.getElementById('new-space-name');
-  var err = document.getElementById('new-space-err');
+function submitNewAgent() {
+  var input = document.getElementById('new-agent-name');
+  var err = document.getElementById('new-agent-err');
   var name = ((input && input.value) || '').trim();
   if (!name) { if (err) { err.textContent = 'Please enter a name.'; err.style.display = 'block'; } if (input) input.focus(); return; }
-  var btn = document.getElementById('new-space-submit');
+  var btn = document.getElementById('new-agent-submit');
   if (btn) { btn.disabled = true; btn.textContent = 'Creating…'; }
-  sendCommand('create_space', { name: name })
+  sendCommand('create_agent', { name: name })
     .then(function(res) {
-      return sendCommand('list_spaces').then(function(spaces) {
-        renderSpaces(spaces);
-        showToast('Created space "' + name + '"', 'success');
+      return sendCommand('list_agents').then(function(agents) {
+        renderAgents(agents);
+        showToast('Created agent "' + name + '"', 'success');
         showOnboarding((res && res.id) || null, name);
       });
     })
     .catch(function(e) {
       if (err) { err.textContent = e.message; err.style.display = 'block'; }
-      if (btn) { btn.disabled = false; btn.textContent = 'Create space'; }
+      if (btn) { btn.disabled = false; btn.textContent = 'Create agent'; }
     });
 }
 var ESSENTIAL_PAWS = [
@@ -1605,9 +1605,9 @@ var ESSENTIAL_PAWS = [
   { name: '@openvole/paw-shell', label: 'Shell', desc: 'Run shell commands with safety restrictions.' }
 ];
 var onboardCtx = { id: null, name: '' };
-function showOnboarding(spaceId, name) {
-  if (!spaceId) { closeModal(); return; }
-  onboardCtx = { id: spaceId, name: name };
+function showOnboarding(agentId, name) {
+  if (!agentId) { closeModal(); return; }
+  onboardCtx = { id: agentId, name: name };
   var items = ESSENTIAL_PAWS.map(function(p) {
     return '<label class="onboard-item">'
       + '<input type="checkbox" data-paw="' + esc(p.name) + '" checked>'
@@ -1617,7 +1617,7 @@ function showOnboarding(spaceId, name) {
   }).join('');
   openModal(
     '<h2 class="modal-title">Set up &ldquo;' + esc(name) + '&rdquo;</h2>'
-    + '<p class="modal-sub">Install the essential paws to get a working agent. You can change these any time from the space Config tab. Paws load after the space is started.</p>'
+    + '<p class="modal-sub">Install the essential paws to get a working agent. You can change these any time from the agent Config tab. Paws load after the agent is started.</p>'
     + items
     + '<div id="onboard-status" style="font-size:12px;color:var(--text-dim);margin-top:14px;display:none"></div>'
     + '<div class="modal-actions">'
@@ -1627,8 +1627,8 @@ function showOnboarding(spaceId, name) {
   );
 }
 function installEssentials() {
-  var spaceId = onboardCtx.id;
-  if (!spaceId) { closeModal(); return; }
+  var agentId = onboardCtx.id;
+  if (!agentId) { closeModal(); return; }
   var checks = document.querySelectorAll('#modal-card input[data-paw]:checked');
   var names = [];
   for (var i = 0; i < checks.length; i++) names.push(checks[i].getAttribute('data-paw'));
@@ -1644,37 +1644,37 @@ function installEssentials() {
     if (i >= names.length) {
       if (status) status.textContent = 'Installed ' + done + '/' + names.length + (failed.length ? ' · failed: ' + failed.join(', ') : '');
       if (skip) skip.style.display = 'none';
-      if (btn) { btn.disabled = false; btn.textContent = 'Done'; btn.onclick = function() { closeModal(); sendCommand('list_spaces').then(renderSpaces); }; }
+      if (btn) { btn.disabled = false; btn.textContent = 'Done'; btn.onclick = function() { closeModal(); sendCommand('list_agents').then(renderAgents); }; }
       showToast('Set up "' + onboardCtx.name + '": installed ' + done + ' paw' + (done === 1 ? '' : 's') + (failed.length ? ', ' + failed.length + ' failed' : ''), failed.length ? 'error' : 'success');
       return;
     }
     var n = names[i];
     if (status) status.textContent = 'Installing ' + n + '… (' + (i + 1) + '/' + names.length + ')';
-    sendCommand('install_paw', { name: n, spaceId: spaceId }, 180000)
+    sendCommand('install_paw', { name: n, agentId: agentId }, 180000)
       .then(function() { done++; }, function() { failed.push(n); })
       .then(function() { step(i + 1); });
   }
   step(0);
 }
-function removeSpaceById(id) {
+function removeAgentById(id) {
   openModal(
-    '<h2 class="modal-title">Delete space</h2>'
+    '<h2 class="modal-title">Delete agent</h2>'
     + '<p class="modal-sub">This permanently deletes <b>' + esc(id) + '</b> and all of its files on disk — config, identity, installed paws, and data. This cannot be undone.</p>'
     + '<div class="modal-actions">'
     +   '<button class="btn-restart" type="button" onclick="closeModal()">Cancel</button>'
-    +   '<button class="btn-primary" type="button" id="confirm-delete" style="background:var(--red);border-color:var(--red)" onclick="confirmRemoveSpace(\\'' + esc(id) + '\\')">Delete permanently</button>'
+    +   '<button class="btn-primary" type="button" id="confirm-delete" style="background:var(--red);border-color:var(--red)" onclick="confirmRemoveAgent(\\'' + esc(id) + '\\')">Delete permanently</button>'
     + '</div>'
   );
 }
-function confirmRemoveSpace(id) {
+function confirmRemoveAgent(id) {
   var btn = document.getElementById('confirm-delete');
   if (btn) { btn.disabled = true; btn.textContent = 'Deleting…'; }
-  sendCommand('remove_space', { spaceId: id })
+  sendCommand('remove_agent', { agentId: id })
     .then(function() {
       closeModal();
-      showToast('Deleted space "' + id + '"', 'success');
-      if (currentSpaceId === id) { showSpacesView(); }
-      else { sendCommand('list_spaces').then(renderSpaces).catch(function() {}); }
+      showToast('Deleted agent "' + id + '"', 'success');
+      if (currentAgentId === id) { showAgentsView(); }
+      else { sendCommand('list_agents').then(renderAgents).catch(function() {}); }
     })
     .catch(function(e) {
       showToast(e.message, 'error');
@@ -1682,51 +1682,51 @@ function confirmRemoveSpace(id) {
     });
 }
 
-/* ── Selected-space header + dashboard ── */
-function updateSpaceHeader() {
-  var s = lastSpaces.filter(function(x) { return x.id === currentSpaceId; })[0];
+/* ── Selected-agent header + dashboard ── */
+function updateAgentHeader() {
+  var s = lastAgents.filter(function(x) { return x.id === currentAgentId; })[0];
   var running = s && s.state === 'running';
-  var nameEl = document.getElementById('header-space-name');
-  var stEl = document.getElementById('header-space-status');
-  if (nameEl) nameEl.textContent = s ? s.name : (currentSpaceId || '');
+  var nameEl = document.getElementById('header-agent-name');
+  var stEl = document.getElementById('header-agent-status');
+  if (nameEl) nameEl.textContent = s ? s.name : (currentAgentId || '');
   if (stEl) {
     stEl.textContent = running ? 'running' : 'stopped';
-    stEl.className = 'space-status space-status-' + (running ? 'running' : 'stopped');
+    stEl.className = 'agent-status agent-status-' + (running ? 'running' : 'stopped');
   }
-  document.getElementById('btn-space-start').style.display = (s && !running) ? '' : 'none';
-  document.getElementById('btn-space-stop').style.display = (s && running) ? '' : 'none';
+  document.getElementById('btn-agent-start').style.display = (s && !running) ? '' : 'none';
+  document.getElementById('btn-agent-stop').style.display = (s && running) ? '' : 'none';
 }
-function selectSpace(id) {
-  if (!id) { currentSpaceId = null; clearPanels(); return; }
-  var changed = currentSpaceId !== id;
-  currentSpaceId = id;
+function selectAgent(id) {
+  if (!id) { currentAgentId = null; clearPanels(); return; }
+  var changed = currentAgentId !== id;
+  currentAgentId = id;
   if (changed) resetChat();
   if (changed) resetVolenet();
-  updateSpaceHeader();
-  sendCommand('select_space', { spaceId: id })
+  updateAgentHeader();
+  sendCommand('select_agent', { agentId: id })
     .then(function(state) { renderState(state || {}); })
     .catch(function() { clearPanels(); });
 }
 function clearPanels() {
   renderState({ paws: [], tools: [], skills: [], tasks: [], schedules: [], volenet: { enabled: false } });
 }
-function spaceAction(cmd) {
-  if (!currentSpaceId) return;
-  var id = currentSpaceId;
-  sendCommand(cmd, { spaceId: id })
-    .then(function() { return sendCommand('list_spaces'); })
-    .then(function(spaces) {
-      renderSpaces(spaces);
-      if (cmd === 'start_space') selectSpace(id);
+function agentAction(cmd) {
+  if (!currentAgentId) return;
+  var id = currentAgentId;
+  sendCommand(cmd, { agentId: id })
+    .then(function() { return sendCommand('list_agents'); })
+    .then(function(agents) {
+      renderAgents(agents);
+      if (cmd === 'start_agent') selectAgent(id);
       else clearPanels();
     })
     .catch(function(e) { showToast(e.message, 'error'); });
 }
 
-/* ── Chat (per-space brain conversation via paw-session sessions) ── */
+/* ── Chat (per-agent brain conversation via paw-session sessions) ── */
 var chatSessionId = 'dashboard';
 var chatLoadedKey = null;
-var pendingChats = {}; // taskId -> { el, spaceId, timer }
+var pendingChats = {}; // taskId -> { el, agentId, timer }
 // Friendly, rotating placeholders shown while the brain works — nicer than a bare "queued".
 var CHAT_WAIT_PHRASES = [
   'thinking…', 'let me think on that…', 'pondering…', 'working on it…',
@@ -1758,8 +1758,8 @@ function resetChat() {
   if (currentTab === 'chat') initChatTab();
 }
 function initChatTab() {
-  if (!currentSpaceId) return;
-  var key = currentSpaceId + ':' + chatSessionId;
+  if (!currentAgentId) return;
+  var key = currentAgentId + ':' + chatSessionId;
   if (chatLoadedKey === key) return;
   loadChatSessions();
   loadChatHistory();
@@ -1800,7 +1800,7 @@ function newChatSession() {
   var id = 'dashboard:' + pad(d.getMonth() + 1) + pad(d.getDate()) + '-' + pad(d.getHours()) + pad(d.getMinutes()) + pad(d.getSeconds());
   localChatSessions.push(id);
   chatSessionId = id;
-  chatLoadedKey = currentSpaceId + ':' + id;
+  chatLoadedKey = currentAgentId + ':' + id;
   document.getElementById('chat-messages').innerHTML = '<div class="chat-empty">New session — say hi to the brain.</div>';
   document.getElementById('chat-note').textContent = '';
   loadChatSessions();
@@ -1826,7 +1826,7 @@ function onChatSessionChange() {
 function loadChatHistory() {
   var box = document.getElementById('chat-messages');
   box.innerHTML = '<div class="chat-empty">Loading&hellip;</div>';
-  var key = currentSpaceId + ':' + chatSessionId;
+  var key = currentAgentId + ':' + chatSessionId;
   sendCommand('chat_history', { sessionId: chatSessionId }).then(function(res) {
     chatLoadedKey = key;
     box.innerHTML = '';
@@ -1918,14 +1918,14 @@ function addChatBubble(kind, text, extraClass) {
 function sendChat() {
   var input = document.getElementById('chat-input');
   var text = input.value.trim();
-  if (!text || !currentSpaceId) return;
+  if (!text || !currentAgentId) return;
   input.value = '';
   addChatBubble('user', text);
   var pendingEl = addChatBubble('brain', '', 'chat-msg-pending');
   var waitTimer = startChatWait(pendingEl);
   sendCommand('submit', { input: text, sessionId: chatSessionId }).then(function(res) {
     if (res && res.taskId) {
-      pendingChats[res.taskId] = { el: pendingEl, spaceId: currentSpaceId, timer: waitTimer };
+      pendingChats[res.taskId] = { el: pendingEl, agentId: currentAgentId, timer: waitTimer };
     } else {
       clearInterval(waitTimer);
       pendingEl.classList.remove('chat-msg-pending');
@@ -1937,10 +1937,10 @@ function sendChat() {
     pendingEl.textContent = 'Failed to submit: ' + e.message;
   });
 }
-function chatOnTaskEvent(event, data, spaceId) {
+function chatOnTaskEvent(event, data, agentId) {
   var p = data && data.taskId ? pendingChats[data.taskId] : null;
   if (!p) return;
-  if (spaceId !== undefined && p.spaceId !== spaceId) return;
+  if (agentId !== undefined && p.agentId !== agentId) return;
   if (event === 'task:started') {
     // Let the rotating placeholder keep going — it already reads as "working".
     return;
@@ -1980,7 +1980,7 @@ function resetVolenet() {
 }
 
 function refreshVnPeers() {
-  if (!currentSpaceId) { renderVnPeerList(); return; }
+  if (!currentAgentId) { renderVnPeerList(); return; }
   sendCommand('volenet_instances').then(function(list) {
     if (Array.isArray(list)) {
       vnPeers = list.map(function(i) { return { id: i.id, name: i.name, role: i.role, lastSeen: i.lastSeen }; });
@@ -1995,7 +1995,7 @@ function initVolenetTab() {
   // the list live (dead peers drop, new peers appear, online dots stay fresh).
   if (!vnPollTimer) {
     vnPollTimer = setInterval(function() {
-      if (currentTab === 'volenet' && currentSpaceId) refreshVnPeers();
+      if (currentTab === 'volenet' && currentAgentId) refreshVnPeers();
     }, 5000);
   }
 }
@@ -2076,9 +2076,9 @@ function sendVolenetChat() {
   });
 }
 
-function volenetOnMessage(data, spaceId) {
+function volenetOnMessage(data, agentId) {
   if (!data) return;
-  if (spaceId !== undefined && currentSpaceId && spaceId !== currentSpaceId) return;
+  if (agentId !== undefined && currentAgentId && agentId !== currentAgentId) return;
   if (data.from === vnSelectedPeer && currentTab === 'volenet') {
     addVnBubble('in', data.text);
   } else {
@@ -2176,7 +2176,7 @@ function renderAppsNav(paws) {
       empty.style.display = 'flex';
       empty.innerHTML = '<div class="apps-empty-inner">'
         + '<div class="apps-empty-title">No paw apps here yet</div>'
-        + '<div class="apps-empty-text">Apps appear here when a running paw provides a dashboard panel. Install one that ships a panel — like <code>@openvole/paw-markets</code> — from the Config tab, then start the space.</div>'
+        + '<div class="apps-empty-text">Apps appear here when a running paw provides a dashboard panel. Install one that ships a panel — like <code>@openvole/paw-markets</code> — from the Config tab, then start the agent.</div>'
         + '</div>';
     }
     return;
@@ -2205,10 +2205,10 @@ function selectApp(paw) {
 }
 function showAppFrame() {
   var frame = document.getElementById('panel-frame');
-  if (!frame || !currentSpaceId || !currentApp) return;
+  if (!frame || !currentAgentId || !currentApp) return;
   // The panel runs sandboxed (null origin) so paw-authored HTML can't read the dashboard token
   // or reach the parent. Its tool calls are proxied here over the authenticated WebSocket, scoped
-  // to the panel's own space — the panel never sees the token and can't touch other spaces.
+  // to the panel's own agent — the panel never sees the token and can't touch other agents.
   if (!window.__voleToolRelay) {
     window.__voleToolRelay = true;
     window.addEventListener('message', function(e) {
@@ -2216,7 +2216,7 @@ function showAppFrame() {
       if (!f || e.source !== f.contentWindow) return;
       var d = e.data;
       if (!d || !d.__voleTool) return;
-      sendCommand('call_paw_tool', { space: currentSpaceId, name: d.name, params: d.params })
+      sendCommand('call_paw_tool', { agent: currentAgentId, name: d.name, params: d.params })
         .then(function(result) {
           f.contentWindow.postMessage({ __voleToolResult: true, reqId: d.reqId, result: result }, '*');
         })
@@ -2227,10 +2227,10 @@ function showAppFrame() {
   }
   // The dashboard (which holds the token) fetches the panel HTML and injects it via srcdoc, so the
   // authorized request is made by the parent — the sandboxed iframe carries no token, yet still loads.
-  var key = currentSpaceId + '::' + currentApp;
+  var key = currentAgentId + '::' + currentApp;
   if (frame.__loadedApp === key) return;
   frame.__loadedApp = key;
-  fetch('/panel/' + encodeURIComponent(currentSpaceId) + '/' + encodeURIComponent(currentApp) + '/' + location.search)
+  fetch('/panel/' + encodeURIComponent(currentAgentId) + '/' + encodeURIComponent(currentApp) + '/' + location.search)
     .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
     .then(function(html) { if (frame.__loadedApp === key) frame.srcdoc = html; })
     .catch(function(err) {
@@ -2304,16 +2304,16 @@ function renderPawCatalog(paws) {
   }).join('');
   var btns = cat.querySelectorAll('button[data-paw]');
   for (var i = 0; i < btns.length; i++) {
-    btns[i].addEventListener('click', function() { installPawIntoSpace(this.getAttribute('data-paw'), this); });
+    btns[i].addEventListener('click', function() { installPawIntoAgent(this.getAttribute('data-paw'), this); });
   }
 }
-function installPawIntoSpace(name, btn) {
-  if (!currentSpaceId) { showToast('Select a running space first', 'error'); return; }
+function installPawIntoAgent(name, btn) {
+  if (!currentAgentId) { showToast('Select a running agent first', 'error'); return; }
   if (btn) { btn.disabled = true; btn.textContent = 'Installing…'; }
   showToast('Installing ' + name + '… (npm install can take a moment)', 'success');
   sendCommand('install_paw', { name: name }, 180000).then(function(info) {
     var v = info && info.version ? '@' + info.version : '';
-    showToast('Installed ' + name + v + ' — Restart the space to load it', 'success');
+    showToast('Installed ' + name + v + ' — Restart the agent to load it', 'success');
     if (btn) { btn.textContent = 'Added'; btn.disabled = true; }
     loadConfig(); // reload Config tab so the new { name, allow } shows
   }).catch(function(e) {
@@ -2435,7 +2435,7 @@ function addTphRow(source, limit) {
   row.style.cssText = 'display:flex;gap:8px;margin-top:6px;align-items:center';
   row.innerHTML = '<input type="text" class="form-input" style="flex:1" placeholder="source (e.g. cli)" list="rl-source-options" value="' + esc(String(source || '')) + '">'
     + '<input type="number" class="form-input" style="width:110px" placeholder="limit" min="1" value="' + esc(limit != null && limit !== '' ? String(limit) : '') + '">'
-    + '<button class="space-btn space-btn-danger" type="button" title="Remove">&times;</button>';
+    + '<button class="agent-btn agent-btn-danger" type="button" title="Remove">&times;</button>';
   row.querySelector('button').addEventListener('click', function() { row.remove(); });
   document.getElementById('rl-tph-rows').appendChild(row);
 }
@@ -2469,7 +2469,7 @@ function addPathRow(container, value) {
   row.className = 'path-row';
   row.style.cssText = 'display:flex;gap:8px;margin-top:6px;align-items:center';
   row.innerHTML = '<input type="text" class="form-input" style="flex:1" placeholder="./data or /abs/path" value="' + esc(String(value || '')) + '">'
-    + '<button class="space-btn space-btn-danger" type="button" title="Remove">&times;</button>';
+    + '<button class="agent-btn agent-btn-danger" type="button" title="Remove">&times;</button>';
   row.querySelector('button').addEventListener('click', function() { row.remove(); });
   container.appendChild(row);
 }
@@ -2547,7 +2547,7 @@ function pawInputRow(container, value, placeholder, listId) {
   if (listId) input.setAttribute('list', listId);
   input.addEventListener('input', syncPawsFormToRaw);
   var del = document.createElement('button');
-  del.type = 'button'; del.className = 'space-btn space-btn-danger'; del.title = 'Remove'; del.innerHTML = '&times;';
+  del.type = 'button'; del.className = 'agent-btn agent-btn-danger'; del.title = 'Remove'; del.innerHTML = '&times;';
   del.addEventListener('click', function() { row.remove(); syncPawsFormToRaw(); });
   row.appendChild(input); row.appendChild(del);
   container.appendChild(row);
@@ -2593,7 +2593,7 @@ function buildPawCard(m) {
   title.innerHTML = '<span class="paw-card-arrow">&#9656;</span>' + dot + '<span class="paw-name">' + esc(m.name) + '</span>' + badge + '<span class="paw-card-summary"></span>';
   head.appendChild(title);
   var rm = document.createElement('button');
-  rm.type = 'button'; rm.className = 'space-btn space-btn-danger'; rm.textContent = 'Remove';
+  rm.type = 'button'; rm.className = 'agent-btn agent-btn-danger'; rm.textContent = 'Remove';
   rm.addEventListener('click', function(e) { e.stopPropagation(); card.remove(); syncPawsFormToRaw(); });
   head.appendChild(rm);
   head.addEventListener('click', function() { card.classList.toggle('collapsed'); });
@@ -2608,7 +2608,7 @@ function buildPawCard(m) {
   }
   if (!st) {
     var note = document.createElement('div'); note.className = 'form-help paw-note';
-    note.textContent = 'Manifest not loaded — start the space to see the exact permissions this paw requests. Editing free-form.';
+    note.textContent = 'Manifest not loaded — start the agent to see the exact permissions this paw requests. Editing free-form.';
     body.appendChild(note);
   }
 
@@ -2855,7 +2855,7 @@ function addTpBlock(source, profile) {
   var head = document.createElement('div');
   head.style.cssText = 'display:flex;gap:8px;align-items:center';
   head.innerHTML = '<input type="text" class="form-input tp-source" style="flex:1" placeholder="source (e.g. cli)" list="rl-source-options" value="' + esc(String(source || '')) + '">'
-    + '<button class="space-btn space-btn-danger" type="button" title="Remove profile">&times;</button>';
+    + '<button class="agent-btn agent-btn-danger" type="button" title="Remove profile">&times;</button>';
   head.querySelector('button').addEventListener('click', function() { block.remove(); });
   var cols = document.createElement('div');
   cols.style.cssText = 'display:flex;gap:12px;margin-top:8px';
@@ -2890,7 +2890,7 @@ function addToolRow(container, value) {
   row.className = 'tool-row';
   row.style.cssText = 'display:flex;gap:8px;margin-top:6px;align-items:center';
   row.innerHTML = '<input type="text" class="form-input" style="flex:1" placeholder="tool name" list="tool-name-options" value="' + esc(String(value || '')) + '">'
-    + '<button class="space-btn space-btn-danger" type="button" title="Remove">&times;</button>';
+    + '<button class="agent-btn agent-btn-danger" type="button" title="Remove">&times;</button>';
   row.querySelector('button').addEventListener('click', function() { row.remove(); });
   container.appendChild(row);
 }
@@ -2931,7 +2931,7 @@ function addAgBlock(name, profile) {
   var head = document.createElement('div');
   head.style.cssText = 'display:flex;gap:8px;align-items:center';
   head.innerHTML = '<input type="text" class="form-input ag-name" style="flex:1" placeholder="agent name (e.g. researcher)" value="' + esc(String(name || '')) + '">'
-    + '<button class="space-btn space-btn-danger" type="button" title="Remove agent">&times;</button>';
+    + '<button class="agent-btn agent-btn-danger" type="button" title="Remove agent">&times;</button>';
   head.querySelector('button').addEventListener('click', function() { block.remove(); });
   block.appendChild(head);
 
@@ -3038,7 +3038,7 @@ function addNetPeer(peer) {
   var head = document.createElement('div');
   head.style.cssText = 'display:flex;gap:8px;align-items:center';
   head.innerHTML = '<input type="text" class="form-input np-url" style="flex:1" placeholder="wss://host:port" value="' + esc(String(peer.url || '')) + '">'
-    + '<button class="space-btn space-btn-danger" type="button" title="Remove peer">&times;</button>';
+    + '<button class="agent-btn agent-btn-danger" type="button" title="Remove peer">&times;</button>';
   head.querySelector('button').addEventListener('click', function() { block.remove(); });
   block.appendChild(head);
   var trust = peer.trust || '';
@@ -3067,7 +3067,7 @@ function addNetRoute(key, val) {
   row.innerHTML = '<input type="text" class="form-input nr-key" style="flex:1" placeholder="pattern" value="' + esc(String(key || '')) + '">'
     + '<span style="color:var(--text-dim)">&rarr;</span>'
     + '<input type="text" class="form-input nr-val" style="flex:1" placeholder="instanceName" value="' + esc(String(val || '')) + '">'
-    + '<button class="space-btn space-btn-danger" type="button" title="Remove">&times;</button>';
+    + '<button class="agent-btn agent-btn-danger" type="button" title="Remove">&times;</button>';
   row.querySelector('button').addEventListener('click', function() { row.remove(); });
   document.getElementById('net-routing').appendChild(row);
 }
@@ -3361,23 +3361,23 @@ ws.onmessage = function(evt) {
     return;
   }
 
-  if (msg.type === 'spaces') {
-    renderSpaces(msg.data || []);
+  if (msg.type === 'agents') {
+    renderAgents(msg.data || []);
     return;
   }
 
   if (msg.type === 'state') {
-    // In control-plane mode, ignore state for spaces other than the selected one.
-    if (msg.spaceId && msg.spaceId !== currentSpaceId) return;
+    // In control-plane mode, ignore state for agents other than the selected one.
+    if (msg.agentId && msg.agentId !== currentAgentId) return;
     renderState(msg.data || {});
   } else if (msg.type === 'event') {
     if (msg.event && msg.event.indexOf('task:') === 0) {
-      chatOnTaskEvent(msg.event, msg.data, msg.spaceId);
+      chatOnTaskEvent(msg.event, msg.data, msg.agentId);
     }
     if (msg.event === 'volenet:chat') {
-      volenetOnMessage(msg.data, msg.spaceId);
+      volenetOnMessage(msg.data, msg.agentId);
     }
-    if (!currentSpaceId || msg.spaceId === undefined || msg.spaceId === currentSpaceId) {
+    if (!currentAgentId || msg.agentId === undefined || msg.agentId === currentAgentId) {
       addEvent(msg.event, msg.data);
     }
   }

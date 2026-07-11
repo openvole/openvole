@@ -74,7 +74,7 @@ Grant `"childProcess": true` (it spawns the CLI) and add the `CLAUDE_CODE_*` var
 
 #### Calling OpenVole's own tools
 
-Set **`CLAUDE_CODE_EXPOSE_TOOLS=1`** and Claude Code can call the space's own tools (memory, schedules, VoleNet, …) as `mcp__openvole__<tool>`, alongside its built-ins. paw-brain writes a `--mcp-config` pointing the CLI at the control plane's MCP endpoint (`/mcp/<space>`); the engine injects `VOLE_DASHBOARD_URL`, `VOLE_SPACE_ID`, and the dashboard token, so it works automatically under `vole serve`. Add `CLAUDE_CODE_EXPOSE_TOOLS`, `VOLE_DASHBOARD_URL`, `VOLE_DASHBOARD_TOKEN`, and `VOLE_SPACE_ID` to `allow.env`. See [Dashboard → Tools over MCP](./dashboard.md#tools-over-mcp).
+Set **`CLAUDE_CODE_EXPOSE_TOOLS=1`** and Claude Code can call the agent's own tools (memory, schedules, VoleNet, …) as `mcp__openvole__<tool>`, alongside its built-ins. paw-brain writes a `--mcp-config` pointing the CLI at the control plane's MCP endpoint (`/mcp/<agent>`); the engine injects `VOLE_DASHBOARD_URL`, `VOLE_AGENT_ID`, and the dashboard token, so it works automatically under `vole serve`. Add `CLAUDE_CODE_EXPOSE_TOOLS`, `VOLE_DASHBOARD_URL`, `VOLE_DASHBOARD_TOKEN`, and `VOLE_AGENT_ID` to `allow.env`. See [Dashboard → Tools over MCP](./dashboard.md#tools-over-mcp).
 
 ## BRAIN.md
 

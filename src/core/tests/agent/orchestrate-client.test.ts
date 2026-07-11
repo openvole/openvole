@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { type IpcChannel, createParentClient } from '../../src/space/orchestrate-client.js'
+import { type IpcChannel, createParentClient } from '../../src/agent/orchestrate-client.js'
 
 /** Fake IPC channel standing in for `process` (send + connected + message/disconnect). */
 function fakeChannel(): IpcChannel & EventEmitter & { send: ReturnType<typeof vi.fn> } {

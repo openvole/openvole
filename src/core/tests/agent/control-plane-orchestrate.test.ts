@@ -2,36 +2,36 @@ import * as fs from 'node:fs/promises'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { ControlPlane } from '../../src/space/control-plane.js'
-import { SpaceManager } from '../../src/space/manager.js'
+import { ControlPlane } from '../../src/agent/control-plane.js'
+import { AgentManager } from '../../src/agent/manager.js'
 
 type Cres = { cres: { id: number; result?: unknown; error?: string } }
 
-/** A registry with one orchestrator ("boss") and one plain space ("worker"). */
+/** A registry with one orchestrator ("boss") and one plain agent ("worker"). */
 async function seedRegistry(home: string): Promise<void> {
 	const reg = {
 		activeId: 'boss',
-		spaces: [
+		agents: [
 			{
 				id: 'boss',
-				name: 'Boss Space',
-				path: path.join(home, 'spaces', 'boss'),
+				name: 'Boss Agent',
+				path: path.join(home, 'agents', 'boss'),
 				createdAt: '2026-01-01T00:00:00.000Z',
 				orchestrator: true,
 			},
 			{
 				id: 'worker',
-				name: 'Worker Space',
-				path: path.join(home, 'spaces', 'worker'),
+				name: 'Worker Agent',
+				path: path.join(home, 'agents', 'worker'),
 				createdAt: '2026-01-01T00:00:00.000Z',
 			},
 		],
 	}
 	await fs.mkdir(home, { recursive: true })
-	await fs.writeFile(path.join(home, 'spaces.json'), JSON.stringify(reg, null, 2))
+	await fs.writeFile(path.join(home, 'agents.json'), JSON.stringify(reg, null, 2))
 }
 
-/** The oversized state a space's control adapter would report. */
+/** The oversized state an agent's control adapter would report. */
 const FAT_STATE = {
 	tools: Array.from({ length: 40 }, (_, i) => ({ name: `tool_${i}`, description: 'x'.repeat(80) })),
 	paws: [
@@ -56,18 +56,18 @@ const FAT_STATE = {
 describe('ControlPlane orchestrate reverse-RPC', () => {
 	let tmpDir: string
 	let cp: ControlPlane
-	let callSpace: ReturnType<typeof vi.fn>
+	let callAgent: ReturnType<typeof vi.fn>
 	let reply: ReturnType<typeof vi.fn>
 
 	beforeEach(async () => {
 		tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'vole-orch-test-'))
 		await seedRegistry(tmpDir)
-		// Constructor only builds a SpaceManager; start() (server, spawning) is never called.
+		// Constructor only builds a AgentManager; start() (server, spawning) is never called.
 		cp = new ControlPlane({ cliPath: '/dev/null', port: 0, home: tmpDir })
-		callSpace = vi.fn(async (_id: string, method: string) =>
+		callAgent = vi.fn(async (_id: string, method: string) =>
 			method === 'state' ? FAT_STATE : { ok: true },
 		)
-		;(cp as any).callSpace = callSpace
+		;(cp as any).callAgent = callAgent
 		reply = vi.fn()
 	})
 
@@ -85,13 +85,13 @@ describe('ControlPlane orchestrate reverse-RPC', () => {
 		const res = lastCres()
 		expect(res.id).toBe(1)
 		expect(res.error).toBeUndefined()
-		const spaces = res.result as Array<Record<string, unknown>>
-		expect(spaces).toHaveLength(2)
-		expect(spaces.find((s) => s.id === 'boss')).toMatchObject({
+		const agents = res.result as Array<Record<string, unknown>>
+		expect(agents).toHaveLength(2)
+		expect(agents.find((s) => s.id === 'boss')).toMatchObject({
 			orchestrator: true,
 			state: 'stopped',
 		})
-		expect(spaces.find((s) => s.id === 'worker')).toMatchObject({
+		expect(agents.find((s) => s.id === 'worker')).toMatchObject({
 			orchestrator: false,
 			state: 'running',
 			pid: 42,
@@ -105,7 +105,7 @@ describe('ControlPlane orchestrate reverse-RPC', () => {
 			reply,
 		)
 		expect(lastCres().error).toContain('not an orchestrator')
-		expect(callSpace).not.toHaveBeenCalled()
+		expect(callAgent).not.toHaveBeenCalled()
 	})
 
 	it('refuses an unknown sender', async () => {
@@ -121,19 +121,19 @@ describe('ControlPlane orchestrate reverse-RPC', () => {
 	it('refuses self-lifecycle even when targeted by name (resolves ids first)', async () => {
 		await cp.handleOrchestrateRequest(
 			'boss',
-			{ id: 5, method: 'stop', params: { target: 'Boss Space' } },
+			{ id: 5, method: 'stop', params: { target: 'Boss Agent' } },
 			reply,
 		)
 		expect(lastCres().error).toContain('orchestrator itself')
 	})
 
-	it('resolves a target by name and calls callSpace with its id', async () => {
+	it('resolves a target by name and calls callAgent with its id', async () => {
 		await cp.handleOrchestrateRequest(
 			'boss',
-			{ id: 6, method: 'state', params: { target: 'Worker Space' } },
+			{ id: 6, method: 'state', params: { target: 'Worker Agent' } },
 			reply,
 		)
-		expect(callSpace).toHaveBeenCalledWith('worker', 'state')
+		expect(callAgent).toHaveBeenCalledWith('worker', 'state')
 		expect(lastCres().error).toBeUndefined()
 	})
 
@@ -162,13 +162,13 @@ describe('ControlPlane orchestrate reverse-RPC', () => {
 		expect(s.schedules).toEqual([{ id: 's1', cron: '0 * * * *', nextRun: 123 }])
 	})
 
-	it('forwards submit params and write guards ride callSpace', async () => {
+	it('forwards submit params and write guards ride callAgent', async () => {
 		await cp.handleOrchestrateRequest(
 			'boss',
 			{ id: 8, method: 'submit', params: { target: 'worker', input: 'go', sessionId: 'p1' } },
 			reply,
 		)
-		expect(callSpace).toHaveBeenCalledWith('worker', 'submit', { input: 'go', sessionId: 'p1' })
+		expect(callAgent).toHaveBeenCalledWith('worker', 'submit', { input: 'go', sessionId: 'p1' })
 		await cp.handleOrchestrateRequest(
 			'boss',
 			{
@@ -178,7 +178,7 @@ describe('ControlPlane orchestrate reverse-RPC', () => {
 			},
 			reply,
 		)
-		expect(callSpace).toHaveBeenCalledWith('worker', 'write_identity', {
+		expect(callAgent).toHaveBeenCalledWith('worker', 'write_identity', {
 			filename: 'AGENT.md',
 			content: '# R',
 		})
@@ -196,7 +196,7 @@ describe('ControlPlane orchestrate reverse-RPC', () => {
 			{ id: 11, method: 'state', params: { target: 'nope' } },
 			reply,
 		)
-		expect(lastCres().error).toContain('Space not found')
+		expect(lastCres().error).toContain('Agent not found')
 	})
 
 	it('wires creq messages from onChildMessage to a cres reply on the sender socket', async () => {
@@ -221,7 +221,7 @@ describe('ControlPlane orchestrate reverse-RPC', () => {
 	})
 })
 
-describe('SpaceManager.setOrchestrator', () => {
+describe('AgentManager.setOrchestrator', () => {
 	let tmpDir: string
 
 	beforeEach(async () => {
@@ -234,19 +234,40 @@ describe('SpaceManager.setOrchestrator', () => {
 	})
 
 	it('persists grant and revoke (revoke deletes the key)', async () => {
-		const mgr = new SpaceManager({ home: tmpDir })
+		const mgr = new AgentManager({ home: tmpDir })
 		await mgr.setOrchestrator('worker', true)
 		let reg = await mgr.readRegistry()
-		expect(reg.spaces.find((s) => s.id === 'worker')?.orchestrator).toBe(true)
+		expect(reg.agents.find((s) => s.id === 'worker')?.orchestrator).toBe(true)
 
-		await mgr.setOrchestrator('Boss Space', false) // by name
+		await mgr.setOrchestrator('Boss Agent', false) // by name
 		reg = await mgr.readRegistry()
-		const boss = reg.spaces.find((s) => s.id === 'boss') as Record<string, unknown>
+		const boss = reg.agents.find((s) => s.id === 'boss') as Record<string, unknown>
 		expect('orchestrator' in boss).toBe(false)
 	})
 
-	it('throws for an unknown space', async () => {
-		const mgr = new SpaceManager({ home: tmpDir })
-		await expect(mgr.setOrchestrator('ghost', true)).rejects.toThrow('Space not found')
+	it('throws for an unknown agent', async () => {
+		const mgr = new AgentManager({ home: tmpDir })
+		await expect(mgr.setOrchestrator('ghost', true)).rejects.toThrow('Agent not found')
+	})
+
+	it('reads a legacy spaces.json registry and migrates it on the next write', async () => {
+		const legacyHome = await fs.mkdtemp(path.join(os.tmpdir(), 'vole-legacy-'))
+		await fs.writeFile(
+			path.join(legacyHome, 'spaces.json'),
+			JSON.stringify({
+				activeId: 'boss',
+				spaces: [{ id: 'boss', name: 'Boss', path: '/x', createdAt: 'now', orchestrator: true }],
+			}),
+		)
+		const mgr = new AgentManager({ home: legacyHome })
+		const reg = await mgr.readRegistry()
+		expect(reg.agents).toHaveLength(1)
+		expect(reg.agents[0]?.orchestrator).toBe(true)
+
+		await mgr.setOrchestrator('boss', false) // any write persists to agents.json
+		const migrated = JSON.parse(await fs.readFile(path.join(legacyHome, 'agents.json'), 'utf-8'))
+		expect(migrated.agents).toHaveLength(1)
+		expect('orchestrator' in migrated.agents[0]).toBe(false)
+		await fs.rm(legacyHome, { recursive: true, force: true })
 	})
 })

@@ -7,14 +7,14 @@ Install with `npm install -g openvole` (the package is **openvole**; the command
 :::
 
 ::: warning Removed commands
-The single-engine commands `vole init`, `vole start`, and `vole run` have been removed. OpenVole now runs as a **server** — use [`vole serve`](#dashboard-spaces) and manage agents as **spaces** (each its own config, paws, identity, and data).
+The single-engine commands `vole init`, `vole start`, and `vole run` have been removed. OpenVole now runs as a **server** — use [`vole serve`](#dashboard-agents); every agent is fully isolated (its own config, paws, identity, and data).
 :::
 
-## Dashboard & Spaces
+## Dashboard & Agents
 
 ### `vole serve`
 
-Start the **control-plane dashboard** — one web server that manages all your agents ("spaces") from the browser. This is the primary way to run and operate OpenVole.
+Start the **control-plane dashboard** — one web server that manages all your agents from the browser. This is the primary way to run and operate OpenVole.
 
 ```bash
 vole serve
@@ -24,12 +24,12 @@ By default it listens on `http://localhost:3000`; set `VOLE_DASHBOARD_PORT` to c
 
 On first run it generates a **session token** (persisted at `<root>/.openvole/dashboard-token`, or supply `VOLE_DASHBOARD_TOKEN`) and prints a tokenized URL — open *that* URL; the token is required to reach the dashboard, its WebSocket, and panel routes. It binds all interfaces (`0.0.0.0`) by default; set `VOLE_DASHBOARD_HOST=127.0.0.1` to restrict it to localhost. See [Security › Dashboard / Control Plane](/security#dashboard-control-plane).
 
-**Root resolution** — `vole serve` operates on an OpenVole *root* directory (which holds a `spaces.json` registry). The root is resolved in this order:
+**Root resolution** — `vole serve` operates on an OpenVole *root* directory (which holds an `agents.json` registry; a legacy `spaces.json` root is recognized too). The root is resolved in this order:
 
 1. `VOLE_HOME` if set — an explicit override that always wins.
-2. Otherwise the current directory, if it is already a root (contains `spaces.json`).
+2. Otherwise the current directory, if it is already a root (contains `agents.json`).
 3. Otherwise the current directory, if it is empty (ignoring `.DS_Store`, `.git`, `.gitignore`) — it becomes a **new** root.
-4. Otherwise it refuses to start with a clear error. If a legacy `~/.openvole` with spaces exists, it prints how to reach it.
+4. Otherwise it refuses to start with a clear error. If a legacy `~/.openvole` with agents exists, it prints how to reach it.
 
 ```bash
 # Use a dedicated directory as your root
@@ -40,42 +40,45 @@ VOLE_HOME=~/agents vole serve
 ```
 
 > [!NOTE]
-> The implicit global `~/.openvole` root (used regardless of the current directory) is gone. If your spaces live there, run `cd ~/.openvole && vole serve` or `VOLE_HOME=~/.openvole vole serve`.
+> The implicit global `~/.openvole` root (used regardless of the current directory) is gone. If your agents live there, run `cd ~/.openvole && vole serve` or `VOLE_HOME=~/.openvole vole serve`.
 
 See the [Dashboard guide](/dashboard) for the full walkthrough.
 
-### `vole space`
+### `vole agent`
 
-Manage spaces from the CLI. (The dashboard's space switcher does the same things visually.)
+Manage agents from the CLI. (The dashboard's agent switcher does the same things visually.)
+
+> [!NOTE]
+> Agents were called **spaces** before v4.6. `vole space …` still works as a deprecated alias, a legacy `spaces.json` registry is read transparently (the next write migrates it to `agents.json`), and an existing `space-template` is still honored.
 
 | Command | Description |
 |---------|-------------|
-| `vole space create <name>` | Scaffold a new space (clones your template if set). Add `--orchestrator` to let it manage its siblings. |
-| `vole space orchestrate <name> [on\|off]` | Grant or revoke a space's authority to manage its siblings (see below). |
-| `vole space template` | Create or locate the template that new spaces clone. |
-| `vole space list` | List spaces and their running status. |
-| `vole space status [name]` | Show live status (pid, port). |
-| `vole space start <name>` | Start a space's engine (its own process). |
-| `vole space stop <name> \| --all` | Stop a space (or all spaces). |
-| `vole space switch <name>` | Set the active space. |
-| `vole space remove <name> [--purge]` | Remove a space. Add `--purge` to delete its files on disk. |
+| `vole agent create <name>` | Scaffold a new agent (clones your template if set). Add `--orchestrator` to let it manage its siblings. |
+| `vole agent orchestrate <name> [on\|off]` | Grant or revoke an agent's authority to manage its siblings (see below). |
+| `vole agent template` | Create or locate the template that new agents clone. |
+| `vole agent list` | List agents and their running status. |
+| `vole agent status [name]` | Show live status (pid, port). |
+| `vole agent start <name>` | Start an agent's engine (its own process). |
+| `vole agent stop <name> \| --all` | Stop an agent (or all agents). |
+| `vole agent switch <name>` | Set the active agent. |
+| `vole agent remove <name> [--purge]` | Remove an agent. Add `--purge` to delete its files on disk. |
 
 ```bash
-vole space create research
-vole space start research
-vole space list
+vole agent create research
+vole agent start research
+vole agent list
 ```
 
 > [!WARNING]
-> `vole space remove <name>` removes the space from the registry but **keeps its files**. Add `--purge` to permanently delete the space's directory (config, identity, installed paws, data). Deleting a space from the dashboard is equivalent to `--purge`.
+> `vole agent remove <name>` removes the agent from the registry but **keeps its files**. Add `--purge` to permanently delete the agent's directory (config, identity, installed paws, data). Deleting an agent from the dashboard is equivalent to `--purge`.
 
-#### Orchestrator spaces
+#### Orchestrator agents
 
-A space flagged as **orchestrator** gets a set of `space_*` tools when it runs under `vole serve`: list siblings, submit tasks to them, read/write their config and identity files, restart/start/stop them, and create new spaces. This lets one agent supervise the others — pair it with the `vole-orchestrate` skill from VoleHub for the playbook.
+An agent flagged as **orchestrator** gets a set of `agent_*` tools when it runs under `vole serve`: list siblings, submit tasks to them, read/write their config and identity files, restart/start/stop them, and create new agents. This lets one agent supervise the others — pair it with the `vole-orchestrate` skill from VoleHub for the playbook.
 
-- The flag lives in the server's `spaces.json` registry — **outside every space's sandbox** — and the control plane re-checks it on every request, so `off` takes effect immediately. Granting (`on`) requires restarting the space under `vole serve`.
-- Guardrails: an orchestrator cannot stop/start/restart **itself**, cannot **remove** spaces at all, and config writes go through the same sandbox-weakening refusal as the dashboard.
-- Detached spaces (`vole space start`) have no control channel — orchestrator tools require `vole serve`.
+- The flag lives in the server's `agents.json` registry — **outside every agent's sandbox** — and the control plane re-checks it on every request, so `off` takes effect immediately. Granting (`on`) requires restarting the agent under `vole serve`.
+- Guardrails: an orchestrator cannot stop/start/restart **itself**, cannot **remove** agents at all, and config writes go through the same sandbox-weakening refusal as the dashboard.
+- Detached agents (`vole agent start`) have no control channel — orchestrator tools require `vole serve`.
 
 ## Paw Management
 

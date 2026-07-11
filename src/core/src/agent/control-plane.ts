@@ -1,20 +1,20 @@
 import type { ChildProcess } from 'node:child_process'
 import {
+	type AgentSummary,
 	type DashboardServer,
-	type SpaceSummary,
 	createDashboardServer,
 } from '@openvole/dashboard-server'
 import { execa } from 'execa'
 import { createLogger } from '../core/logger.js'
-import { SpaceManager } from './manager.js'
+import { AgentManager } from './manager.js'
 
 const logger = createLogger('control-plane')
 const RPC_TIMEOUT_MS = 15_000
 const STOP_GRACE_MS = 5000
 const STATE_DEBOUNCE_MS = 150
-/** Max tasks included in an orchestrator's space_state summary. */
+/** Max tasks included in an orchestrator's agent_state summary. */
 const ORCH_STATE_TASKS = 10
-/** Max chars of a task's input echoed in an orchestrator's space_state summary. */
+/** Max chars of a task's input echoed in an orchestrator's agent_state summary. */
 const ORCH_INPUT_CLIP = 200
 
 interface Pending {
@@ -23,7 +23,7 @@ interface Pending {
 	timeout: ReturnType<typeof setTimeout>
 }
 
-interface SpaceChild {
+interface AgentChild {
 	proc: ChildProcess
 	pending: Map<number, Pending>
 	nextId: number
@@ -32,7 +32,7 @@ interface SpaceChild {
 }
 
 export interface ControlPlaneOptions {
-	/** Absolute path to the running dist/cli.js (the `__run-space` daemon entry). */
+	/** Absolute path to the running dist/cli.js (the `__run-agent` daemon entry). */
 	cliPath: string
 	port: number
 	home?: string
@@ -44,11 +44,11 @@ export interface ControlPlaneOptions {
 
 /**
  * The single control-plane web server. Spawns one engine subprocess (IPC child) per
- * running space, aggregates their state/events, and hosts ONE dashboard for all of them.
+ * running agent, aggregates their state/events, and hosts ONE dashboard for all of them.
  */
 export class ControlPlane {
-	private readonly manager: SpaceManager
-	private readonly children = new Map<string, SpaceChild>()
+	private readonly manager: AgentManager
+	private readonly children = new Map<string, AgentChild>()
 	private readonly refreshTimers = new Map<string, ReturnType<typeof setTimeout>>()
 	private readonly cliPath: string
 	private readonly port: number
@@ -64,46 +64,46 @@ export class ControlPlane {
 		this.port = opts.port
 		this.host = opts.host
 		this.token = opts.token
-		this.manager = new SpaceManager(opts.home ? { home: opts.home } : undefined)
+		this.manager = new AgentManager(opts.home ? { home: opts.home } : undefined)
 	}
 
 	start(): void {
 		this.server = createDashboardServer(
 			this.port,
 			{
-				listSpaces: () => this.listSpaces(),
-				startSpace: (id) => this.startSpace(id),
-				stopSpace: (id) => this.stopSpace(id),
-				createSpace: (name) => this.createSpace(name),
-				removeSpace: (id) => this.removeSpace(id),
-				fetchState: (id) => this.callSpace(id, 'state'),
-				readConfig: (id) => this.callSpace(id, 'read_config'),
-				writeConfig: (config, id) => this.callSpace(id, 'write_config', { config }),
-				readIdentity: (id) => this.callSpace(id, 'read_identity'),
+				listAgents: () => this.listAgents(),
+				startAgent: (id) => this.startAgent(id),
+				stopAgent: (id) => this.stopAgent(id),
+				createAgent: (name) => this.createAgent(name),
+				removeAgent: (id) => this.removeAgent(id),
+				fetchState: (id) => this.callAgent(id, 'state'),
+				readConfig: (id) => this.callAgent(id, 'read_config'),
+				writeConfig: (config, id) => this.callAgent(id, 'write_config', { config }),
+				readIdentity: (id) => this.callAgent(id, 'read_identity'),
 				writeIdentity: (filename, content, id) =>
-					this.callSpace(id, 'write_identity', { filename, content }),
-				restartEngine: (id) => this.callSpace(id, 'restart'),
+					this.callAgent(id, 'write_identity', { filename, content }),
+				restartEngine: (id) => this.callAgent(id, 'restart'),
 				listAvailablePaws: () => this.listAvailablePaws(),
-				installPaw: (name, id) => this.installPawInSpace(id, name),
-				submitTask: (input, sessionId, id) => this.callSpace(id, 'submit', { input, sessionId }),
-				chatHistory: (sessionId, id) => this.callSpace(id, 'chat_history', { sessionId }),
-				chatSessions: (id) => this.callSpace(id, 'chat_sessions'),
-				chatClear: (sessionId, id) => this.callSpace(id, 'chat_clear', { sessionId }),
-				volenetInstances: (id) => this.callSpace(id, 'volenet_instances'),
-				volenetChatHistory: (peerId, id) => this.callSpace(id, 'volenet_chat_history', { peerId }),
+				installPaw: (name, id) => this.installPawInAgent(id, name),
+				submitTask: (input, sessionId, id) => this.callAgent(id, 'submit', { input, sessionId }),
+				chatHistory: (sessionId, id) => this.callAgent(id, 'chat_history', { sessionId }),
+				chatSessions: (id) => this.callAgent(id, 'chat_sessions'),
+				chatClear: (sessionId, id) => this.callAgent(id, 'chat_clear', { sessionId }),
+				volenetInstances: (id) => this.callAgent(id, 'volenet_instances'),
+				volenetChatHistory: (peerId, id) => this.callAgent(id, 'volenet_chat_history', { peerId }),
 				volenetChatSend: (peerId, text, id) =>
-					this.callSpace(id, 'volenet_chat_send', { peerId, text }),
-				volenetChatClear: (peerId, id) => this.callSpace(id, 'volenet_chat_clear', { peerId }),
-				getPanelHtml: (spaceId, paw) => this.callSpace(spaceId, 'panel_html', { paw }),
-				callPawTool: (spaceId, name, params) => this.callSpace(spaceId, 'tool', { name, params }),
+					this.callAgent(id, 'volenet_chat_send', { peerId, text }),
+				volenetChatClear: (peerId, id) => this.callAgent(id, 'volenet_chat_clear', { peerId }),
+				getPanelHtml: (agentId, paw) => this.callAgent(agentId, 'panel_html', { paw }),
+				callPawTool: (agentId, name, params) => this.callAgent(agentId, 'tool', { name, params }),
 			},
 			{ host: this.host, token: this.token },
 		)
 	}
 
-	async listSpaces(): Promise<SpaceSummary[]> {
+	async listAgents(): Promise<AgentSummary[]> {
 		const reg = await this.manager.readRegistry()
-		return reg.spaces.map((s) => ({
+		return reg.agents.map((s) => ({
 			id: s.id,
 			name: s.name,
 			state: this.children.has(s.id) ? 'running' : 'stopped',
@@ -112,22 +112,24 @@ export class ControlPlane {
 		}))
 	}
 
-	async startSpace(id: string): Promise<{ ok: true }> {
+	async startAgent(id: string): Promise<{ ok: true }> {
 		if (this.children.has(id)) return { ok: true }
 		const reg = await this.manager.readRegistry()
-		const entry = reg.spaces.find((s) => s.id === id || s.name === id)
-		if (!entry) throw new Error(`Space not found: ${id}`)
+		const entry = reg.agents.find((s) => s.id === id || s.name === id)
+		if (!entry) throw new Error(`Agent not found: ${id}`)
 
-		const proc = execa('node', [this.cliPath, '__run-space', entry.path], {
+		const proc = execa('node', [this.cliPath, '__run-agent', entry.path], {
 			cwd: entry.path,
 			// Tell the engine (and its paws, e.g. a Claude Code brain) where the control plane's
-			// MCP endpoint lives, so it can expose this space's tools back to an MCP client.
+			// MCP endpoint lives, so it can expose this agent's tools back to an MCP client.
 			env: {
 				...process.env,
 				VOLE_DASHBOARD_URL: `http://127.0.0.1:${this.port}`,
+				VOLE_AGENT_ID: entry.id,
+				// Legacy name — published paws (paw-brain's claude-code provider) still read it.
 				VOLE_SPACE_ID: entry.id,
 				// Always set explicitly ('1'/'0') so a stray VOLE_ORCHESTRATOR in the serve
-				// process's own env can't leak orchestrator tooling into every space. The
+				// process's own env can't leak orchestrator tooling into every agent. The
 				// authoritative check stays parent-side (registry flag, per request).
 				VOLE_ORCHESTRATOR: entry.orchestrator ? '1' : '0',
 				...(this.token ? { VOLE_DASHBOARD_TOKEN: this.token } : {}),
@@ -142,22 +144,22 @@ export class ControlPlane {
 			markReady = resolve
 		})
 		setTimeout(markReady, 8000) // fallback if the engine never signals ready
-		const child: SpaceChild = { proc, pending: new Map(), nextId: 1, ready, markReady }
+		const child: AgentChild = { proc, pending: new Map(), nextId: 1, ready, markReady }
 		this.children.set(entry.id, child)
 		proc.on('message', (msg) => this.onChildMessage(entry.id, msg))
 		proc.on('exit', () => this.onChildExit(entry.id))
-		logger.info(`Started space "${entry.id}" (pid ${proc.pid})`)
-		this.broadcastSpaces()
+		logger.info(`Started agent "${entry.id}" (pid ${proc.pid})`)
+		this.broadcastAgents()
 		return { ok: true }
 	}
 
-	async stopSpace(id: string): Promise<{ ok: true }> {
+	async stopAgent(id: string): Promise<{ ok: true }> {
 		const child = this.children.get(id)
 		if (!child) return { ok: true }
 		this.children.delete(id)
 		for (const p of child.pending.values()) {
 			clearTimeout(p.timeout)
-			p.reject(new Error('Space stopped'))
+			p.reject(new Error('Agent stopped'))
 		}
 		child.pending.clear()
 		const { proc } = child
@@ -165,19 +167,19 @@ export class ControlPlane {
 		setTimeout(() => {
 			if (!proc.killed) proc.kill('SIGKILL')
 		}, STOP_GRACE_MS)
-		this.broadcastSpaces()
+		this.broadcastAgents()
 		return { ok: true }
 	}
 
-	async createSpace(name: string): Promise<{ ok: true; id: string; name: string }> {
+	async createAgent(name: string): Promise<{ ok: true; id: string; name: string }> {
 		const entry = await this.manager.create(name)
-		this.broadcastSpaces()
+		this.broadcastAgents()
 		return { ok: true, id: entry.id, name: entry.name }
 	}
 
-	async removeSpace(id: string): Promise<{ ok: true }> {
+	async removeAgent(id: string): Promise<{ ok: true }> {
 		const proc = this.children.get(id)?.proc
-		await this.stopSpace(id)
+		await this.stopAgent(id)
 		// Wait for the engine child to actually exit before deleting its files, so a late
 		// shutdown write can't recreate the directory after we remove it.
 		if (proc && proc.exitCode == null) {
@@ -190,7 +192,7 @@ export class ControlPlane {
 			})
 		}
 		await this.manager.remove(id, { purge: true })
-		this.broadcastSpaces()
+		this.broadcastAgents()
 		return { ok: true }
 	}
 
@@ -219,24 +221,24 @@ export class ControlPlane {
 		return paws
 	}
 
-	/** Install a paw from npm into a space (npm install + register with default permissions). */
-	async installPawInSpace(spaceId: string | undefined, name: string): Promise<unknown> {
-		if (!spaceId) throw new Error('No space selected')
+	/** Install a paw from npm into an agent (npm install + register with default permissions). */
+	async installPawInAgent(agentId: string | undefined, name: string): Promise<unknown> {
+		if (!agentId) throw new Error('No agent selected')
 		const reg = await this.manager.readRegistry()
-		const entry = reg.spaces.find((s) => s.id === spaceId || s.name === spaceId)
-		if (!entry) throw new Error(`Space not found: ${spaceId}`)
+		const entry = reg.agents.find((s) => s.id === agentId || s.name === agentId)
+		if (!entry) throw new Error(`Agent not found: ${agentId}`)
 		const { installPaw } = await import('../paw/install.js')
 		return installPaw(entry.path, name)
 	}
 
-	private callSpace(
+	private callAgent(
 		id: string | undefined,
 		method: string,
 		params: Record<string, unknown> = {},
 	): Promise<unknown> {
 		const child = id ? this.children.get(id) : undefined
 		if (!id || !child) {
-			return Promise.reject(new Error(id ? `Space not running: ${id}` : 'No space selected'))
+			return Promise.reject(new Error(id ? `Agent not running: ${id}` : 'No agent selected'))
 		}
 		const reqId = child.nextId++
 		return child.ready.then(
@@ -253,9 +255,9 @@ export class ControlPlane {
 	}
 
 	/**
-	 * Answer a reverse-RPC request from an orchestrator space. The sender's authority is
+	 * Answer a reverse-RPC request from an orchestrator agent. The sender's authority is
 	 * checked against the registry on EVERY request (fresh read), so revoking the flag via
-	 * `vole space orchestrate <name> off` takes effect immediately. Never throws — errors go
+	 * `vole agent orchestrate <name> off` takes effect immediately. Never throws — errors go
 	 * back to the sender as `{cres:{id,error}}`. Public (with an injectable reply) for tests.
 	 */
 	async handleOrchestrateRequest(
@@ -276,9 +278,9 @@ export class ControlPlane {
 			})
 		try {
 			const reg = await this.manager.readRegistry()
-			const sender = reg.spaces.find((s) => s.id === senderId)
+			const sender = reg.agents.find((s) => s.id === senderId)
 			if (sender?.orchestrator !== true) {
-				throw new Error(`Space "${senderId}" is not an orchestrator`)
+				throw new Error(`Agent "${senderId}" is not an orchestrator`)
 			}
 			const result = await this.dispatchOrchestrate(senderId, req.method, req.params ?? {})
 			send({ cres: { id: req.id, result } })
@@ -293,51 +295,51 @@ export class ControlPlane {
 		method: string,
 		params: Record<string, unknown>,
 	): Promise<unknown> {
-		if (method === 'list') return this.listSpaces()
-		if (method === 'create') return this.createSpace(params.name as string)
+		if (method === 'list') return this.listAgents()
+		if (method === 'create') return this.createAgent(params.name as string)
 
 		const t = params.target as string
 		const reg = await this.manager.readRegistry()
-		const entry = reg.spaces.find((s) => s.id === t || s.name === t)
-		if (!entry) throw new Error(`Space not found: ${t}`)
+		const entry = reg.agents.find((s) => s.id === t || s.name === t)
+		if (!entry) throw new Error(`Agent not found: ${t}`)
 		if (['start', 'stop', 'restart'].includes(method) && entry.id === senderId) {
 			throw new Error(`Refusing to ${method} the orchestrator itself`)
 		}
 		switch (method) {
 			case 'state':
-				return this.summarizeState(await this.callSpace(entry.id, 'state'))
+				return this.summarizeState(await this.callAgent(entry.id, 'state'))
 			case 'task_status':
-				return this.callSpace(entry.id, 'task_status', { taskId: params.taskId })
+				return this.callAgent(entry.id, 'task_status', { taskId: params.taskId })
 			case 'submit':
-				return this.callSpace(entry.id, 'submit', {
+				return this.callAgent(entry.id, 'submit', {
 					input: params.input,
 					sessionId: params.sessionId,
 				})
 			case 'read_config':
-				return this.callSpace(entry.id, 'read_config')
+				return this.callAgent(entry.id, 'read_config')
 			case 'write_config':
 				// The target's adapter guards apply (demo mode, sandbox-weakening refusal).
-				return this.callSpace(entry.id, 'write_config', { config: params.config })
+				return this.callAgent(entry.id, 'write_config', { config: params.config })
 			case 'read_identity':
-				return this.callSpace(entry.id, 'read_identity')
+				return this.callAgent(entry.id, 'read_identity')
 			case 'write_identity':
-				return this.callSpace(entry.id, 'write_identity', {
+				return this.callAgent(entry.id, 'write_identity', {
 					filename: params.filename,
 					content: params.content,
 				})
 			case 'restart':
-				return this.callSpace(entry.id, 'restart')
+				return this.callAgent(entry.id, 'restart')
 			case 'start':
-				return this.startSpace(entry.id)
+				return this.startAgent(entry.id)
 			case 'stop':
-				return this.stopSpace(entry.id)
+				return this.stopAgent(entry.id)
 			default:
-				// Deliberately no 'remove' — destroying a space stays a human decision.
+				// Deliberately no 'remove' — destroying an agent stays a human decision.
 				throw new Error(`Unknown orchestrate method: ${method}`)
 		}
 	}
 
-	/** Trim a space's full dashboard state down to an LLM-friendly summary. */
+	/** Trim an agent's full dashboard state down to an LLM-friendly summary. */
 	private summarizeState(raw: unknown): Record<string, unknown> {
 		const s = (raw ?? {}) as Record<string, unknown>
 		const paws = Array.isArray(s.paws) ? (s.paws as Array<Record<string, unknown>>) : []
@@ -376,7 +378,7 @@ export class ControlPlane {
 		}
 	}
 
-	private onChildMessage(spaceId: string, msg: unknown): void {
+	private onChildMessage(agentId: string, msg: unknown): void {
 		const m = msg as {
 			id?: number
 			result?: unknown
@@ -386,18 +388,18 @@ export class ControlPlane {
 		}
 		if (m == null) return
 		if ((m as { ready?: boolean }).ready) {
-			this.children.get(spaceId)?.markReady()
+			this.children.get(agentId)?.markReady()
 			return
 		}
-		// Reverse-RPC: a space asking the control plane to act on its siblings.
+		// Reverse-RPC: an agent asking the control plane to act on its siblings.
 		const creq = (m as { creq?: { id: number; method: string; params?: Record<string, unknown> } })
 			.creq
 		if (creq && typeof creq.id === 'number' && typeof creq.method === 'string') {
-			void this.handleOrchestrateRequest(spaceId, creq)
+			void this.handleOrchestrateRequest(agentId, creq)
 			return
 		}
 		if (m.id !== undefined && (m.result !== undefined || m.error !== undefined)) {
-			const child = this.children.get(spaceId)
+			const child = this.children.get(agentId)
 			const pending = child?.pending.get(m.id)
 			if (pending && child) {
 				child.pending.delete(m.id)
@@ -408,39 +410,39 @@ export class ControlPlane {
 			return
 		}
 		if (m.event) {
-			this.server?.broadcast('event', m.data, m.event, spaceId)
-			this.scheduleStateRefresh(spaceId)
+			this.server?.broadcast('event', m.data, m.event, agentId)
+			this.scheduleStateRefresh(agentId)
 		}
 	}
 
-	private onChildExit(spaceId: string): void {
-		const child = this.children.get(spaceId)
+	private onChildExit(agentId: string): void {
+		const child = this.children.get(agentId)
 		if (child) {
 			for (const p of child.pending.values()) {
 				clearTimeout(p.timeout)
-				p.reject(new Error('Space engine exited'))
+				p.reject(new Error('Agent engine exited'))
 			}
-			this.children.delete(spaceId)
+			this.children.delete(agentId)
 		}
-		logger.info(`Space "${spaceId}" engine exited`)
-		this.broadcastSpaces()
+		logger.info(`Agent "${agentId}" engine exited`)
+		this.broadcastAgents()
 	}
 
-	/** Coalesced per-space state refresh after a burst of bus events. */
-	private scheduleStateRefresh(spaceId: string): void {
-		if (this.refreshTimers.has(spaceId)) return
+	/** Coalesced per-agent state refresh after a burst of bus events. */
+	private scheduleStateRefresh(agentId: string): void {
+		if (this.refreshTimers.has(agentId)) return
 		const timer = setTimeout(() => {
-			this.refreshTimers.delete(spaceId)
-			this.callSpace(spaceId, 'state')
-				.then((state) => this.server?.broadcast('state', state, undefined, spaceId))
+			this.refreshTimers.delete(agentId)
+			this.callAgent(agentId, 'state')
+				.then((state) => this.server?.broadcast('state', state, undefined, agentId))
 				.catch(() => {})
 		}, STATE_DEBOUNCE_MS)
-		this.refreshTimers.set(spaceId, timer)
+		this.refreshTimers.set(agentId, timer)
 	}
 
-	private broadcastSpaces(): void {
-		this.listSpaces()
-			.then((spaces) => this.server?.broadcast('spaces', spaces))
+	private broadcastAgents(): void {
+		this.listAgents()
+			.then((agents) => this.server?.broadcast('agents', agents))
 			.catch(() => {})
 	}
 

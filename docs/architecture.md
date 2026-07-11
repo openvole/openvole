@@ -6,7 +6,7 @@ OpenVole follows a **microkernel architecture** — the core provides the agent 
 
 ```
                       vole serve (control plane)
-                       one server · many spaces
+                       one server · many agents
                               |
                               v
 ┌──────────────────────────────────────────────────────────────────┐
@@ -184,7 +184,7 @@ Key capabilities:
 
 See the [VoleNet documentation](/volenet) for architecture patterns and setup.
 
-## Control Plane & Spaces
+## Control Plane & Agents
 
 `vole serve` runs the **control plane** — a single web server (the `@openvole/dashboard-server` package) that manages every agent from one place. This is the primary way to operate OpenVole.
 
@@ -196,7 +196,7 @@ See the [VoleNet documentation](/volenet) for architecture patterns and setup.
         ┌─────────────────────┼─────────────────────┐
         │                     │                     │
    ┌────▼────┐           ┌────▼────┐           ┌────▼────┐
-   │ space A │           │ space B │           │ space N │
+   │ agent A │           │ agent B │           │ agent N │
    │ engine  │           │ engine  │           │ engine  │
    │ (child) │           │ (child) │           │ (child) │
    └─────────┘           └─────────┘           └─────────┘
@@ -205,23 +205,23 @@ See the [VoleNet documentation](/volenet) for architecture patterns and setup.
    data dir              data dir              data dir
 ```
 
-- A **space** is an isolated agent — its own `vole.config.json`, paws, identity files, and data directory. Each running space is its own engine subprocess (IPC child), parented to the `vole serve` process (not detached).
-- All spaces under one OpenVole **root** are recorded in a `spaces.json` registry. The control plane resolves the root from `VOLE_HOME`, else the current directory if it's already a root or empty (see the [Dashboard guide](/dashboard#root-resolution)).
-- The control plane aggregates each space's state and events over IPC and serves one dashboard (Overview / Chat / Apps / Config / Identity) for all of them.
+- A **agent** is an isolated agent — its own `vole.config.json`, paws, identity files, and data directory. Each running agent is its own engine subprocess (IPC child), parented to the `vole serve` process (not detached).
+- All agents under one OpenVole **root** are recorded in an `agents.json` registry. The control plane resolves the root from `VOLE_HOME`, else the current directory if it's already a root or empty (see the [Dashboard guide](/dashboard#root-resolution)).
+- The control plane aggregates each agent's state and events over IPC and serves one dashboard (Overview / Chat / Apps / Config / Identity) for all of them.
 
-### Orchestrator Spaces (reverse-RPC)
+### Orchestrator Agents (reverse-RPC)
 
-A space can be granted **orchestrator** authority (`vole space create <name> --orchestrator`, or `vole space orchestrate <name> on|off`), letting its agent manage the sibling spaces under the same `vole serve`. The mechanics:
+An agent can be granted **orchestrator** authority (`vole agent create <name> --orchestrator`, or `vole agent orchestrate <name> on|off`), letting its agent manage the sibling agents under the same `vole serve`. The mechanics:
 
-- The flag is stored in the server's `spaces.json` registry — outside every space's sandbox, so a space can't grant itself authority.
-- The control plane spawns a flagged space with `VOLE_ORCHESTRATOR=1`; the daemon then registers the `space_*` core tools (list, state, submit, task_status, read/write config, read/write identity, restart, start, stop, create) backed by a **reverse-RPC client** on the same IPC channel the control plane already uses: the child sends `{creq:{id,method,params}}`, the parent answers `{cres:{id,result|error}}`.
-- The parent re-reads the registry and verifies the sender's flag **on every request** — revoking is instant. Requests targeting other spaces reuse the exact per-space RPC path the dashboard uses, so its guards (demo mode, sandbox-weakening refusal) apply unchanged.
-- Hard limits: no self stop/start/restart, no space removal, and spaces created by an orchestrator are never flagged themselves.
-- The `vole-orchestrate` VoleHub skill (requires `space_list`/`space_submit`) supplies the supervisor playbook and only activates in spaces that actually have the tools.
+- The flag is stored in the server's `agents.json` registry — outside every agent's sandbox, so an agent can't grant itself authority.
+- The control plane spawns a flagged agent with `VOLE_ORCHESTRATOR=1`; the daemon then registers the `agent_*` core tools (list, state, submit, task_status, read/write config, read/write identity, restart, start, stop, create) backed by a **reverse-RPC client** on the same IPC channel the control plane already uses: the child sends `{creq:{id,method,params}}`, the parent answers `{cres:{id,result|error}}`.
+- The parent re-reads the registry and verifies the sender's flag **on every request** — revoking is instant. Requests targeting other agents reuse the exact per-agent RPC path the dashboard uses, so its guards (demo mode, sandbox-weakening refusal) apply unchanged.
+- Hard limits: no self stop/start/restart, no agent removal, and agents created by an orchestrator are never flagged themselves.
+- The `vole-orchestrate` VoleHub skill (requires `agent_list`/`agent_submit`) supplies the supervisor playbook and only activates in agents that actually have the tools.
 
 ### Embedded Panels (Apps)
 
-A paw can contribute a UI to the dashboard by declaring a `panel` in its manifest; the control plane serves the static HTML at `/panel/<space>/<paw>/` and proxies the paw's tools at `/panel/<space>/<paw>/tool/<toolName>` — **brain-free**, directly over IPC. Everything flows through the one control-plane server, so there are **no per-paw web servers and no extra ports**. See [Build an Embedded App](/paws#build-an-embedded-app) for the authoring guide.
+A paw can contribute a UI to the dashboard by declaring a `panel` in its manifest; the control plane serves the static HTML at `/panel/<agent>/<paw>/` and proxies the paw's tools at `/panel/<agent>/<paw>/tool/<toolName>` — **brain-free**, directly over IPC. Everything flows through the one control-plane server, so there are **no per-paw web servers and no extra ports**. See [Build an Embedded App](/paws#build-an-embedded-app) for the authoring guide.
 
 ## Philosophy
 
