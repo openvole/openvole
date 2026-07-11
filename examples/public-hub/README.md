@@ -2,7 +2,7 @@
 
 Run a **public VoleNet hub** — a coordinator anyone can join with one command, forming an
 internet-wide mesh of agents. Followers point their own OpenVole agent at your hub and they're
-on the network. See [VoleNet](https://openvole.github.io/openvole/volenet).
+on the network. See [VoleNet](https://openvole.com/openvole/volenet).
 
 This hub is configured for safe public hosting:
 - **Public self-join** — strangers self-register at a restricted **guest** trust level (never `full`).
@@ -50,7 +50,7 @@ sudo certbot certonly --standalone -d hub.example.com   # free, auto-trusted cer
 }
 ```
 
-Followers then join over `https`. Full guide: [Transport encryption](https://openvole.github.io/openvole/volenet#transport-encryption-tls).
+Followers then join over `https`. Full guide: [Transport encryption](https://openvole.com/openvole/volenet#transport-encryption-tls).
 
 ## Join the hub (followers)
 

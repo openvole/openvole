@@ -12,7 +12,7 @@
 <p align="center">
   <a href="https://www.npmjs.com/package/openvole"><img src="https://img.shields.io/npm/v/openvole" alt="npm"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
-  <a href="https://openvole.github.io/openvole"><img src="https://img.shields.io/badge/docs-openvole.github.io-3fb950" alt="Docs"></a>
+  <a href="https://openvole.com/openvole"><img src="https://img.shields.io/badge/docs-openvole.com-3fb950" alt="Docs"></a>
 </p>
 
 <p align="center">
@@ -59,7 +59,7 @@ curl -fsSL https://raw.githubusercontent.com/openvole/openvole/main/presets/basi
 
 > The npm package is **`openvole`** (it provides the `vole` command). To run without installing: `npx openvole <command>` — **not** `npx vole`, which is an unrelated package.
 
-Full walkthrough → [Getting Started](https://openvole.github.io/openvole/getting-started).
+Full walkthrough → [Getting Started](https://openvole.com/openvole/getting-started).
 
 ## Why OpenVole?
 
@@ -110,7 +110,7 @@ verification) or [ClawHub](https://clawhub.ai) (13,000+ skills).
 **Brain** — the LLM lives in a Paw, not the core. `@openvole/paw-brain` is one unified paw for
 all providers and auto-detects from your API keys.
 
-Deep dive → [Architecture](https://openvole.github.io/openvole/architecture).
+Deep dive → [Architecture](https://openvole.com/openvole/architecture).
 
 ## Official Paws
 
@@ -126,7 +126,7 @@ sandboxed by default:
 vole paw add @openvole/paw-telegram
 ```
 
-Full list & docs → [Paws](https://openvole.github.io/openvole/paws).
+Full list & docs → [Paws](https://openvole.com/openvole/paws).
 
 ## VoleNet — distributed agents
 
@@ -147,7 +147,7 @@ vole net show-key                # share your public key
 vole net trust "vole-ed25519 ..." # trust a peer
 ```
 
-Architecture patterns & setup → [VoleNet docs](https://openvole.github.io/openvole/volenet).
+Architecture patterns & setup → [VoleNet docs](https://openvole.com/openvole/volenet).
 
 ## Security
 
@@ -156,7 +156,7 @@ filesystem, and child-process access are denied unless you grant them, and effec
 are the *intersection* of what a Paw requests and what you approve. Optional Docker isolation, and
 an AES-256 encrypted vault for secrets.
 
-Details → [Security](https://openvole.github.io/openvole/security).
+Details → [Security](https://openvole.com/openvole/security).
 
 ## OpenVole vs OpenClaw
 
@@ -177,13 +177,13 @@ come try it, build a Paw, write a Skill, and help this little vole grow.
 
 ## Documentation
 
-Full reference at **[openvole.github.io/openvole](https://openvole.github.io/openvole)**:
-[Getting Started](https://openvole.github.io/openvole/getting-started) ·
-[Configuration](https://openvole.github.io/openvole/configuration) ·
-[CLI](https://openvole.github.io/openvole/cli) ·
-[Dashboard](https://openvole.github.io/openvole/dashboard) ·
-[Paws](https://openvole.github.io/openvole/paws) ·
-[VoleNet](https://openvole.github.io/openvole/volenet)
+Full reference at **[openvole.com/openvole](https://openvole.com/openvole)**:
+[Getting Started](https://openvole.com/openvole/getting-started) ·
+[Configuration](https://openvole.com/openvole/configuration) ·
+[CLI](https://openvole.com/openvole/cli) ·
+[Dashboard](https://openvole.com/openvole/dashboard) ·
+[Paws](https://openvole.com/openvole/paws) ·
+[VoleNet](https://openvole.com/openvole/volenet)
 
 ## Contributing
 

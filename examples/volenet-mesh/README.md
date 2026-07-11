@@ -3,7 +3,7 @@
 Spin up a **peer-to-peer network of agents** on one machine: a `coordinator` that
 has the brain, and two **brainless** workers that each expose different tools.
 Ask the coordinator to do something and watch it call tools that physically live
-on other nodes — transparently, over [VoleNet](https://openvole.github.io/openvole/volenet).
+on other nodes — transparently, over [VoleNet](https://openvole.com/openvole/volenet).
 
 ```
             ┌─────────────────────────────┐
