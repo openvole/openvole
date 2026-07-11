@@ -95,6 +95,7 @@ export class ControlPlane {
 					this.callAgent(id, 'volenet_chat_send', { peerId, text }),
 				volenetChatClear: (peerId, id) => this.callAgent(id, 'volenet_chat_clear', { peerId }),
 				getPanelHtml: (agentId, paw) => this.callAgent(agentId, 'panel_html', { paw }),
+				listMcpTools: (agentId) => this.callAgent(agentId, 'tools_mcp'),
 				callPawTool: (agentId, name, params) => this.callAgent(agentId, 'tool', { name, params }),
 			},
 			{ host: this.host, token: this.token },

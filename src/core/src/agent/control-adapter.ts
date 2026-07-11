@@ -262,6 +262,11 @@ export function installControlAdapter(engine: VoleEngine, projectRoot: string): 
 					result = { ok: true }
 					break
 				}
+				case 'tools_mcp':
+					// Full tool list WITH JSON-schema parameters — the MCP bridge needs real schemas
+					// or clients send empty arguments (the state projection has no parameters).
+					result = current.toolRegistry.allSummaries()
+					break
 				case 'panel_html': {
 					const html = await current.pawRegistry.getPanelHtml(params.paw as string)
 					result = { html }

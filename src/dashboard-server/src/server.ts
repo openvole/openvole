@@ -46,6 +46,8 @@ export interface DashboardCallbacks {
 	volenetChatSend?: (peerId: string, text: string, agentId?: string) => Promise<unknown>
 	volenetChatClear?: (peerId: string, agentId?: string) => Promise<unknown>
 	getPanelHtml?: (agentId: string, paw: string) => Promise<unknown>
+	/** Tools with real JSON-schema parameters for the MCP bridge (falls back to fetchState). */
+	listMcpTools?: (agentId?: string) => Promise<unknown>
 	callPawTool?: (agentId: string, name: string, params: unknown) => Promise<unknown>
 	/** Per-agent; agentId is undefined in single-engine mode. */
 	fetchState: (agentId?: string) => Promise<unknown>
@@ -226,9 +228,12 @@ export function createDashboardServer(
 					const { handleMcpRequest } = await import('./mcp.js')
 					await handleMcpRequest(req, res, body, {
 						listTools: async () => {
-							const state = (await callbacks.fetchState(agent)) as {
-								tools?: Array<{ name: string; description?: string; parameters?: unknown }>
+							type McpTool = { name: string; description?: string; parameters?: unknown }
+							if (callbacks.listMcpTools) {
+								const tools = (await callbacks.listMcpTools(agent)) as McpTool[] | undefined
+								if (Array.isArray(tools)) return tools
 							}
+							const state = (await callbacks.fetchState(agent)) as { tools?: McpTool[] }
 							return state?.tools ?? []
 						},
 						callTool: async (name, args) =>

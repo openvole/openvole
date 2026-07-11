@@ -249,6 +249,16 @@ export class ToolRegistry {
 		}))
 	}
 
+	/** Every tool with its JSON-schema parameters, ignoring the horizon (e.g. for the MCP bridge). */
+	allSummaries(): ToolSummary[] {
+		return this.list().map((t) => ({
+			name: t.name,
+			description: t.description,
+			pawName: t.pawName,
+			parameters: zodToJsonSchema(t.parameters),
+		}))
+	}
+
 	/** Get all tool names owned by a specific Paw */
 	toolsForPaw(pawName: string): string[] {
 		return this.list()
