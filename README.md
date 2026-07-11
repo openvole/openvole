@@ -67,9 +67,10 @@ Full walkthrough → [Getting Started](https://openvole.com/openvole/getting-sta
 |---|---|
 | 🏠 **Self-hosted & private** | Your agents, your hardware, your data. Nothing phones home — point it at a local Ollama model and it never touches the cloud. |
 | 🔌 **Model-agnostic** | One unified brain paw speaks Anthropic, OpenAI, Gemini, xAI, Ollama, and the local Claude Code CLI. Switch providers per agent with a single env var. |
-| 🖥️ **A server, not a script** | `vole serve` is a control plane: create, start, stop, and chat with a fleet of agents — "agents" — from one browser dashboard. No babysitting processes on ports. |
+| 🖥️ **A server, not a script** | `vole serve` is a control plane: create, start, stop, and chat with a fleet of agents from one browser dashboard. No babysitting processes on ports. |
 | 🧩 **Microkernel, zero lock-in** | A tiny, LLM-ignorant core. Every capability is a Paw you can swap, sandbox, or write yourself — and you can bring your own system prompt via `BRAIN.md`. |
 | 🕸️ **VoleNet** | A peer-to-peer AI agent network: remote tools become local, cheap workers share one brain, memory syncs across the mesh — signed with hybrid post-quantum signatures (Ed25519 + ML-DSA-65), with leader election and no central server. |
+| 🎛️ **Orchestrator agents** | Grant one agent authority over the fleet and just talk to it: it lists its siblings, delegates tasks and reads back results, writes their identity files, and manages their lifecycle. Authority is human-granted in the server registry, re-verified on every call, and hard-guarded — no self-kill, no deletes, no sandbox weakening. |
 | 🪟 **An app platform** | A Paw can ship its own UI, rendered as a panel under the dashboard's **Apps** tab — the way apps live on a desktop. The control plane becomes a self-hosted app you extend, one panel per paw. |
 
 ## Apps — paws that bring their own UI

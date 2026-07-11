@@ -195,6 +195,17 @@ The Brain is a Paw — the core is LLM-ignorant. Use `@openvole/paw-brain` — a
 | `vault_get` / `vault_list` / `vault_delete` | Retrieve, list, or delete vault entries |
 | `web_fetch` | Lightweight URL fetching (GET/POST with headers, body) |
 
+### Orchestrator Agents
+
+Grant an agent authority over its siblings and it gets 12 `agent_*` tools under `vole serve` — list agents, submit tasks (with result readback), read/write their config and identity files, restart/start/stop them, create new ones:
+
+```bash
+vole agent create boss --orchestrator     # or: vole agent orchestrate <name> on
+vole skill install vole-orchestrate       # the supervisor playbook
+```
+
+The flag lives in the server registry — outside every agent's sandbox — and is re-verified on every call, so revoking is instant. Guardrails: no self stop/restart, no removing agents, and config writes pass the same sandbox-weakening refusal as the dashboard.
+
 ### Heartbeat
 
 Periodic wake-up — the Brain checks `HEARTBEAT.md` and decides what to do. No user input needed. Uses cron expressions:

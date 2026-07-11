@@ -13,9 +13,9 @@ By default it listens on `http://localhost:3000`. Set `VOLE_DASHBOARD_PORT` to u
 
 ## Agents
 
-A **agent** is an isolated agent — its own `vole.config.json`, paws, identity files, and data directory. Each running agent is its own engine subprocess, parented to the `vole serve` process (not detached, so stopping `vole serve` stops them too).
+An **agent** is fully isolated — its own `vole.config.json`, paws, identity files, and data directory. Each running agent is its own engine subprocess, parented to the `vole serve` process (not detached, so stopping `vole serve` stops them too).
 
-One `vole serve` process manages every agent under a single OpenVole **root** directory. Agents are recorded in an `agents.json` registry at the root.
+One `vole serve` process manages every agent under a single OpenVole **root** directory. Agents are recorded in an `agents.json` registry at the root. Agents granted [orchestrator authority](/cli#orchestrator-agents) show an **orchestrator** badge on their card.
 
 ## Root Resolution
 
