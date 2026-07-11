@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## v4.6.0 (2026-07-11)
+
+> Ships as `openvole` 4.6.0 and `@openvole/dashboard-server` 0.7.0 (pairs with `@openvole/paw-brain` 2.3.1). Two headline changes: **spaces are now agents**, and an agent can be granted **orchestrator authority** to supervise its siblings. No breaking changes — every "space" surface lives on as a deprecated alias.
 
 ### Spaces are now Agents
 - **The "space" concept is renamed to "agent"** — each one always was an isolated agent under your `vole serve` server; now the name says so. `vole agent create/list/start/stop/status/switch/remove/template/orchestrate` replace `vole space …`, the dashboard says **Your Agents**, and the registry is `agents.json`.
