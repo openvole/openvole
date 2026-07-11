@@ -46,7 +46,7 @@ See the [Dashboard guide](/dashboard) for the full walkthrough.
 
 ### `vole agent`
 
-Manage agents from the CLI. (The dashboard's agent switcher does the same things visually.)
+Manage agents from the CLI. (The dashboard's agent switcher does the same things visually.) These commands operate on the same **root** `vole serve` resolves — `VOLE_HOME` if set, else the current directory when it is a root or empty — so run them from your server directory.
 
 > [!NOTE]
 > Agents were called **spaces** before v4.6. `vole space …` still works as a deprecated alias, a legacy `spaces.json` registry is read transparently (the next write migrates it to `agents.json`), and an existing `space-template` is still honored.

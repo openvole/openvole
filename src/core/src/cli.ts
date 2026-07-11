@@ -40,7 +40,6 @@ async function main(): Promise<void> {
 		command !== 'space' && // deprecated alias for 'agent'
 		command !== '__run-agent' &&
 		command !== '__run-space' && // deprecated alias
-
 		command !== 'serve' &&
 		command !== undefined
 	) {
@@ -1475,13 +1474,67 @@ async function handleNetCommand(args: string[], projectRoot: string): Promise<vo
 	}
 }
 
+/** A directory is an OpenVole root when it holds an agents registry (legacy spaces.json too). */
+async function isVoleRoot(dir: string): Promise<boolean> {
+	const fs = await import('node:fs/promises')
+	for (const name of ['agents.json', 'spaces.json']) {
+		try {
+			await fs.access(path.join(dir, name))
+			return true
+		} catch {
+			/* keep looking */
+		}
+	}
+	return false
+}
+
+/**
+ * Resolve the OpenVole root the same way `vole serve` does: explicit VOLE_HOME always wins,
+ * else the cwd when it is already a root or is empty (ignoring incidental files).
+ */
+async function resolveRootDir(cwd: string): Promise<string | undefined> {
+	if (process.env.VOLE_HOME) return path.resolve(process.env.VOLE_HOME)
+	if (await isVoleRoot(cwd)) return cwd
+	const fs = await import('node:fs/promises')
+	const ignore = new Set(['.DS_Store', '.git', '.gitignore'])
+	const entries = (await fs.readdir(cwd).catch(() => [] as string[])).filter((e) => !ignore.has(e))
+	return entries.length === 0 ? cwd : undefined
+}
+
 async function handleAgentCommand(args: string[]): Promise<void> {
 	const { setLoggerSilent } = await import('./core/logger.js')
 	setLoggerSilent(false) // user-facing command — show logger output on the console
 	const { AgentManager } = await import('./agent/manager.js')
-	const mgr = new AgentManager()
+	// Operate on the same root `vole serve` would resolve — not an implicit ~/.openvole.
+	const root = await resolveRootDir(process.cwd())
+	if (!root) {
+		logger.error('vole agent: the current directory is not an OpenVole root and is not empty.')
+		logger.info('cd into your root (the directory with agents.json), or set VOLE_HOME.')
+		const os = await import('node:os')
+		const legacy = path.join(os.homedir(), '.openvole')
+		if (await isVoleRoot(legacy)) {
+			logger.info(`Your existing agents live at ${legacy} — VOLE_HOME=${legacy} vole agent ...`)
+		}
+		process.exit(1)
+	}
+	logger.info(`OpenVole root: ${root}`)
+	const mgr = new AgentManager({ home: root })
 	const subcommand = args[0]
 
+	try {
+		await runAgentSubcommand(mgr, subcommand, args)
+	} catch (err) {
+		// User-facing command: one clean line, not a stack trace.
+		logger.error(err instanceof Error ? err.message : String(err))
+		process.exit(1)
+	}
+}
+
+async function runAgentSubcommand(
+	mgr: InstanceType<typeof import('./agent/manager.js')['AgentManager']>,
+	subcommand: string | undefined,
+	args: string[],
+): Promise<void> {
 	switch (subcommand) {
 		case 'create': {
 			const rest = args.slice(1)
@@ -1650,59 +1703,37 @@ async function runServe(projectRoot: string): Promise<void> {
 	const fs = await import('node:fs/promises')
 	const os = await import('node:os')
 
-	// Marker of an existing OpenVole root: the agents registry file.
-	const hasRegistry = async (dir: string): Promise<boolean> => {
-		// Legacy pre-rename roots have spaces.json — still a valid root.
-		for (const name of ['agents.json', 'spaces.json']) {
-			try {
-				await fs.access(path.join(dir, name))
-				return true
-			} catch {
-				/* keep looking */
-			}
-		}
-		return false
-	}
+	const hasRegistry = isVoleRoot
 
-	// Resolve the root to serve. Explicit VOLE_HOME always wins. Otherwise use the current
-	// directory — but only if it is already a root or is empty (ignoring incidental files).
+	// Resolve the root to serve — VOLE_HOME, else the cwd when it's a root or empty.
+	const resolved = await resolveRootDir(projectRoot)
 	let home: string
-	if (process.env.VOLE_HOME) {
-		home = path.resolve(process.env.VOLE_HOME)
-	} else if (await hasRegistry(projectRoot)) {
-		home = projectRoot
+	if (resolved) {
+		home = resolved
 	} else {
-		const ignore = new Set(['.DS_Store', '.git', '.gitignore'])
-		const entries = (await fs.readdir(projectRoot).catch(() => [] as string[])).filter(
-			(e) => !ignore.has(e),
+		logger.error('vole serve: the current directory is not an OpenVole root and is not empty.')
+		logger.info(`  ${projectRoot}`)
+		logger.info(
+			'Run `vole serve` in an empty directory (it becomes a new root) or in an existing root (one that has agents.json).',
 		)
-		if (entries.length === 0) {
-			home = projectRoot
-		} else {
-			logger.error('vole serve: the current directory is not an OpenVole root and is not empty.')
-			logger.info(`  ${projectRoot}`)
+		// A setup.sh sitting here almost always means this is an example template not yet initialized.
+		if (
+			await fs
+				.access(path.join(projectRoot, 'setup.sh'))
+				.then(() => true)
+				.catch(() => false)
+		) {
 			logger.info(
-				'Run `vole serve` in an empty directory (it becomes a new root) or in an existing root (one that has agents.json).',
+				'This looks like an example — run `bash setup.sh` first (it installs paws, generates the key, and writes agents.json).',
 			)
-			// A setup.sh sitting here almost always means this is an example template not yet initialized.
-			if (
-				await fs
-					.access(path.join(projectRoot, 'setup.sh'))
-					.then(() => true)
-					.catch(() => false)
-			) {
-				logger.info(
-					'This looks like an example — run `bash setup.sh` first (it installs paws, generates the key, and writes agents.json).',
-				)
-			}
-			const legacy = path.join(os.homedir(), '.openvole')
-			if (await hasRegistry(legacy)) {
-				logger.info(`Your existing agents live at ${legacy} — manage them with:`)
-				logger.info(`  cd ${legacy} && vole serve`)
-				logger.info(`  (or)  VOLE_HOME=${legacy} vole serve`)
-			}
-			process.exit(1)
 		}
+		const legacy = path.join(os.homedir(), '.openvole')
+		if (await hasRegistry(legacy)) {
+			logger.info(`Your existing agents live at ${legacy} — manage them with:`)
+			logger.info(`  cd ${legacy} && vole serve`)
+			logger.info(`  (or)  VOLE_HOME=${legacy} vole serve`)
+		}
+		process.exit(1)
 	}
 
 	const fresh = !(await hasRegistry(home))
