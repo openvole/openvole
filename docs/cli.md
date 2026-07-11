@@ -79,6 +79,7 @@ An agent flagged as **orchestrator** gets a set of `agent_*` tools when it runs 
 - The flag lives in the server's `agents.json` registry — **outside every agent's sandbox** — and the control plane re-checks it on every request, so `off` takes effect immediately. Granting (`on`) requires restarting the agent under `vole serve`.
 - Guardrails: an orchestrator cannot stop/start/restart **itself**, cannot **remove** agents at all, and config writes go through the same sandbox-weakening refusal as the dashboard.
 - Detached agents (`vole agent start`) have no control channel — orchestrator tools require `vole serve`.
+- Creating (or granting) an orchestrator **seeds an orchestrator `AGENT.md` brief** — unless you've already customized the identity, which is never overwritten. The system prompt also states the authority whenever the `agent_*` tools are registered, so the agent always knows what it is.
 
 ## Paw Management
 

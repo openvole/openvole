@@ -7,6 +7,24 @@ import * as path from 'node:path'
  *
  * Used by `vole agent create`. Throws if vole.config.json already exists.
  */
+/** The generic AGENT.md every new agent starts with. */
+export const DEFAULT_AGENT_MD =
+	'# Agent\n\nOperating rules and behavioral guidelines.\n\n## Rules\n- Always be helpful and direct\n- Ask for clarification when a request is ambiguous\n- Save important findings to memory for future reference\n- Store credentials in the vault, never in workspace or memory\n- When reading API docs or instructions, save them to workspace immediately\n'
+
+/** Seeded instead of the default when an agent is created as (or granted) orchestrator. */
+export const ORCHESTRATOR_AGENT_MD = `# Orchestrator
+
+You supervise the sibling agents in this vole server with your agent_* tools and
+the vole-orchestrate skill (read it with skill_read before orchestrating).
+
+## Rules
+- Start every job with agent_list.
+- Delegate with self-contained briefs via agent_submit; track taskIds and read
+  results with agent_task_status.
+- Report every lifecycle action (create/stop/restart/re-define) to your human.
+- Never weaken any agent's security config. Never publish anything yourself.
+`
+
 export async function scaffoldProject(dir: string): Promise<void> {
 	const configPath = path.resolve(dir, 'vole.config.json')
 
@@ -64,11 +82,7 @@ export async function scaffoldProject(dir: string): Promise<void> {
 		'# User\n\nInformation about the user.\n\n## Profile\n- Name:\n- Timezone:\n- Language: English\n',
 		'utf-8',
 	)
-	await fs.writeFile(
-		path.join(dir, '.openvole', 'AGENT.md'),
-		'# Agent\n\nOperating rules and behavioral guidelines.\n\n## Rules\n- Always be helpful and direct\n- Ask for clarification when a request is ambiguous\n- Save important findings to memory for future reference\n- Store credentials in the vault, never in workspace or memory\n- When reading API docs or instructions, save them to workspace immediately\n',
-		'utf-8',
-	)
+	await fs.writeFile(path.join(dir, '.openvole', 'AGENT.md'), DEFAULT_AGENT_MD, 'utf-8')
 
 	// .env template
 	await fs.writeFile(

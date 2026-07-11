@@ -13,6 +13,8 @@
 - Built as **reverse-RPC on the existing control-plane IPC channel** (`{creq}`/`{cres}` envelopes). The flag lives in the server registry — outside every agent's sandbox — and is re-verified per request, so revocation is immediate. The dashboard's config guards (demo mode, sandbox-weakening refusal) apply unchanged; self-lifecycle ops and agent removal are refused.
 - New VoleHub skill **`vole-orchestrate`** — the supervisor playbook (delegation briefs, sessionId continuity, identity-file conventions, lifecycle rules); activates only in agents that have the tools.
 - Dashboard: the agents list shows an **orchestrator badge**.
+- **Orchestrators know what they are**: creating or granting one seeds an orchestrator `AGENT.md` brief (custom identities are never overwritten), and the system prompt states the granted authority whenever the `agent_*` tools are registered.
+- The MCP bridge (`/mcp/<agent>`) now exposes **real JSON-schema parameters** for every tool — schema-aware clients (e.g. a Claude Code brain) previously saw empty schemas and sent empty arguments.
 
 ## v4.5.0 (2026-07-07)
 

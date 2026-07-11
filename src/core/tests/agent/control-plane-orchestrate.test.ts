@@ -245,6 +245,32 @@ describe('AgentManager.setOrchestrator', () => {
 		expect('orchestrator' in boss).toBe(false)
 	})
 
+	it('seeds the orchestrator AGENT.md on create and grant, but never clobbers custom content', async () => {
+		const home = await fs.mkdtemp(path.join(os.tmpdir(), 'vole-seed-'))
+		const mgr = new AgentManager({ home })
+
+		const boss = await mgr.create('seed-boss', { orchestrator: true })
+		const seeded = await fs.readFile(path.join(boss.path, '.openvole', 'AGENT.md'), 'utf-8')
+		expect(seeded).toContain('# Orchestrator')
+
+		const worker = await mgr.create('seed-worker')
+		const plain = await fs.readFile(path.join(worker.path, '.openvole', 'AGENT.md'), 'utf-8')
+		expect(plain).not.toContain('# Orchestrator')
+
+		// Grant on an agent whose identity was customized — must stay untouched.
+		const customFile = path.join(worker.path, '.openvole', 'AGENT.md')
+		await fs.writeFile(customFile, '# My custom brief\n')
+		await mgr.setOrchestrator('seed-worker', true)
+		expect(await fs.readFile(customFile, 'utf-8')).toBe('# My custom brief\n')
+
+		// Grant on a pristine identity — seeded.
+		const fresh = await mgr.create('seed-fresh')
+		await mgr.setOrchestrator('seed-fresh', true)
+		const freshMd = await fs.readFile(path.join(fresh.path, '.openvole', 'AGENT.md'), 'utf-8')
+		expect(freshMd).toContain('# Orchestrator')
+		await fs.rm(home, { recursive: true, force: true })
+	})
+
 	it('throws for an unknown agent', async () => {
 		const mgr = new AgentManager({ home: tmpDir })
 		await expect(mgr.setOrchestrator('ghost', true)).rejects.toThrow('Agent not found')

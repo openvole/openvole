@@ -17,6 +17,27 @@ describe('System Prompt', () => {
 		await fs.rm(tmpDir, { recursive: true, force: true })
 	})
 
+	describe('orchestrator authority statement', () => {
+		const content = { brainPrompt: 'base', identityContext: '' }
+		const tool = (pawName: string): ToolSummary => ({
+			name: 'agent_list',
+			description: 'list agents',
+			pawName,
+			parameters: undefined,
+		})
+
+		it('states the authority when __orchestrate__ tools are registered', () => {
+			const prompt = buildSystemPrompt(content, [], [tool('__orchestrate__')])
+			expect(prompt).toContain('## Orchestrator Authority')
+			expect(prompt).toContain('re-verified on every agent_* call')
+		})
+
+		it('says nothing about orchestration otherwise', () => {
+			const prompt = buildSystemPrompt(content, [], [tool('__core__')])
+			expect(prompt).not.toContain('Orchestrator Authority')
+		})
+	})
+
 	describe('loadSystemPromptContent', () => {
 		it('returns default prompt when no BRAIN.md exists', async () => {
 			const content = await loadSystemPromptContent(tmpDir, 'paw-brain')

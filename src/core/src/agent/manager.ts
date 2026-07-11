@@ -2,7 +2,7 @@ import * as fs from 'node:fs/promises'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { execa } from 'execa'
-import { scaffoldProject } from './scaffold.js'
+import { DEFAULT_AGENT_MD, ORCHESTRATOR_AGENT_MD, scaffoldProject } from './scaffold.js'
 import type { AgentEntry, AgentRegistry, AgentRuntime, AgentStatus } from './types.js'
 
 /** How long to wait for a graceful SIGTERM exit before SIGKILL (ms). */
@@ -180,7 +180,20 @@ export class AgentManager {
 		reg.agents.push(entry)
 		if (!reg.activeId) reg.activeId = id
 		await this.writeRegistry(reg)
+		if (entry.orchestrator) await this.seedOrchestratorIdentity(dir)
 		return entry
+	}
+
+	/** Seed the orchestrator AGENT.md brief — but never clobber a customized identity. */
+	private async seedOrchestratorIdentity(dir: string): Promise<void> {
+		const file = path.join(dir, '.openvole', 'AGENT.md')
+		try {
+			const current = await fs.readFile(file, 'utf-8')
+			if (current !== DEFAULT_AGENT_MD) return
+		} catch {
+			await fs.mkdir(path.join(dir, '.openvole'), { recursive: true })
+		}
+		await fs.writeFile(file, ORCHESTRATOR_AGENT_MD, 'utf-8')
 	}
 
 	async list(): Promise<AgentStatus[]> {
@@ -281,6 +294,7 @@ export class AgentManager {
 		// undefined (not `delete`) — JSON.stringify drops the key on write anyway
 		entry.orchestrator = value ? true : undefined
 		await this.writeRegistry(reg)
+		if (value) await this.seedOrchestratorIdentity(entry.path)
 		return entry
 	}
 

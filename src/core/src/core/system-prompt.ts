@@ -116,6 +116,15 @@ export function buildSystemPrompt(
 		parts.push(content.identityContext)
 	}
 
+	// Grounded role statement — present exactly when the orchestrator tools are registered
+	// (the flag lives in the server registry; the control plane re-verifies it per request).
+	if (availableTools.some((t) => t.pawName === '__orchestrate__')) {
+		parts.push('')
+		parts.push(
+			"## Orchestrator Authority\nThis agent holds orchestrator authority over the sibling agents of this vole server — granted by a human in the server registry, revocable at any time, and re-verified on every agent_* call. Read the vole-orchestrate skill (skill_read) before orchestrating; never weaken any agent's security config.",
+		)
+	}
+
 	// Semi-static: Skills list
 	if (activeSkills.length > 0) {
 		parts.push('')
