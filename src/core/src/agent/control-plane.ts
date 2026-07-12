@@ -316,11 +316,15 @@ export class ControlPlane {
 				return this.summarizeState(await this.callAgent(entry.id, 'state'))
 			case 'task_status':
 				return this.callAgent(entry.id, 'task_status', { taskId: params.taskId })
-			case 'submit':
-				return this.callAgent(entry.id, 'submit', {
-					input: params.input,
-					sessionId: params.sessionId,
-				})
+			case 'submit': {
+				const input = params.input
+				if (typeof input !== 'string' || input.trim() === '') {
+					throw new Error(
+						'Missing "input" — the task brief to send to the agent, e.g. {"target":"video-editor","input":"Summarize your last project"}',
+					)
+				}
+				return this.callAgent(entry.id, 'submit', { input, sessionId: params.sessionId })
+			}
 			case 'read_config':
 				return this.callAgent(entry.id, 'read_config')
 			case 'write_config':

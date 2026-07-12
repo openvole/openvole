@@ -94,7 +94,12 @@ export function createOrchestrateTools(
 			}),
 			async execute(params) {
 				const target = targetOf(params)
-				const { input, sessionId } = params as { input: string; sessionId?: string }
+				const q = params as Record<string, unknown>
+				// Same forgiveness as target: models guess prompt/message/text for the brief.
+				const input = (q.input ?? q.prompt ?? q.message ?? q.text ?? q.task ?? q.content) as
+					| string
+					| undefined
+				const { sessionId } = q as { sessionId?: string }
 				return run('submit', { target, input, sessionId })
 			},
 		},

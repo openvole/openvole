@@ -123,6 +123,21 @@ describe('createOrchestrateTools', () => {
 		expect(callParent).toHaveBeenLastCalledWith('stop', { target: 'worker' })
 	})
 
+	it('accepts prompt/message aliases for the submit input', async () => {
+		await findTool('agent_submit').execute({ agentId: 'worker', prompt: 'do the thing' })
+		expect(callParent).toHaveBeenLastCalledWith('submit', {
+			target: 'worker',
+			input: 'do the thing',
+			sessionId: undefined,
+		})
+		await findTool('agent_submit').execute({ target: 'worker', message: 'again' })
+		expect(callParent).toHaveBeenLastCalledWith('submit', {
+			target: 'worker',
+			input: 'again',
+			sessionId: undefined,
+		})
+	})
+
 	it('agent_create forwards the name', async () => {
 		await findTool('agent_create').execute({ name: 'New Worker' })
 		expect(callParent).toHaveBeenCalledWith('create', { name: 'New Worker' })

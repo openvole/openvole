@@ -184,6 +184,22 @@ describe('ControlPlane orchestrate reverse-RPC', () => {
 		})
 	})
 
+	it('teaches the fix when the submit input is missing or empty', async () => {
+		await cp.handleOrchestrateRequest(
+			'boss',
+			{ id: 31, method: 'submit', params: { target: 'worker' } },
+			reply,
+		)
+		expect(lastCres().error).toContain('Missing "input"')
+		await cp.handleOrchestrateRequest(
+			'boss',
+			{ id: 32, method: 'submit', params: { target: 'worker', input: '   ' } },
+			reply,
+		)
+		expect(lastCres().error).toContain('Missing "input"')
+		expect(callAgent).not.toHaveBeenCalledWith('worker', 'submit', expect.anything())
+	})
+
 	it('teaches the fix when target is missing', async () => {
 		await cp.handleOrchestrateRequest('boss', { id: 30, method: 'state', params: {} }, reply)
 		expect(lastCres().error).toContain('Missing "target"')
