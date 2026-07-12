@@ -230,8 +230,12 @@ export function createDashboardServer(
 						listTools: async () => {
 							type McpTool = { name: string; description?: string; parameters?: unknown }
 							if (callbacks.listMcpTools) {
-								const tools = (await callbacks.listMcpTools(agent)) as McpTool[] | undefined
-								if (Array.isArray(tools)) return tools
+								try {
+									const tools = (await callbacks.listMcpTools(agent)) as McpTool[] | undefined
+									if (Array.isArray(tools)) return tools
+								} catch {
+									/* older engine without tools_mcp — fall back to the state projection */
+								}
 							}
 							const state = (await callbacks.fetchState(agent)) as { tools?: McpTool[] }
 							return state?.tools ?? []

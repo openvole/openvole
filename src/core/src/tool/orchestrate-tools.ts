@@ -30,6 +30,13 @@ export function createOrchestrateTools(
 		}
 	}
 
+	// Models often guess agentId/agent/id for the target (our own APIs say agentId) — accept
+	// the aliases instead of failing the call.
+	const targetOf = (params: unknown): string => {
+		const p = params as Record<string, unknown>
+		return (p.target ?? p.agentId ?? p.agent ?? p.id) as string
+	}
+
 	// Fast-fail UX guard; the parent's check (against resolved ids) stays authoritative.
 	const guardSelf = (target: string, op: string): Record<string, unknown> | undefined =>
 		target === selfAgentId
@@ -55,7 +62,7 @@ export function createOrchestrateTools(
 				target: z.string().describe('Agent id or name'),
 			}),
 			async execute(params) {
-				const { target } = params as { target: string }
+				const target = targetOf(params)
 				return run('state', { target })
 			},
 		},
@@ -68,7 +75,8 @@ export function createOrchestrateTools(
 				taskId: z.string().describe('The taskId returned by agent_submit'),
 			}),
 			async execute(params) {
-				const { target, taskId } = params as { target: string; taskId: string }
+				const target = targetOf(params)
+				const { taskId } = params as { taskId: string }
 				return run('task_status', { target, taskId })
 			},
 		},
@@ -85,11 +93,8 @@ export function createOrchestrateTools(
 					.describe('Stable session key for conversational continuity (e.g. a project slug)'),
 			}),
 			async execute(params) {
-				const { target, input, sessionId } = params as {
-					target: string
-					input: string
-					sessionId?: string
-				}
+				const target = targetOf(params)
+				const { input, sessionId } = params as { input: string; sessionId?: string }
 				return run('submit', { target, input, sessionId })
 			},
 		},
@@ -100,7 +105,7 @@ export function createOrchestrateTools(
 				target: z.string().describe('Agent id or name'),
 			}),
 			async execute(params) {
-				const { target } = params as { target: string }
+				const target = targetOf(params)
 				const r = await run('read_config', { target })
 				return 'ok' in r || 'error' in r ? r : { ok: true, config: r }
 			},
@@ -114,7 +119,8 @@ export function createOrchestrateTools(
 				config: z.record(z.any()).describe('The complete new vole.config.json contents'),
 			}),
 			async execute(params) {
-				const { target, config } = params as { target: string; config: Record<string, unknown> }
+				const target = targetOf(params)
+				const { config } = params as { config: Record<string, unknown> }
 				return run('write_config', { target, config })
 			},
 		},
@@ -126,7 +132,7 @@ export function createOrchestrateTools(
 				target: z.string().describe('Agent id or name'),
 			}),
 			async execute(params) {
-				const { target } = params as { target: string }
+				const target = targetOf(params)
 				const r = await run('read_identity', { target })
 				return 'ok' in r || 'error' in r ? r : { ok: true, files: r }
 			},
@@ -141,11 +147,8 @@ export function createOrchestrateTools(
 				content: z.string().describe('The complete new file contents'),
 			}),
 			async execute(params) {
-				const { target, filename, content } = params as {
-					target: string
-					filename: string
-					content: string
-				}
+				const target = targetOf(params)
+				const { filename, content } = params as { filename: string; content: string }
 				return run('write_identity', { target, filename, content })
 			},
 		},
@@ -157,7 +160,7 @@ export function createOrchestrateTools(
 				target: z.string().describe('Agent id or name'),
 			}),
 			async execute(params) {
-				const { target } = params as { target: string }
+				const target = targetOf(params)
 				return guardSelf(target, 'restart') ?? run('restart', { target })
 			},
 		},
@@ -168,7 +171,7 @@ export function createOrchestrateTools(
 				target: z.string().describe('Agent id or name'),
 			}),
 			async execute(params) {
-				const { target } = params as { target: string }
+				const target = targetOf(params)
 				return guardSelf(target, 'start') ?? run('start', { target })
 			},
 		},
@@ -180,7 +183,7 @@ export function createOrchestrateTools(
 				target: z.string().describe('Agent id or name'),
 			}),
 			async execute(params) {
-				const { target } = params as { target: string }
+				const target = targetOf(params)
 				return guardSelf(target, 'stop') ?? run('stop', { target })
 			},
 		},

@@ -184,6 +184,12 @@ describe('ControlPlane orchestrate reverse-RPC', () => {
 		})
 	})
 
+	it('teaches the fix when target is missing', async () => {
+		await cp.handleOrchestrateRequest('boss', { id: 30, method: 'state', params: {} }, reply)
+		expect(lastCres().error).toContain('Missing "target"')
+		expect(lastCres().error).toContain('agent_list')
+	})
+
 	it('rejects an unknown method and an unknown target', async () => {
 		await cp.handleOrchestrateRequest(
 			'boss',

@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+- **Orchestrator tools forgive the obvious parameter guess**: `agent_*` tools accept `agentId`/`agent`/`id` as aliases for `target` — models frequently guess `agentId` (our own APIs use it) and previously got an unhelpful failure.
+- A missing `target` now errors with guidance (*pass the agent id or name from `agent_list`*) instead of `Agent not found: undefined`, so a model can self-correct on the next call.
+- The MCP `tools/list` route falls back to the schema-less projection if an older engine child doesn't implement `tools_mcp`, instead of failing the whole listing.
+
 ## v4.6.0 (2026-07-11)
 
 > Ships as `openvole` 4.6.0 and `@openvole/dashboard-server` 0.7.0 (pairs with `@openvole/paw-brain` 2.3.1). Two headline changes: **spaces are now agents**, and an agent can be granted **orchestrator authority** to supervise its siblings. No breaking changes — every "space" surface lives on as a deprecated alias.

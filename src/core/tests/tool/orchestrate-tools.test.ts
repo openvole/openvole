@@ -114,6 +114,15 @@ describe('createOrchestrateTools', () => {
 		expect(callParent).toHaveBeenCalledWith('state', { target: 'boss' })
 	})
 
+	it('accepts agentId/agent/id as aliases for target', async () => {
+		await findTool('agent_state').execute({ agentId: 'worker' })
+		expect(callParent).toHaveBeenLastCalledWith('state', { target: 'worker' })
+		await findTool('agent_task_status').execute({ agent: 'worker', taskId: 't-1' })
+		expect(callParent).toHaveBeenLastCalledWith('task_status', { target: 'worker', taskId: 't-1' })
+		await findTool('agent_stop').execute({ id: 'worker' })
+		expect(callParent).toHaveBeenLastCalledWith('stop', { target: 'worker' })
+	})
+
 	it('agent_create forwards the name', async () => {
 		await findTool('agent_create').execute({ name: 'New Worker' })
 		expect(callParent).toHaveBeenCalledWith('create', { name: 'New Worker' })

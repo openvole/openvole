@@ -300,6 +300,11 @@ export class ControlPlane {
 		if (method === 'create') return this.createAgent(params.name as string)
 
 		const t = params.target as string
+		if (!t) {
+			throw new Error(
+				'Missing "target" — pass the agent id or name from agent_list, e.g. {"target":"video-editor"}',
+			)
+		}
 		const reg = await this.manager.readRegistry()
 		const entry = reg.agents.find((s) => s.id === t || s.name === t)
 		if (!entry) throw new Error(`Agent not found: ${t}`)
