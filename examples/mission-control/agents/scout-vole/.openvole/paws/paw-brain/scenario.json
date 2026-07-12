@@ -1,0 +1,15 @@
+{
+  "rules": [
+    {
+      "match": [
+        "."
+      ],
+      "steps": [
+        {
+          "response": "🔭 **FIELD REPORT — sector 7 (the garden)**\n\n- 0600: hawk observed. Committee formed. Committee disbanded (hawk left).\n- 0730: the humans refilled the bird feeder. Strategic seed reserves +40%.\n- 0900: mesh link to HQ nominal — this report traveled as a real task result.\n- Threat level: **mild** (one suspicious cat, currently asleep)\n\nHQ context received: “{{user}}”\n\n— scout-vole, over and out 📡"
+        }
+      ]
+    }
+  ],
+  "fallback": "📡 Scout-vole. Nothing to report. (There is always something to report — ask for a scouting report.)"
+}

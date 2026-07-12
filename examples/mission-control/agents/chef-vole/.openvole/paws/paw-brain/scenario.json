@@ -1,0 +1,21 @@
+{
+  "rules": [
+    {
+      "match": [
+        "menu",
+        "dinner",
+        "hungry",
+        "banquet",
+        "food",
+        "eat",
+        "cook"
+      ],
+      "steps": [
+        {
+          "response": "🍽️ **Tonight at Le Petit Vole** *(chef's table, burrow seating only)*\n\n- *Amuse-burrow:* dew-chilled clover on a pine-needle skewer\n- *Starter:* dandelion-crown salad, thistle vinaigrette\n- *Main:* acorn risotto, browned in beechwood butter\n- *Dessert:* blackberry trifle “La Reine”\n\nThe kitchen received your order as a real task — check my Overview tab: it's in my task list. — Chef 🦪"
+        }
+      ]
+    }
+  ],
+  "fallback": "🦪 Chef-vole here. I only speak in menus — but since you asked (“{{user}}”), the answer is always: acorn risotto. It's *always* acorn risotto."
+}

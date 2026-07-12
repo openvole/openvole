@@ -1,0 +1,5 @@
+node_modules/
+.openvole/logs/
+.openvole/runtime.json
+.openvole/paws/*/data/
+.env

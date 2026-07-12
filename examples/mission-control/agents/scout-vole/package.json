@@ -1,0 +1,6 @@
+{
+  "dependencies": {
+    "@openvole/paw-brain": "^2.4.0",
+    "@openvole/paw-session": "^2.2.1"
+  }
+}

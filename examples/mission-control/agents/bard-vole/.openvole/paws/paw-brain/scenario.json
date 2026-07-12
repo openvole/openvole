@@ -1,0 +1,15 @@
+{
+  "rules": [
+    {
+      "match": [
+        "."
+      ],
+      "steps": [
+        {
+          "response": "🪶 *The bard clears his tiny throat…*\n\nYour words arrived — a real task, whiskers to whiskers:\n“{{user}}”\n\n> soft paws in the dark\n> your words carried through the mesh —\n> small vole, vast burrow\n\n*(Every haiku is performed live from a scripted soul. The delivery, however, was a genuine inter-agent task.)*"
+        }
+      ]
+    }
+  ],
+  "fallback": "🪶 The bard bows."
+}

@@ -1,0 +1,199 @@
+{
+  "rules": [
+    {
+      "match": [
+        "fleet",
+        "agents",
+        "who.?s here",
+        "who is (here|in)",
+        "list"
+      ],
+      "steps": [
+        {
+          "tool": "agent_list"
+        },
+        {
+          "response": "👑 The royal fleet — live from the registry, not a screenshot:\n\n```json\n{{last_result}}\n```\n\nEvery entry is a real, isolated engine under this server. Say **dinner**, **a poem about anything**, or **scouting report** and I'll put one of them to work."
+        }
+      ]
+    },
+    {
+      "match": [
+        "dinner",
+        "menu",
+        "hungry",
+        "cook",
+        "food",
+        "eat"
+      ],
+      "steps": [
+        {
+          "tool": "agent_submit",
+          "params": {
+            "target": "chef-vole",
+            "input": "The royal court is hungry! Tonight's menu, please. Their exact words: {{user}}",
+            "sessionId": "royal-kitchen"
+          }
+        },
+        {
+          "tool": "agent_task_status",
+          "params": {
+            "target": "chef-vole",
+            "taskId": "{{last.taskId}}"
+          }
+        },
+        {
+          "tool": "agent_task_status",
+          "params": {
+            "target": "chef-vole",
+            "taskId": "{{last.taskId}}"
+          }
+        },
+        {
+          "response": "🍽️ I dispatched a real task to **chef-vole** (agent_submit → agent_task_status, over the control plane). The chef reports:\n\n{{last.result}}"
+        }
+      ]
+    },
+    {
+      "match": [
+        "poem",
+        "haiku",
+        "bard",
+        "sing",
+        "verse"
+      ],
+      "steps": [
+        {
+          "tool": "agent_submit",
+          "params": {
+            "target": "bard-vole",
+            "input": "{{user}}",
+            "sessionId": "royal-stage"
+          }
+        },
+        {
+          "tool": "agent_task_status",
+          "params": {
+            "target": "bard-vole",
+            "taskId": "{{last.taskId}}"
+          }
+        },
+        {
+          "tool": "agent_task_status",
+          "params": {
+            "target": "bard-vole",
+            "taskId": "{{last.taskId}}"
+          }
+        },
+        {
+          "response": "🪶 I passed your very words to **bard-vole** — a separate agent, its own process, its own tiny soul. It returned:\n\n{{last.result}}"
+        }
+      ]
+    },
+    {
+      "match": [
+        "scout",
+        "news",
+        "outside",
+        "report",
+        "weather"
+      ],
+      "steps": [
+        {
+          "tool": "agent_submit",
+          "params": {
+            "target": "scout-vole",
+            "input": "Full scouting report! Context from HQ: {{user}}",
+            "sessionId": "royal-field"
+          }
+        },
+        {
+          "tool": "agent_task_status",
+          "params": {
+            "target": "scout-vole",
+            "taskId": "{{last.taskId}}"
+          }
+        },
+        {
+          "tool": "agent_task_status",
+          "params": {
+            "target": "scout-vole",
+            "taskId": "{{last.taskId}}"
+          }
+        },
+        {
+          "response": "🔭 **scout-vole** filed this from the field:\n\n{{last.result}}"
+        }
+      ]
+    },
+    {
+      "match": [
+        "how is",
+        "check on",
+        "state of",
+        "status of"
+      ],
+      "steps": [
+        {
+          "tool": "agent_state",
+          "params": {
+            "target": "chef-vole"
+          }
+        },
+        {
+          "response": "Here's chef-vole's live engine state (paws, tasks, queues — the same data the dashboard sees):\n\n```json\n{{last_result}}\n```"
+        }
+      ]
+    },
+    {
+      "match": [
+        "release the voles",
+        "all hands",
+        "everyone"
+      ],
+      "steps": [
+        {
+          "tool": "agent_submit",
+          "params": {
+            "target": "chef-vole",
+            "input": "ALL HANDS! Emergency banquet!",
+            "sessionId": "all-hands"
+          }
+        },
+        {
+          "tool": "agent_submit",
+          "params": {
+            "target": "bard-vole",
+            "input": "ALL HANDS! An epic is required!",
+            "sessionId": "all-hands"
+          }
+        },
+        {
+          "tool": "agent_submit",
+          "params": {
+            "target": "scout-vole",
+            "input": "ALL HANDS! Perimeter sweep!",
+            "sessionId": "all-hands"
+          }
+        },
+        {
+          "response": "🚀 Three voles dispatched simultaneously — three real agent_submit calls through the control plane. Open each agent's Chat in the dashboard to watch them respond. This is what a fleet looks like."
+        }
+      ]
+    },
+    {
+      "match": [
+        "who are you",
+        "hello",
+        "hi$",
+        "help"
+      ],
+      "steps": [
+        {
+          "response": "👑 I am the **Queen** — an orchestrator agent. A human granted me authority over this server's agents (a registry flag, re-verified on my every call; I can't delete anyone and I can't touch their sandboxes).\n\nMy magic words:\n- **fleet** — list my agents (live)\n- **dinner** — delegate to chef-vole\n- **a poem about …anything** — bard-vole sings your words back\n- **scouting report** — scout-vole files from the field\n- **how is the chef** — a worker's live engine state\n- **release the voles** — all hands at once"
+        }
+      ]
+    }
+  ],
+  "fallback": "👑 Hmm — not in the royal lexicon. You said: “{{user}}”.\n\nTry: **fleet** · **dinner** · **a poem about anything** · **scouting report** · **how is the chef** · **release the voles**"
+}

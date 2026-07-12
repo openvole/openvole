@@ -1,0 +1,36 @@
+{
+  "demo": true,
+  "brain": "@openvole/paw-brain",
+  "loop": {
+    "maxIterations": 8,
+    "confirmBeforeAct": false,
+    "taskConcurrency": 1
+  },
+  "heartbeat": {
+    "enabled": false,
+    "intervalMinutes": 60
+  },
+  "paws": [
+    {
+      "name": "@openvole/paw-brain",
+      "allow": {
+        "env": [
+          "BRAIN_PROVIDER",
+          "BRAIN_MODEL",
+          "BRAIN_MOCK_SCENARIO",
+          "BRAIN_MOCK_REPLY"
+        ]
+      }
+    },
+    {
+      "name": "@openvole/paw-session",
+      "allow": {
+        "env": [
+          "VOLE_SESSION_DIR",
+          "VOLE_SESSION_TTL"
+        ]
+      }
+    }
+  ],
+  "skills": []
+}
