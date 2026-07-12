@@ -1,11 +1,18 @@
 # Changelog
 
-## Unreleased
+## v4.6.1 (2026-07-12)
+
+> Ships as `openvole` 4.6.1 and `@openvole/dashboard-server` 0.7.1 (pairs with `@openvole/paw-brain` 2.3.2). Field-hardening from the first real orchestrator sessions: models guess tool parameter names and drift into their host harness's own systems — both now handled.
 
 ### Fixed
 - **Orchestrator tools forgive the obvious parameter guesses**: `agent_*` tools accept `agentId`/`agent`/`id` as aliases for `target`, and `agent_submit` accepts `prompt`/`message`/`text`/`task`/`content` for `input` — models frequently guess those names, and previously the task either failed unhelpfully or arrived at the worker with an empty brief.
 - A missing `target` (or an empty submit `input`) now errors with guidance (*pass the agent id or name from `agent_list`*) instead of `Agent not found: undefined`, so a model can self-correct on the next call.
+- `agent_write_identity` forgives filename case (`agent.md` → `AGENT.md`) and accepts `file`/`name` and `text`/`body` aliases.
 - The MCP `tools/list` route falls back to the schema-less projection if an older engine child doesn't implement `tools_mcp`, instead of failing the whole listing.
+
+### Brains (`@openvole/paw-brain` 2.3.2)
+- **Host-harness discipline in BRAIN.md**: CLI-based brains (Claude Code today, other agent CLIs tomorrow) are told OpenVole is their operating environment — memory, schedules, credentials, and files belong to OpenVole's systems, never the host harness's own memory directories or config. Prompted by a field case where a claude-code brain saved agent memory into Claude Code's private store, invisible to OpenVole.
+- The claude-code provider's prompt note also names the memory tools explicitly (`mcp__openvole__memory_write` / `memory_read` / `memory_search`).
 
 ## v4.6.0 (2026-07-11)
 
