@@ -153,7 +153,12 @@ export function createOrchestrateTools(
 			}),
 			async execute(params) {
 				const target = targetOf(params)
-				const { filename, content } = params as { filename: string; content: string }
+				const q = params as Record<string, unknown>
+				// Forgive the guessable shapes: file/name for filename (any case), text/body for content.
+				const rawName = String(q.filename ?? q.file ?? q.name ?? '')
+				const filename =
+					IDENTITY_TARGETS.find((f) => f.toLowerCase() === rawName.toLowerCase()) ?? rawName
+				const content = (q.content ?? q.text ?? q.body ?? q.markdown) as string | undefined
 				return run('write_identity', { target, filename, content })
 			},
 		},

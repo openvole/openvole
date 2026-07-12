@@ -138,6 +138,19 @@ describe('createOrchestrateTools', () => {
 		})
 	})
 
+	it('normalizes write_identity filename case and content aliases', async () => {
+		await findTool('agent_write_identity').execute({
+			agentId: 'worker',
+			file: 'agent.md',
+			text: '# Role',
+		})
+		expect(callParent).toHaveBeenLastCalledWith('write_identity', {
+			target: 'worker',
+			filename: 'AGENT.md',
+			content: '# Role',
+		})
+	})
+
 	it('agent_create forwards the name', async () => {
 		await findTool('agent_create').execute({ name: 'New Worker' })
 		expect(callParent).toHaveBeenCalledWith('create', { name: 'New Worker' })
