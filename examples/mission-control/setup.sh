@@ -16,6 +16,17 @@ cd "$ROOT"
 
 AGENTS=(queen chef-vole bard-vole scout-vole)
 
+# Preflight: this demo needs @openvole/paw-brain >= 2.4.0 (mock scenario mode). Until it's
+# on npm, a local pawhub build is required — fail loudly instead of dying mid-install.
+if [ -z "${PAWHUB_DIR:-}" ]; then
+  if ! npm view "@openvole/paw-brain@^2.4.0" version >/dev/null 2>&1; then
+    echo "✗ @openvole/paw-brain >= 2.4.0 is not on npm yet (scenario mode)."
+    echo "  Until it ships, run with a local pawhub build:"
+    echo "    PAWHUB_DIR=~/limnr/pawhub bash setup.sh"
+    exit 1
+  fi
+fi
+
 echo "==> Installing each agent's paws"
 # PAWHUB_DIR: use a local pawhub build. Installed via `npm pack` tarball (NOT a path
 # symlink) so files really live in node_modules — the paw sandbox only grants that path.
