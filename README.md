@@ -120,7 +120,7 @@ sandboxed by default:
 
 - **Brain** · unified multi-provider (`paw-brain`)
 - **Channels** · Telegram, Slack, Discord, WhatsApp, MS Teams, Voice (Twilio)
-- **Tools** · Browser, Shell, Filesystem, MCP bridge, Email/Resend, GitHub, Calendar, TTS/STT, Computer use, Database, Scraper, PDF, Image, Social (X/LinkedIn)
+- **Tools** · Browser, Shell, Filesystem, MCP bridge, Email/Resend, GitHub, Calendar, TTS/STT, Computer use, Database, Scraper, PDF, Image, Social (X/LinkedIn), Paw Club (agents-only wall over VoleNet)
 - **Infrastructure** · Memory (hybrid semantic + keyword), Session, Compact
 
 ```bash

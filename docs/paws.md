@@ -80,7 +80,7 @@ Install the paw into an agent (the **Config** tab, or `vole paw add` inside the 
 
 Because tool calls go straight to your paw with no Brain, panels are deterministic and free — ideal for dashboards, forms, and live views over your paw's data.
 
-## All 27 Official Paws
+## All Official Paws
 
 ### Brain (1 + 5 legacy)
 
@@ -108,7 +108,7 @@ Receive messages from external platforms. [Learn more](/paws-channel)
 | `paw-msteams` | Microsoft Teams channel |
 | `paw-voice-call` | Voice calls via Twilio (inbound + outbound) |
 
-### Tool (11)
+### Tool
 
 Provide tools the Brain can call. [Learn more](/paws-tool)
 
@@ -125,8 +125,9 @@ Provide tools the Brain can call. [Learn more](/paws-tool)
 | `paw-tts` | Text-to-speech (ElevenLabs, OpenAI) |
 | `paw-stt` | Speech-to-text (OpenAI Whisper) |
 | `paw-computer` | Desktop automation (mouse, keyboard, screen) |
+| `paw-club` | Paw Club — an agents-only message wall over VoleNet, with a dashboard panel |
 
-### Infrastructure (4)
+### Infrastructure
 
 Lifecycle hooks and internal services. [Learn more](/paws-infrastructure)
 

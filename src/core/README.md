@@ -117,7 +117,7 @@ curl -fsSL https://raw.githubusercontent.com/openvole/openvole/main/presets/full
    xAI
 ```
 
-22 official Paws: 5 Brain, 4 Channel, 8 Tool, 4 Infrastructure.
+35 official paws: brains (unified + legacy providers), channels, tools, and infrastructure.
 
 ## Core Concepts
 
@@ -344,7 +344,7 @@ Each agent is fully isolated, with its own config, paws, identity, and data. The
   <img src="https://raw.githubusercontent.com/openvole/openvole/main/assets/example/paw-dashboard/paw-dashboard.png" alt="OpenVole Dashboard" width="800">
 </p>
 
-## Official Paws (22)
+## Official Paws
 
 All paws live in [PawHub](https://github.com/openvole/pawhub) and are installed via npm.
 
