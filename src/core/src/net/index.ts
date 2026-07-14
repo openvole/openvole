@@ -36,6 +36,15 @@ const DEFAULT_CHAT_MAX_AGE_DAYS = 90
 const CHAT_PRUNE_INTERVAL_MS = 6 * 60 * 60_000 // prune stale chat sessions every 6h
 
 /** Glob-ish tool-name match: exact, '*' wildcard, or 'prefix*'. */
+/**
+ * Display prefix for a peer's namespaced tools. Peer names are self-announced labels —
+ * identity is the key-derived instanceId — so when two peers share a name, the prefix
+ * is disambiguated with a short id suffix: alice~3f9c/tool.
+ */
+export function peerPrefix(peerName: string, peerId: string, duplicateName: boolean): string {
+	return duplicateName ? `${peerName}~${peerId.substring(0, 4)}` : peerName
+}
+
 /** Whether a tool passes the share-level allowlist (empty/absent allows all). */
 export function isSharedTool(name: string, toolAllow?: string[]): boolean {
 	if (!toolAllow || toolAllow.length === 0) return true
@@ -177,6 +186,8 @@ export class VoleNetManager {
 	private sync: VoleNetSync | null = null
 	private leader: VoleNetLeader | null = null
 	private toolProviders = new Map<string, string[]>()
+	/** registered remote tool name → owning instanceId (identity-keyed routing; never by peer name) */
+	private remoteToolOwners = new Map<string, string>()
 	private config: VoleNetConfig
 	private projectRoot: string
 	private toolRegistry: ToolRegistry | null = null
@@ -418,7 +429,15 @@ export class VoleNetManager {
 
 				const peerInstance = this.discovery?.getInstances().find((i) => i.id === message.from)
 				const peerName = peerInstance?.name ?? message.from.substring(0, 8)
-				const pawLabel = `__volenet:${peerName}__`
+				// Names are labels, not identity: disambiguate everything by id when peers collide.
+				const sourceDup =
+					(this.discovery?.getInstances() ?? []).filter((i) => i.name === peerName).length > 1
+				if (sourceDup) {
+					logger.warn(
+						`Two peers share the name "${peerName}" — tools disambiguated as ${peerPrefix(peerName, message.from, true)}/<tool>`,
+					)
+				}
+				const pawLabel = `__volenet:${peerPrefix(peerName, message.from, sourceDup)}__`
 
 				// Track which peers provide which tools (for load-balanced routing)
 				for (const t of tools) {
@@ -450,42 +469,52 @@ export class VoleNetManager {
 						continue
 					}
 
+					// Re-announcement from the same peer (no other provider) — nothing to conflict with.
+					const otherProviders = (toolProviders.get(t.name) ?? []).filter(
+						(id) => id !== sourceInstanceId,
+					)
+					if (existingTool && otherProviders.length === 0) continue
+
 					if (existingTool) {
 						// Another peer already registered this tool name — we have a conflict.
-						// Rename the existing tool to <existingPeerName>/<toolName>
-						// and register the new one as <peerName>/<toolName>.
-						const existingPeerName = existingTool.pawName
-							.replace('__volenet:', '')
-							.replace('__', '')
-						const existingPeerInstance = this.discovery
-							?.getInstances()
-							.find((i) => i.name === existingPeerName)
-						const existingPeerId = existingPeerInstance?.id ?? sourceInstanceId
+						// Route by IDENTITY: the recorded owner of the plain-name registration,
+						// never a name lookup, and never a fall-back to the announcing peer.
+						const existingOwnerId = this.remoteToolOwners.get(t.name) ?? otherProviders[0]
 
 						// Only rename existing if it hasn't been renamed yet (still plain name)
-						if (!existingTool.name.includes('/')) {
+						if (!existingTool.name.includes('/') && existingOwnerId) {
+							const existingInst = discovery.getInstances().find((i) => i.id === existingOwnerId)
+							const existingName = existingInst?.name ?? existingOwnerId.substring(0, 8)
+							const existingDup =
+								existingName === peerName ||
+								discovery.getInstances().filter((i) => i.name === existingName).length > 1
+							const renamedTo = `${peerPrefix(existingName, existingOwnerId, existingDup)}/${t.name}`
+							const ownerId = existingOwnerId
 							const renamedExisting = {
-								name: `${existingPeerName}/${t.name}`,
+								name: renamedTo,
 								description: existingTool.description,
 								parameters: { parse: () => {} } as any,
 								async execute(params: unknown) {
-									const result = await remoteTaskMgr.executeRemoteTool(
-										existingPeerId,
-										t.name,
-										params,
-									)
+									const result = await remoteTaskMgr.executeRemoteTool(ownerId, t.name, params)
 									if (result.success) return result.output
 									throw new Error(result.error ?? 'Remote tool execution failed')
 								},
 							}
 							this.toolRegistry!.register(existingTool.pawName, [renamedExisting], false)
-							logger.info(
-								`Renamed remote tool ${t.name} → ${renamedExisting.name} (conflict resolution)`,
-							)
+							this.remoteToolOwners.set(renamedTo, ownerId)
+							// The plain name lives on as a load-balanced alias across all providers.
+							this.remoteToolOwners.delete(t.name)
+							logger.info(`Renamed remote tool ${t.name} → ${renamedTo} (conflict resolution)`)
 						}
 
-						// Register new peer's tool as <peerName>/<toolName>
-						const prefixedName = `${peerName}/${t.name}`
+						// Register the new peer's tool under its (possibly id-suffixed) prefix
+						const newDup =
+							sourceDup ||
+							(existingOwnerId !== undefined &&
+								(discovery.getInstances().find((i) => i.id === existingOwnerId)?.name ?? '') ===
+									peerName)
+						const prefixedName = `${peerPrefix(peerName, sourceInstanceId, newDup)}/${t.name}`
+						this.remoteToolOwners.set(prefixedName, sourceInstanceId)
 						remoteToolDefs.push({
 							name: prefixedName,
 							description: `[remote: ${peerName}] ${t.description}`,
@@ -501,7 +530,9 @@ export class VoleNetManager {
 							},
 						})
 					} else {
-						// First registration — use plain name, load-balanced
+						// First registration — plain name, load-balanced across providers by id.
+						// Record the owner so a future conflict can rename it correctly.
+						this.remoteToolOwners.set(t.name, sourceInstanceId)
 						remoteToolDefs.push({
 							name: t.name,
 							description: `[remote: ${peerName}] ${t.description}`,
