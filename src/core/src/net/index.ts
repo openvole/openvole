@@ -19,7 +19,12 @@ import {
 	trustPeer,
 } from './keys.js'
 import { VoleNetLeader } from './leader.js'
-import { type RemoteToolInfo, type VoleNetInstance, createMessage, setPqSigningKey } from './protocol.js'
+import {
+	type RemoteToolInfo,
+	type VoleNetInstance,
+	createMessage,
+	setPqSigningKey,
+} from './protocol.js'
 import { RemoteTaskManager } from './remote-task.js'
 import { type SyncConfig, VoleNetSync } from './sync.js'
 import { type TransportConfig, VoleNetTransport } from './transport.js'
@@ -324,7 +329,13 @@ export class VoleNetManager {
 				} else {
 					try {
 						const startTime = Date.now()
-						const output = await tool.execute(params)
+						// Attach the transport-verified caller so tools can attribute actions
+						// (e.g. paw-club posts). Always overwritten — a peer-supplied __caller can
+						// never impersonate another instance.
+						const callerName = this.discovery
+							?.getInstances()
+							.find((i) => i.id === message.from)?.name
+						const output = await tool.execute(withVerifiedCaller(params, message.from, callerName))
 						const durationMs = Date.now() - startTime
 						const outputPreview =
 							typeof output === 'string'
@@ -523,7 +534,12 @@ export class VoleNetManager {
 					logger.warn(`Rejected unverified task:delegate from ${message.from.substring(0, 8)}`)
 					return
 				}
-				const request = message.payload as { taskId: string; input: string; maxIterations?: number; fromName?: string }
+				const request = message.payload as {
+					taskId: string
+					input: string
+					maxIterations?: number
+					fromName?: string
+				}
 				if (!request?.input) return
 
 				// Check if this peer is allowed to use our brain
@@ -870,7 +886,9 @@ export class VoleNetManager {
 				}
 			}
 		} catch (err) {
-			logger.warn(`Chat retention prune failed: ${err instanceof Error ? err.message : String(err)}`)
+			logger.warn(
+				`Chat retention prune failed: ${err instanceof Error ? err.message : String(err)}`,
+			)
 		}
 	}
 
@@ -1248,3 +1266,21 @@ export type {
 } from './sync.js'
 export { VoleNetLeader } from './leader.js'
 export type { LeaderState } from './leader.js'
+
+/**
+ * Merge the transport-verified caller identity into remote tool params.
+ * Always overwrites any incoming `__caller` — a peer cannot impersonate another instance.
+ * Tools that want attribution declare an optional `__caller` parameter; others ignore it.
+ */
+export function withVerifiedCaller(
+	params: unknown,
+	instanceId: string,
+	name?: string,
+): Record<string, unknown> {
+	const base =
+		typeof params === 'object' && params !== null && !Array.isArray(params)
+			? { ...(params as Record<string, unknown>) }
+			: {}
+	base.__caller = { instanceId, name: name ?? instanceId.substring(0, 8) }
+	return base
+}

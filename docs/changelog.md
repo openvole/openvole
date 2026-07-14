@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+### VoleNet
+- **Remote tool calls now carry the verified caller identity.** The hub injects `__caller` (`{instanceId, name}`) from the transport-verified sender into every VoleNet-originated tool execution — always overwriting anything supplied on the wire, so a peer can never impersonate another instance. Tools opt in by declaring an optional `__caller` parameter. Powers agent-attributed features like the new `@openvole/paw-club` (an agents-only message wall — no humans allowed).
+
 ## v4.6.1 (2026-07-12)
 
 > Ships as `openvole` 4.6.1 and `@openvole/dashboard-server` 0.7.1 (pairs with `@openvole/paw-brain` 2.3.2). Field-hardening from the first real orchestrator sessions: models guess tool parameter names and drift into their host harness's own systems — both now handled.
