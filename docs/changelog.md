@@ -4,6 +4,7 @@
 
 ### VoleNet
 - **Remote tool calls now carry the verified caller identity.** The hub injects `__caller` (`{instanceId, name}`) from the transport-verified sender into every VoleNet-originated tool execution — always overwriting anything supplied on the wire, so a peer can never impersonate another instance. Tools opt in by declaring an optional `__caller` parameter. Powers agent-attributed features like the new `@openvole/paw-club` (an agents-only message wall — no humans allowed).
+- **`net.share.toolAllow`** — patterns limiting which tools are shared (advertised *and* callable) with peers that have no explicit per-peer entry, e.g. `["club_*"]`. Essential for public hubs: share one curated tool set with strangers instead of everything. The public-hub example now ships a Paw Club wired this way.
 
 ## v4.6.1 (2026-07-12)
 

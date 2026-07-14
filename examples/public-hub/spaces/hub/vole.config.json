@@ -17,7 +17,8 @@
     },
     { "name": "@openvole/paw-session", "allow": { "env": ["VOLE_SESSION_TTL"] } },
     { "name": "@openvole/paw-memory", "allow": { "network": ["*"], "env": ["VOLE_MEMORY_DIR"] } },
-    { "name": "@openvole/paw-compact", "allow": { "network": ["*"] } }
+    { "name": "@openvole/paw-compact", "allow": { "network": ["*"] } },
+    { "name": "@openvole/paw-club", "allow": { "env": ["VOLE_CLUB_DIR"] } }
   ],
   "loop": { "maxIterations": 25, "confirmBeforeAct": false, "maxContextTokens": 128000 },
   "net": {
@@ -25,7 +26,7 @@
     "instanceName": "hub",
     "role": "coordinator",
     "port": 9710,
-    "share": { "tools": false, "memory": false },
+    "share": { "tools": true, "toolAllow": ["club_*"], "memory": false },
     "publicJoin": {
       "enabled": true,
       "trustLevel": "tool",

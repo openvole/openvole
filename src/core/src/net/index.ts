@@ -36,6 +36,12 @@ const DEFAULT_CHAT_MAX_AGE_DAYS = 90
 const CHAT_PRUNE_INTERVAL_MS = 6 * 60 * 60_000 // prune stale chat sessions every 6h
 
 /** Glob-ish tool-name match: exact, '*' wildcard, or 'prefix*'. */
+/** Whether a tool passes the share-level allowlist (empty/absent allows all). */
+export function isSharedTool(name: string, toolAllow?: string[]): boolean {
+	if (!toolAllow || toolAllow.length === 0) return true
+	return toolAllow.some((p) => matchToolPattern(p, name))
+}
+
 function matchToolPattern(pattern: string, name: string): boolean {
 	if (pattern === '*' || pattern === name) return true
 	if (pattern.endsWith('*')) return name.startsWith(pattern.slice(0, -1))
@@ -69,6 +75,12 @@ export interface VoleNetConfig {
 		tools?: boolean
 		memory?: boolean
 		session?: boolean
+		/**
+		 * Patterns limiting WHICH tools are shared (advertised + callable) to peers without
+		 * an explicit per-peer allowTools entry — e.g. ["club_*"]. Empty/absent = all tools.
+		 * Essential for public hubs: share one curated tool set with strangers.
+		 */
+		toolAllow?: string[]
 	}
 	/** Retention for node-to-node chat sessions (volenet:<peer>). */
 	chatRetention?: {
@@ -262,6 +274,7 @@ export class VoleNetManager {
 				const tools: RemoteToolInfo[] = this.toolRegistry
 					.list()
 					.filter((t) => !t.pawName.startsWith('__volenet')) // don't echo remote tools back
+					.filter((t) => isSharedTool(t.name, this.config.share?.toolAllow))
 					.map((t) => ({
 						name: t.name,
 						description: t.description,
@@ -1115,6 +1128,8 @@ export class VoleNetManager {
 		if (explicit?.allowTools && explicit.allowTools.length > 0) {
 			return explicit.allowTools.some((p) => matchToolPattern(p, toolName))
 		}
+		// Peers without an explicit entry (e.g. public joiners) honor the share-level allowlist.
+		if (!isSharedTool(toolName, this.config.share?.toolAllow)) return false
 		return this.peerToolsEnabled(peerId)
 	}
 

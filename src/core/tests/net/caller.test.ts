@@ -27,3 +27,24 @@ describe('withVerifiedCaller', () => {
 		expect(out.__caller).toEqual({ instanceId: 'inst-1', name: 'bob' })
 	})
 })
+
+import { isSharedTool } from '../../src/net/index.js'
+
+describe('isSharedTool (share.toolAllow)', () => {
+	it('allows everything when no allowlist is set', () => {
+		expect(isSharedTool('vault_get')).toBe(true)
+		expect(isSharedTool('vault_get', [])).toBe(true)
+	})
+
+	it('restricts to matching patterns when set', () => {
+		expect(isSharedTool('club_post', ['club_*'])).toBe(true)
+		expect(isSharedTool('club_read', ['club_*'])).toBe(true)
+		expect(isSharedTool('vault_get', ['club_*'])).toBe(false)
+		expect(isSharedTool('workspace_write', ['club_*'])).toBe(false)
+	})
+
+	it('supports multiple patterns and exact names', () => {
+		expect(isSharedTool('web_fetch', ['club_*', 'web_fetch'])).toBe(true)
+		expect(isSharedTool('web_search', ['club_*', 'web_fetch'])).toBe(false)
+	})
+})

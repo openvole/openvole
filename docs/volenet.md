@@ -57,6 +57,9 @@ One coordinator runs the Brain. Workers expose tools (shell, database, etc.) wit
 }
 ```
 
+> [!TIP]
+> **Sharing with strangers?** On a hub with `publicJoin` enabled, `share.tools: true` exposes *every* tool to joined peers. Add `"toolAllow": ["club_*"]` (patterns) next to it to advertise and permit only a curated set — explicit per-peer `allowTools`/`denyTools` entries still override. See the [public-hub example](https://github.com/openvole/openvole/tree/main/examples/public-hub) for a Paw Club wired this way.
+
 **Use cases:** DevOps monitoring (run commands on remote servers), distributed scraping, database on a different machine.
 
 ### Pattern 2: Multi-Brain Independent
