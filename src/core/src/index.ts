@@ -146,6 +146,24 @@ import { createLogger } from './core/logger.js'
 const engineLogger = createLogger('openvole')
 
 /** Create and initialize the OpenVole engine */
+/**
+ * Turn `heartbeat.intervalMinutes` into a valid cron expression.
+ *
+ * A naive minutes-step pattern breaks the moment the interval reaches 60: the minutes field
+ * only accepts steps up to 59, croner throws, and the engine dies at startup — so an hourly
+ * (60) or daily (1440) heartbeat used to brick the agent. Map onto the right field instead:
+ * under an hour steps minutes; an hour or more steps hours; a day or more runs once daily
+ * (cron cannot express "every n days").
+ */
+export function heartbeatCronFor(intervalMinutes: number): string {
+	const m = Math.max(1, Math.floor(intervalMinutes || 0))
+	if (m < 60) return `*/${m} * * * *`
+	const hours = Math.round(m / 60)
+	// cron has no "every n days" — anything a day or longer runs once daily at midnight.
+	if (hours >= 24) return '0 0 * * *'
+	return `0 */${hours} * * *`
+}
+
 export async function createEngine(
 	projectRoot: string,
 	options?: { io?: VoleIO; configPath?: string; headless?: boolean },
@@ -336,32 +354,41 @@ export async function createEngine(
 			// Start heartbeat via scheduler (skip in headless mode)
 			if (config.heartbeat.enabled && !headless) {
 				const heartbeatMdPath = path.resolve(projectRoot, '.openvole', 'HEARTBEAT.md')
-				// Convert intervalMinutes to cron expression (e.g. 30 → "*/30 * * * *")
-				const heartbeatCron = `*/${config.heartbeat.intervalMinutes} * * * *`
-				scheduler.add(
-					'__heartbeat__',
-					'Heartbeat wake-up',
-					heartbeatCron,
-					async () => {
-						let heartbeatContent = ''
-						try {
-							heartbeatContent = await fs.readFile(heartbeatMdPath, 'utf-8')
-						} catch {
-							// No HEARTBEAT.md — use default prompt
-						}
+				// An explicit cron wins; else derive one from intervalMinutes.
+				const heartbeatCron =
+					config.heartbeat.cron?.trim() || heartbeatCronFor(config.heartbeat.intervalMinutes)
+				// A heartbeat is a convenience, not the agent: an unparseable schedule must never
+				// take the whole engine down at startup (scheduler.add throws on a bad pattern).
+				try {
+					scheduler.add(
+						'__heartbeat__',
+						'Heartbeat wake-up',
+						heartbeatCron,
+						async () => {
+							let heartbeatContent = ''
+							try {
+								heartbeatContent = await fs.readFile(heartbeatMdPath, 'utf-8')
+							} catch {
+								// No HEARTBEAT.md — use default prompt
+							}
 
-						const input = heartbeatContent
-							? `Heartbeat wake-up. Review your HEARTBEAT.md jobs and act on what is needed:\n\n${heartbeatContent}`
-							: 'Heartbeat wake-up. Check active skills and decide if any actions are needed.'
+							const input = heartbeatContent
+								? `Heartbeat wake-up. Review your HEARTBEAT.md jobs and act on what is needed:\n\n${heartbeatContent}`
+								: 'Heartbeat wake-up. Check active skills and decide if any actions are needed.'
 
-						taskQueue.enqueue(input, 'heartbeat')
-					},
-					undefined,
-					config.heartbeat.runOnStart ?? false,
-				)
-				engineLogger.info(
-					`Heartbeat enabled — cron: ${heartbeatCron}${config.heartbeat.runOnStart ? ', running now' : ''}`,
-				)
+							taskQueue.enqueue(input, 'heartbeat')
+						},
+						undefined,
+						config.heartbeat.runOnStart ?? false,
+					)
+					engineLogger.info(
+						`Heartbeat enabled — cron: ${heartbeatCron}${config.heartbeat.runOnStart ? ', running now' : ''}`,
+					)
+				} catch (err) {
+					engineLogger.error(
+						`Heartbeat disabled — invalid schedule "${heartbeatCron}": ${err instanceof Error ? err.message : String(err)}. The agent runs normally; fix heartbeat.cron / heartbeat.intervalMinutes in vole.config.json.`,
+					)
+				}
 			}
 
 			// Start VoleNet if configured

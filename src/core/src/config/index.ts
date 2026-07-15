@@ -52,6 +52,12 @@ export interface ToolProfile {
 export interface HeartbeatConfig {
 	enabled: boolean
 	intervalMinutes: number
+	/**
+	 * Cron expression for the wake-up, e.g. "0 12 * * *" (daily at noon UTC). Takes
+	 * precedence over intervalMinutes — the only way to express schedules cron can do
+	 * but a plain interval cannot (a specific hour, weekdays, ...).
+	 */
+	cron?: string
 	/** If true, run heartbeat immediately on startup (default: false) */
 	runOnStart?: boolean
 }
