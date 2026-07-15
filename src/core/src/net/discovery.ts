@@ -247,7 +247,9 @@ export class VoleNetDiscovery {
 		if (parsed.pqPublicKey && !authPeer.pqPublicKey && info.publicKey) {
 			authPeer.pqPublicKey = parsed.pqPublicKey
 			void trustPeer(this.config.netDir, info.publicKey).catch(() => {})
-			logger.info(`Auto-upgraded peer to hybrid PQ: ${info.name} (${parsed.instanceId.substring(0, 8)})`)
+			logger.info(
+				`Auto-upgraded peer to hybrid PQ: ${info.name} (${parsed.instanceId.substring(0, 8)})`,
+			)
 		}
 
 		// Register the peer
@@ -329,7 +331,9 @@ export class VoleNetDiscovery {
 		if (parsed.pqPublicKey && !authPeer.pqPublicKey) {
 			authPeer.pqPublicKey = parsed.pqPublicKey
 			void trustPeer(this.config.netDir, info.publicKey).catch(() => {})
-			logger.info(`Auto-upgraded peer to hybrid PQ: ${info.name} (${parsed.instanceId.substring(0, 8)})`)
+			logger.info(
+				`Auto-upgraded peer to hybrid PQ: ${info.name} (${parsed.instanceId.substring(0, 8)})`,
+			)
 		}
 
 		const instance: VoleNetInstance = {
@@ -352,6 +356,23 @@ export class VoleNetDiscovery {
 
 		logger.info(`Peer confirmed: ${instance.name} (${instance.id.substring(0, 8)})`)
 		this.onPeerChanged?.()
+
+		// Ask for their tools. handleDiscover already does this for peers that discover US —
+		// but the side that INITIATES discovery only ever receives this response, so without
+		// this it never learns what the peer shares. Mutually-configured meshes mask it (both
+		// sides discover each other, so each gets asked); publicJoin does not — the joiner
+		// dials the hub one-way and the hub cannot dial back through NAT. Verified against a
+		// live public hub: unpatched, a joiner receives zero tools, indefinitely.
+		this.transport.sendToPeer(
+			parsed.instanceId,
+			createMessage(
+				'tool:list',
+				this.config.instanceId,
+				parsed.instanceId,
+				{},
+				this.config.privateKey,
+			),
+		)
 	}
 
 	private handlePing(message: VoleNetMessage): void {

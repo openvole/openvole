@@ -448,6 +448,14 @@ sudo certbot certonly --standalone -d hub.example.com
 vole net join https://hub.example.com:9710 --name your-name
 ```
 
+Once you start your agent, the hub's shared tools appear in your own tool registry — that is the whole point of joining: **remote tools become local**, and your Brain calls them like any other. Which tools you get is whatever the hub chose to share (`share.tools` filtered by `share.toolAllow`).
+
+> [!IMPORTANT]
+> Requires **openvole ≥ 4.8.2** on the *joining* side. Earlier versions never asked the hub for its tool list after a one-way public join, so a joined agent silently received nothing to call.
+
+```bash
+```
+
 **Firewall** — open only the VoleNet port (e.g. `9710`); the control-plane dashboard port (`3000`) stays local.
 
 > [!NOTE]
