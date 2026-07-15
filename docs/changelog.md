@@ -15,7 +15,7 @@
 ### Examples — zero-cost demos
 - **Vole Mission Control** (`examples/mission-control`): four mock-brained agents — a queen orchestrator delegating to chef/bard/scout personas — where every layer below the words is real: real engines, real control plane, real `agent_*` reverse-RPC. Runs for free; `setup.sh` generates all machine-specific files so nothing local ever lands in git.
 - **public-hub** now ships the Paw Club, shared with the mesh via `toolAllow: ["club_*"]`.
-- Pairs with `@openvole/paw-brain` 2.4.0 **mock scenario mode**: pattern-matched rules whose steps call real tools and interpolate live results (`{{user}}`, `{{last_result}}`, `{{last.taskId}}`) — interactive scripted demos with zero LLM cost.
+- Pairs with `@openvole/paw-brain` 2.4.0 **mock scenario mode**: pattern-matched rules whose steps call real tools and interpolate live results (<span v-pre>`{{user}}`, `{{last_result}}`, `{{last.taskId}}`</span>) — interactive scripted demos with zero LLM cost.
 
 ## v4.6.1 (2026-07-12)
 
