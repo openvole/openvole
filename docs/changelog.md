@@ -1,5 +1,12 @@
 # Changelog
 
+## v4.8.2 (2026-07-15)
+
+> Ships as `openvole` 4.8.2. A public-join peer never received the hub's shared tools — the core promise of joining a mesh.
+
+### Fixed — joining a mesh did not deliver the hub's tools
+- **The side that initiates discovery never asked for the peer's tool list.** `handleDiscover` requests tools from peers that discover *us*, but `handleDiscoverResponse` — the reply the initiator gets back — only registered the peer and stopped there. Mutually-configured meshes hid the bug (both sides discover each other, so each ends up asked), but **`publicJoin` is one-directional by design**: the joiner dials the hub and the hub cannot dial back through NAT. So a joined peer never received the hub's shared tools, and "remote tools become local" silently didn't happen — `vole net join <hub>` left the agent with nothing to call. Verified against a live public hub: before the fix a joiner receives zero tools indefinitely; after it, the hub's shared tools arrive within seconds of connecting.
+
 ## v4.8.1 (2026-07-15)
 
 > Ships as `openvole` 4.8.1 and `@openvole/dashboard-server` 0.7.2.
