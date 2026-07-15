@@ -1,5 +1,12 @@
 # Changelog
 
+## v4.8.1 (2026-07-15)
+
+> Ships as `openvole` 4.8.1 and `@openvole/dashboard-server` 0.7.2.
+
+### Fixed — the dashboard could not run behind a TLS reverse proxy
+- **The dashboard's WebSocket URL was hardcoded to `ws://<hostname>:<serverPort>`**, ignoring how the page was actually served. Behind a TLS reverse proxy (nginx, Caddy, Traefik, Cloudflare Tunnel — the normal way to expose a self-hosted service) the page loads over HTTPS, and the browser blocks an insecure `ws://` connection outright: *"Mixed Content … must be available over WSS"*. It also pointed at the origin's own port, which the proxy doesn't expose. The URL is now derived from the page (`wss://` on HTTPS, `location.host` for the authority), so direct access, SSH tunnels, and reverse proxies all work.
+
 ## v4.8.0 (2026-07-15)
 
 > Ships as `openvole` 4.8.0. Heartbeat fixes found while deploying a public hub — an hourly or daily heartbeat used to kill the agent at startup.
