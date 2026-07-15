@@ -1,5 +1,16 @@
 # Changelog
 
+## v4.8.0 (2026-07-15)
+
+> Ships as `openvole` 4.8.0. Heartbeat fixes found while deploying a public hub — an hourly or daily heartbeat used to kill the agent at startup.
+
+### Fixed — the heartbeat could brick an agent
+- **`heartbeat.intervalMinutes` of 60 or more crashed the engine at boot.** The interval was pasted straight into the minutes field of a cron expression (`*/1440 * * * *`), which is invalid — the minutes field only accepts steps up to 59 — so croner threw out of `createEngine` and the process exited 1. Hourly (`60`) and daily (`1440`) are ordinary settings, and both were unusable. Intervals now map onto the correct field: under an hour steps minutes, an hour or more steps hours, and a day or more runs once daily at midnight UTC (cron cannot express "every N days" — use `cron` for a specific time).
+- **An invalid schedule no longer takes the agent down.** A heartbeat that can't be parsed is now disabled with a logged error; the agent starts and runs normally. A convenience feature should never be fatal.
+
+### Added
+- **`heartbeat.cron`** — a cron expression for the wake-up, e.g. `"0 12 * * *"` (daily at noon UTC) or `"0 9 * * 1-5"` (weekdays). Takes precedence over `intervalMinutes`, and is the only way to express a specific time of day. It was already shown in the README but had never been implemented — the field was silently ignored.
+
 ## v4.7.0 (2026-07-15)
 
 > Ships as `openvole` 4.7.0 (dashboard-server unchanged at 0.7.1); pairs with `@openvole/paw-brain` 2.4.0 and the new `@openvole/paw-club` 0.1.0. Theme: **VoleNet grows a public square** — cryptographic caller identity, curated public tool-sharing, and two zero-cost demos.

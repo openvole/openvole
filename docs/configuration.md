@@ -237,12 +237,20 @@ Periodic autonomous wake-up. The agent reads `HEARTBEAT.md` and acts on schedule
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `enabled` | `boolean` | `false` | Enable heartbeat scheduling. |
-| `intervalMinutes` | `number` | `30` | Minutes between heartbeat wake-ups. |
+| `intervalMinutes` | `number` | `30` | Minutes between heartbeat wake-ups. Intervals of 60+ are mapped onto whole hours; a day or more runs once daily at midnight UTC. |
+| `cron` | `string` | — | Cron expression for the wake-up. **Takes precedence over `intervalMinutes`** — use it for anything an interval can't express. |
 | `runOnStart` | `boolean` | `false` | Run a heartbeat immediately on startup. |
 
 ```json
 { "heartbeat": { "enabled": true, "intervalMinutes": 15, "runOnStart": true } }
+{ "heartbeat": { "enabled": true, "cron": "0 12 * * *" } }        // daily at noon UTC
+{ "heartbeat": { "enabled": true, "cron": "0 9 * * 1-5" } }       // weekdays at 09:00 UTC
 ```
+
+> [!NOTE]
+> An unparseable schedule disables the heartbeat with a logged error — the agent still starts and runs normally.
+
+Because cron cannot express "every N days", any `intervalMinutes` of 1440 or more becomes a single daily run at midnight UTC. If you want a specific time of day, set `cron` instead.
 
 Common intervals:
 

@@ -208,11 +208,14 @@ The flag lives in the server registry — outside every agent's sandbox — and 
 
 ### Heartbeat
 
-Periodic wake-up — the Brain checks `HEARTBEAT.md` and decides what to do. No user input needed. Uses cron expressions:
+Periodic wake-up — the Brain checks `HEARTBEAT.md` and decides what to do. No user input needed. Give it either a plain interval or a cron expression (`cron` wins if both are set):
 
 ```json
-{ "heartbeat": { "enabled": true, "cron": "*/30 * * * *" } }
+{ "heartbeat": { "enabled": true, "intervalMinutes": 30 } }
+{ "heartbeat": { "enabled": true, "cron": "0 12 * * *" } }    // daily at noon UTC
 ```
+
+Use `cron` for anything an interval can't express — a specific hour, weekdays, and so on. An unparseable schedule disables the heartbeat with a logged error; the agent still runs.
 
 ### Persistent Scheduling
 
