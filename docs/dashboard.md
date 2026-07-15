@@ -9,7 +9,7 @@ vole serve
 By default it listens on `http://localhost:3000`. Set `VOLE_DASHBOARD_PORT` to use a different port.
 
 > [!NOTE]
-> The control-plane dashboard replaces the old "one dashboard per project" model. The legacy `@openvole/paw-dashboard` is deprecated in its favor — see [Infrastructure Paws](/paws-infrastructure#paw-dashboard-deprecated). The single-engine `vole init` / `vole start` / `vole run` commands have been **removed** — OpenVole now runs as a server, and every agent is an agent.
+> The control-plane dashboard replaces the old "one dashboard per project" model. The legacy `@openvole/paw-dashboard` is deprecated in its favor — see [Infrastructure Paws](/paws-infrastructure#paw-dashboard-deprecated). The single-engine `vole init` / `vole start` / `vole run` commands have been **removed** — OpenVole now runs as a server, and every agent is fully isolated.
 
 ## Agents
 
@@ -47,7 +47,7 @@ Manage your agents at http://localhost:3000/?token=3f9c2a…
 
 ## The Dashboard
 
-The header has a **agent switcher** to create, start, stop, switch between, and delete agents. Each agent has five tabs:
+The header has an **agent switcher** to create, start, stop, switch between, and delete agents. Each agent has five tabs:
 
 | Tab | What it shows |
 |------|---------------|
@@ -57,7 +57,7 @@ The header has a **agent switcher** to create, start, stop, switch between, and 
 | **Config** | Structured form editor for the entire `vole.config.json` (see below). |
 | **Identity** | Edit `SOUL.md`, `USER.md`, `AGENT.md`, `HEARTBEAT.md`, and `BRAIN.md`. |
 
-## Creating a Agent
+## Creating an Agent
 
 Click **New agent** in the header to open the new-agent form. Enter a name, and on successful create an **onboarding** step suggests the essential paws, pre-checked:
 
@@ -71,12 +71,43 @@ Whichever you keep selected are installed into the new agent. (You can install m
 
 The CLI equivalent is `vole agent create <name>` — see [CLI Commands](/cli#vole-agent).
 
-## Deleting a Agent
+## Deleting an Agent
 
 Deleting an agent from the dashboard **permanently deletes its directory on disk** — config, identity, installed paws, and data — after a destructive confirmation.
 
 > [!WARNING]
 > Deletion from the dashboard is equivalent to `vole agent remove <name> --purge`. The CLI's `vole agent remove <name>` **without** `--purge` removes the agent from the registry but keeps its files on disk.
+
+## Behind a reverse proxy
+
+The dashboard binds `127.0.0.1` when you set `VOLE_DASHBOARD_HOST=127.0.0.1` — the right default for a server. To reach it from a browser over TLS, put a reverse proxy in front. It is WebSocket-driven and enforces a same-origin check, so two headers are mandatory:
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name agents.example.com;
+    ssl_certificate     /etc/letsencrypt/live/agents.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/agents.example.com/privkey.pem;
+
+    # Only you — the dashboard can start, stop, and delete agents.
+    allow 203.0.113.7;
+    deny all;
+
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade    $http_upgrade;   # required — WebSocket upgrade
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host       $host;           # required — the WS same-origin check
+        proxy_read_timeout 3600s;                    # long-lived connection
+    }
+}
+```
+
+> [!WARNING]
+> Anyone with the tokenized URL has full control of every agent on that server — including deleting them. Restrict by IP (as above), a VPN, or an auth layer in front. Rotate the token by deleting `<root>/.openvole/dashboard-token` and restarting. An SSH tunnel (`ssh -L 3000:127.0.0.1:3000 user@host`) needs no proxy at all and exposes nothing.
+
+Requires openvole ≥ 4.8.1 — earlier versions hardcoded an insecure `ws://` URL that browsers block on an HTTPS page.
 
 ## Config Tab
 

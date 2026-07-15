@@ -1456,7 +1456,9 @@ export function getDashboardHtml(wsPort: number): string {
 <div class="modal-overlay" id="modal-overlay" style="display:none" onclick="if(event.target===this)closeModal()"><div class="modal-card" id="modal-card" role="dialog" aria-modal="true"></div></div>
 
 <script>
-const ws = new WebSocket('ws://' + location.hostname + ':' + ${wsPort} + '/ws' + location.search);
+const wsScheme = location.protocol === 'https:' ? 'wss://' : 'ws://';
+const wsAuthority = location.host || (location.hostname + ':' + ${wsPort});
+const ws = new WebSocket(wsScheme + wsAuthority + '/ws' + location.search);
 const dot = document.getElementById('ws-dot');
 const statusText = document.getElementById('ws-status');
 const eventLog = document.getElementById('event-log');
