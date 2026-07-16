@@ -1,5 +1,17 @@
 # Changelog
 
+## v4.9.0 (2026-07-17)
+
+> Ships as `openvole` 4.9.0 and `@openvole/dashboard-server` 0.7.3. Theme: **VoleNet behind a reverse proxy** — expose 443, not the mesh port.
+
+### VoleNet
+- **`net.publicUrl`** — the full endpoint advertised to peers *instead of* `hostname:port` (env: `VOLE_NET_PUBLIC_URL`). Put nginx/Caddy in front of VoleNet and peers are told the proxy URL (e.g. `https://club.example.com/mesh`) rather than a raw listen port, which can stay firewalled. The joining side needs nothing: peers reconnect to whatever the hub advertises, all peer traffic is endpoint-relative, and the WebSocket upgrade is accepted on any path. Bonus effects: hubs become reachable from networks that only allow 443 egress, and cert renewals no longer need a hub restart (the proxy owns TLS). See [Behind a reverse proxy](/volenet#behind-a-reverse-proxy-hiding-the-volenet-port).
+- **`vole net join` replaces a same-host peer entry** instead of appending a duplicate — re-joining a hub that moved endpoints (`:9710` → `/mesh`) updates `vole.config.json` in place, preserving the entry's trust and per-peer settings.
+- **Endpoint-drift warning** — when a peer advertises a different endpoint than the configured URL for that host, the agent logs a one-time hint to update `vole.config.json`; the stale entry would stop working on the next restart once the old endpoint goes away.
+
+### Dashboard
+- Config → NET form exposes `publicUrl` (`@openvole/dashboard-server` 0.7.3).
+
 ## v4.8.2 (2026-07-15)
 
 > Ships as `openvole` 4.8.2. A public-join peer never received the hub's shared tools — the core promise of joining a mesh.
