@@ -462,7 +462,51 @@ Once you start your agent, the hub's shared tools appear in your own tool regist
 > The cert is read **once at startup**. After `certbot` renews, restart the hub so it picks up the new cert (e.g. a certbot `--deploy-hook` that restarts the service).
 
 > [!WARNING]
-> A **self-signed** cert encrypts traffic but isn't trusted by clients (they'd reject it) and gives no protection against an active man-in-the-middle — fine for a closed LAN test, **not for a public hub**. For anything public, use a real CA cert as above. As an alternative to native TLS you can terminate TLS at a reverse proxy (Caddy/nginx) or wrap the mesh in a VPN overlay (WireGuard/Tailscale) and leave VoleNet on plaintext behind it.
+> A **self-signed** cert encrypts traffic but isn't trusted by clients (they'd reject it) and gives no protection against an active man-in-the-middle — fine for a closed LAN test, **not for a public hub**. For anything public, use a real CA cert as above. As an alternative to native TLS you can terminate TLS at a reverse proxy (Caddy/nginx) or wrap the mesh in a VPN overlay (WireGuard/Tailscale) and leave VoleNet on plaintext behind it — see the next section for the reverse-proxy setup.
+
+## Behind a reverse proxy (hiding the VoleNet port)
+
+Native TLS still means exposing the VoleNet port itself. If you would rather expose **only 443** — one certificate, one entry point, reachable even from networks that block non-standard ports — put a reverse proxy in front and set **`net.publicUrl`**: the full endpoint this instance advertises to peers *instead of* `hostname:port`.
+
+```jsonc
+"net": {
+  "enabled": true, "instanceName": "hub", "role": "coordinator", "port": 9710,
+  "publicUrl": "https://club.example.com/mesh"   // what peers are told to reconnect to
+  // no `tls` block — the proxy terminates TLS; VoleNet listens plaintext on 9710
+}
+```
+
+(Env override: `VOLE_NET_PUBLIC_URL`.) nginx, inside the same 443 server block as the rest of the site:
+
+```nginx
+# The WebSocket dials the bare path — needs its own exact-match location.
+location = /mesh {
+    proxy_pass http://127.0.0.1:9710/;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_read_timeout 90s;                 # VoleNet pings every ~15s — keepalive covered
+}
+# HTTP endpoints: /mesh/volenet/join → /volenet/join (the trailing slashes strip the prefix)
+location /mesh/ {
+    proxy_pass http://127.0.0.1:9710/;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+}
+```
+
+Followers join with the proxied URL — no port:
+
+```bash
+vole net join https://club.example.com/mesh
+```
+
+The joining side needs **no configuration**: peers reconnect to whatever endpoint the hub advertises in discovery, all peer traffic is endpoint-relative (`<endpoint>/volenet/…`), and the WebSocket upgrade is accepted on any path.
+
+- **Firewall the raw port** (e.g. `ufw deny 9710`) once members have migrated — behind the proxy, VoleNet listens plaintext.
+- **Cert renewals stop needing a hub restart.** nginx reloads certificates itself; native TLS — which reads the cert once at startup — is no longer involved.
+- **Migrating an existing hub:** members' configs still point at the old `:9710` URL. While that port stays reachable, running members learn the new endpoint automatically (and log a one-time warning asking to update the config). Have them re-run `vole net join <new-url>` — it **replaces** the same-host entry instead of stacking a duplicate — then close the port.
 
 ## Public mesh hub
 

@@ -1396,11 +1396,15 @@ async function handleNetCommand(args: string[], projectRoot: string): Promise<vo
 			const net = (cfg.net ?? {}) as Record<string, unknown>
 			net.enabled = true
 			if (!net.instanceName) net.instanceName = name
+			const { upsertPeerUrl } = await import('./net/index.js')
 			const peers = (net.peers ?? []) as Array<{ url: string; trust?: string }>
-			if (!peers.some((p) => p.url === base)) peers.push({ url: base, trust: 'full' })
-			net.peers = peers
+			// Same hostname, new endpoint (e.g. a hub that moved behind a reverse proxy):
+			// replace the old entry instead of stacking a dead duplicate beside it.
+			const upserted = upsertPeerUrl(peers, base)
+			net.peers = upserted.peers
 			cfg.net = net
 			await writeConfigFile(projectRoot, cfg)
+			if (upserted.replaced) logger.info(`Replaced stale peer url ${upserted.replaced} → ${base}`)
 			logger.info(`Joined! Trusted hub "${resp.instanceName ?? 'hub'}" and added it as a peer.`)
 			logger.info('Start your agent with "vole serve" and you are on the mesh.')
 			break

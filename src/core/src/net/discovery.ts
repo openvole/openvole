@@ -28,6 +28,36 @@ export interface DiscoveryConfig {
 	capabilities: string[]
 	privateKey: KeyObject
 	publicKeyString: string
+	/** Peer URLs from vole.config.json — used only to warn when one goes stale (endpoint drift). */
+	configuredPeerUrls?: string[]
+}
+
+/**
+ * The configured URL that has gone stale for a peer, or null. A peer's advertised endpoint is
+ * what we actually reconnect to at runtime; if the config lists a DIFFERENT url on the SAME
+ * hostname (e.g. the old ":9710" after a hub moved behind a proxied "/mesh" path), the config
+ * entry silently stops working on the next restart — worth a loud hint now. Different-host
+ * advertisements (other mesh members, NAT'd guests) are none of the config's business.
+ */
+export function findEndpointDrift(
+	configuredUrls: string[] | undefined,
+	advertised: string,
+): string | null {
+	if (!configuredUrls?.length || !advertised) return null
+	const norm = (u: string) => u.trim().replace(/\/+$/, '')
+	const hostOf = (u: string): string | null => {
+		try {
+			return new URL(norm(u)).hostname || null
+		} catch {
+			return null
+		}
+	}
+	const adv = norm(advertised)
+	const advHost = hostOf(adv)
+	if (!advHost) return null
+	const urls = configuredUrls.map(norm)
+	if (urls.includes(adv)) return null // config already matches what the peer advertises
+	return urls.find((u) => hostOf(u) === advHost) ?? null
 }
 
 export class VoleNetDiscovery {
@@ -41,6 +71,8 @@ export class VoleNetDiscovery {
 		{ publicKey: KeyObject; name: string; pqPublicKey?: KeyObject }
 	>()
 	private onPeerChanged?: () => void
+	/** Instances already warned about a stale configured URL — hint once, not every health cycle. */
+	private driftHinted = new Set<string>()
 
 	constructor(transport: VoleNetTransport, config: DiscoveryConfig) {
 		this.transport = transport
@@ -269,6 +301,7 @@ export class VoleNetDiscovery {
 		this.instances.set(parsed.instanceId, instance)
 		if (instance.endpoint) {
 			this.transport.addPeer(parsed.instanceId, instance.endpoint)
+			this.hintEndpointDrift(instance)
 		}
 
 		logger.info(
@@ -352,6 +385,7 @@ export class VoleNetDiscovery {
 		this.instances.set(parsed.instanceId, instance)
 		if (instance.endpoint) {
 			this.transport.addPeer(parsed.instanceId, instance.endpoint)
+			this.hintEndpointDrift(instance)
 		}
 
 		logger.info(`Peer confirmed: ${instance.name} (${instance.id.substring(0, 8)})`)
@@ -406,6 +440,17 @@ export class VoleNetDiscovery {
 	 * Health check — ping all peers, remove stale ones.
 	 */
 	/** Send a signed ping to a peer — fired on WS connect for immediate binding, and by healthCheck. */
+	/** Warn (once per instance) when a configured peer URL no longer matches what it advertises. */
+	private hintEndpointDrift(instance: VoleNetInstance): void {
+		if (this.driftHinted.has(instance.id)) return
+		const stale = findEndpointDrift(this.config.configuredPeerUrls, instance.endpoint)
+		if (!stale) return
+		this.driftHinted.add(instance.id)
+		logger.warn(
+			`Peer "${instance.name}" now advertises ${instance.endpoint} — update its url in vole.config.json (currently ${stale}), or reconnects will fail after the old endpoint goes away`,
+		)
+	}
+
 	private sendPing(peerId: string): void {
 		const ping = createMessage(
 			'ping',

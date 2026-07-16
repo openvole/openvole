@@ -1287,6 +1287,11 @@ export function getDashboardHtml(wsPort: number): string {
             <input type="text" class="form-input" id="cfg-net-hostname" placeholder="(auto: first non-internal IPv4)">
           </div>
           <div class="form-field">
+            <label class="form-label">net.publicUrl</label>
+            <div class="form-help">Full endpoint advertised INSTEAD of hostname:port — for running behind a reverse proxy (e.g. https://club.example.com/mesh) so the raw VoleNet port never has to be exposed.</div>
+            <input type="text" class="form-input" id="cfg-net-publicUrl" placeholder="(none — advertise hostname:port)">
+          </div>
+          <div class="form-field">
             <label class="form-label">net.keyPath</label>
             <input type="text" class="form-input" id="cfg-net-keyPath" placeholder="path to shared key">
           </div>
@@ -2999,6 +3004,7 @@ function populateNet(net) {
   document.getElementById('cfg-net-port').value = n.port != null ? n.port : '';
   document.getElementById('cfg-net-keyPath').value = n.keyPath || '';
   document.getElementById('cfg-net-hostname').value = n.hostname || '';
+  document.getElementById('cfg-net-publicUrl').value = n.publicUrl || '';
   var share = n.share || {};
   document.getElementById('cfg-net-share-tools').checked = !!share.tools;
   document.getElementById('cfg-net-share-memory').checked = !!share.memory;
@@ -3086,6 +3092,8 @@ function readNetFromForm() {
   if (keyPath) net.keyPath = keyPath;
   var hostname = document.getElementById('cfg-net-hostname').value.trim();
   if (hostname) net.hostname = hostname;
+  var publicUrl = document.getElementById('cfg-net-publicUrl').value.trim();
+  if (publicUrl) net.publicUrl = publicUrl;
 
   var peers = [];
   var pblocks = document.querySelectorAll('#net-peers .net-peer');
@@ -3165,7 +3173,7 @@ function readNetFromForm() {
   if (Object.keys(routing).length > 0) net.routing = routing;
 
   // Forward-compat: preserve any keys we don't manage so saving never drops them.
-  var managed = { enabled: 1, instanceName: 1, role: 1, port: 1, hostname: 1, keyPath: 1, peers: 1, share: 1, brainSource: 1, discovery: 1, leader: 1, heartbeatMode: 1, brainMode: 1, taskOverflow: 1, maxQueuedTasks: 1, tls: 1, routing: 1, maxConnections: 1, authTimeoutMs: 1, maxMessagesPerSecond: 1, publicJoin: 1, chatRetention: 1 };
+  var managed = { enabled: 1, instanceName: 1, role: 1, port: 1, hostname: 1, publicUrl: 1, keyPath: 1, peers: 1, share: 1, brainSource: 1, discovery: 1, leader: 1, heartbeatMode: 1, brainMode: 1, taskOverflow: 1, maxQueuedTasks: 1, tls: 1, routing: 1, maxConnections: 1, authTimeoutMs: 1, maxMessagesPerSecond: 1, publicJoin: 1, chatRetention: 1 };
   for (var mk in loadedNet) if (!managed[mk]) net[mk] = loadedNet[mk];
   return net;
 }

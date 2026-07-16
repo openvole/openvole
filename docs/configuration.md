@@ -393,6 +393,7 @@ Distributed agent networking — connect multiple OpenVole instances across mach
 | `role` | `string` | `"peer"` | `"coordinator"`, `"worker"`, or `"peer"`. |
 | `port` | `number` | `9700` | WebSocket/HTTP port for peer communication. |
 | `hostname` | `string` | first non-internal IPv4 | Host advertised to peers in the discovery endpoint. Set to your public domain when using TLS so it matches the cert (env override: `VOLE_NET_HOSTNAME`). |
+| `publicUrl` | `string` | — | Full endpoint advertised to peers *instead of* `hostname:port` — for reverse-proxy setups where the raw VoleNet port stays unexposed, e.g. `"https://club.example.com/mesh"` (env override: `VOLE_NET_PUBLIC_URL`). See [Behind a reverse proxy](/volenet#behind-a-reverse-proxy-hiding-the-volenet-port). |
 | `keyPath` | `string` | `.openvole/net/vole_key` | Path to Ed25519 keypair. |
 | `peers` | `array` | `[]` | Peer connections (see below). |
 | `share` | `object` | — | What to share with peers. |

@@ -70,6 +70,15 @@ export interface VoleNetConfig {
 	 * Overridable at runtime via the VOLE_NET_HOSTNAME env var.
 	 */
 	hostname?: string
+	/**
+	 * Full endpoint advertised to peers INSTEAD of `<scheme>://<hostname>:<port>` — for running
+	 * VoleNet behind a reverse proxy so the raw listen port never has to be exposed. Example:
+	 * "https://club.example.com/mesh", with nginx proxying that path (WebSocket upgrade included)
+	 * to the local VoleNet port. Peers join with this URL and are told to reconnect to it; the
+	 * joining side needs nothing — all peer traffic is endpoint-relative and the WS upgrade is
+	 * accepted on any path. Env override: VOLE_NET_PUBLIC_URL.
+	 */
+	publicUrl?: string
 	keyPath?: string
 	peers?: Array<{
 		url: string
@@ -245,9 +254,12 @@ export class VoleNetManager {
 		await this.transport.start()
 
 		// Start discovery
-		const hostname = this.getHostname()
-		const scheme = this.config.tls ? 'https' : 'http'
-		const endpoint = `${scheme}://${hostname}:${port}`
+		const endpoint = buildAdvertisedEndpoint({
+			publicUrl: this.config.publicUrl ?? process.env.VOLE_NET_PUBLIC_URL,
+			tls: !!this.config.tls,
+			hostname: this.getHostname(),
+			port,
+		})
 
 		const discoveryConfig: DiscoveryConfig = {
 			netDir,
@@ -258,6 +270,7 @@ export class VoleNetManager {
 			capabilities: this.getCapabilities(),
 			privateKey: this.keyPair.privateKey,
 			publicKeyString: this.keyPair.publicKeyString,
+			configuredPeerUrls: (this.config.peers ?? []).map((p) => p.url),
 		}
 		this.discovery = new VoleNetDiscovery(this.transport, discoveryConfig)
 		await this.discovery.start()
@@ -1329,4 +1342,50 @@ export function withVerifiedCaller(
 			: {}
 	base.__caller = { instanceId, name: name ?? instanceId.substring(0, 8) }
 	return base
+}
+
+/**
+ * The endpoint an instance advertises to peers. An explicit publicUrl wins outright —
+ * set it when VoleNet sits behind a reverse proxy so peers are told the proxy URL
+ * (e.g. "https://club.example.com/mesh") instead of a raw listen port that may be firewalled.
+ */
+export function buildAdvertisedEndpoint(opts: {
+	publicUrl?: string
+	tls?: boolean
+	hostname: string
+	port: number
+}): string {
+	const override = opts.publicUrl?.trim().replace(/\/+$/, '')
+	if (override) return override
+	const scheme = opts.tls ? 'https' : 'http'
+	return `${scheme}://${opts.hostname}:${opts.port}`
+}
+
+type PeerEntry = { url: string; trust?: string } & Record<string, unknown>
+
+/**
+ * Add a peer URL to a config peers list, REPLACING any existing entry on the same hostname —
+ * re-joining a hub at a new endpoint (a proxied /mesh path instead of a raw :9710 port) must
+ * update the entry, not stack a dead duplicate beside it. The replaced entry's trust and
+ * per-peer settings carry over. Returns the new list plus the URL it replaced, if any.
+ */
+export function upsertPeerUrl(
+	peers: PeerEntry[],
+	url: string,
+): { peers: PeerEntry[]; replaced?: string } {
+	const norm = (u: string) => u.trim().replace(/\/+$/, '')
+	const hostOf = (u: string): string | null => {
+		try {
+			return new URL(norm(u)).hostname || null
+		} catch {
+			return null
+		}
+	}
+	const target = norm(url)
+	if (peers.some((p) => norm(p.url) === target)) return { peers }
+	const targetHost = hostOf(target)
+	const stale = targetHost ? peers.find((p) => hostOf(p.url) === targetHost) : undefined
+	const kept = stale ? peers.filter((p) => p !== stale) : peers.slice()
+	kept.push(stale ? { ...stale, url: target } : { url: target, trust: 'full' })
+	return { peers: kept, replaced: stale ? norm(stale.url) : undefined }
 }
