@@ -85,36 +85,24 @@ curl -fsSL https://raw.githubusercontent.com/openvole/openvole/main/presets/full
 
 ## Architecture
 
-```
-                      vole serve (control plane)
-                       one server · many agents
-                              |
-                              v
-┌─────────────────────────────────────────────────────────────┐
-│                       VoleEngine                            │
-│                                                             │
-│   Tool Registry ──── Skill Registry ──── Paw Registry       │
-│        |                   |                  |             │
-│   ┌────────────────────────────────────────────────┐        │
-│   │              Agent Loop (per task)             │        │
-│   │                                                │        │
-│   │   PERCEIVE ─── THINK ─── ACT ─── OBSERVE       │        │
-│   │       |           |        |         |         │        │
-│   │   Enrich      Brain    Execute   Process       │        │
-│   │   context     plans    tools     results       │        │
-│   │                                                │        │
-│   └────────────────────────────────────────────────┘        │
-│                                                             │
-│   Task Queue ──── Scheduler ──── Message Bus                │
-│                                                             │
-└──────┬──────────┬──────────┬──────────┬─────────────────────┘
-       |          |          |          |
-  [Brain Paw] [Channel]  [Tools]   [In-Process]
-   Ollama     Telegram   Browser    Compact
-   Claude     Slack      Shell      Memory
-   OpenAI     Discord    MCP        Session
-   Gemini     WhatsApp   Email/Resend/GitHub/Calendar
-   xAI
+```mermaid
+flowchart TB
+    Serve["vole serve — control plane<br/>one server · many agents"] --> Engine
+    subgraph Engine["VoleEngine"]
+        direction TB
+        Reg["Tool Registry · Skill Registry · Paw Registry"]
+        subgraph Loop["Agent Loop (per task)"]
+            direction LR
+            PE["PERCEIVE<br/>enrich context"] --> TH["THINK<br/>Brain plans"] --> AC["ACT<br/>execute tools"] --> OB["OBSERVE<br/>process results"]
+        end
+        Svc["Task Queue · Scheduler · Message Bus"]
+        Reg --> Loop
+        Loop --> Svc
+    end
+    Engine --> BR["Brain Paws<br/>Ollama · Claude · OpenAI · Gemini · xAI"]
+    Engine --> CH["Channels<br/>Telegram · Slack · Discord · WhatsApp"]
+    Engine --> TO["Tools<br/>Browser · Shell · MCP · Email · GitHub · Calendar"]
+    Engine --> IP["In-Process<br/>Compact · Memory · Session"]
 ```
 
 35 official paws: brains (unified + legacy providers), channels, tools, and infrastructure.

@@ -4,18 +4,18 @@ VoleNet is OpenVole's distributed agent networking layer. It connects multiple O
 
 ## How It Works
 
-```
-┌──────────────────────┐         WebSocket          ┌─────────────────────┐
-│   Coordinator        │◄──────────────────────────►│   Worker            │
-│   (Brain + Telegram) │                            │   (Shell tools)     │
-│   port 9700          │         Ed25519 signed     │   port 9701         │
-└──────────────────────┘         messages           └─────────────────────┘
-         │                                                    │
-         │              ┌─────────────────────┐               │
-         └──────────────►   Worker            │◄──────────────┘
-                        │   (Database tools)  │
-                        │   port 9702         │
-                        └─────────────────────┘
+```mermaid
+graph TB
+    C["Coordinator<br/>Brain + Telegram · port 9700"]
+    W1["Worker<br/>Shell tools · port 9701"]
+    W2["Worker<br/>Database tools · port 9702"]
+    C <-->|"WebSocket · Ed25519-signed"| W1
+    C <--> W2
+    W1 <--> W2
+    classDef brain fill:#5DCAA5,stroke:#085041,color:#fff
+    classDef gray fill:#888780,stroke:#444441,color:#fff
+    class C brain
+    class W1,W2 gray
 ```
 
 1. Each instance generates an Ed25519 keypair (`vole net init`)
@@ -124,20 +124,19 @@ Same user, same conversation across devices. Session and memory sync in both dir
 
 Each team member has their own Brain and tools, but they share a common memory and tool server.
 
-```
-┌──────────────┐  ┌──────────────┐  ┌────────────────┐
-│  Alice       │  │  Bob         │  │  Carol         │
-│  Brain+CLI   │  │  Brain+CLI   │  │  Brain+Telegram│
-│  port 9700   │  │  port 9701   │  │  port 9702     │
-└──────┬───────┘  └──────┬───────┘  └──────┬─────────┘
-       │                 │                  │
-       └────────────┬────┴──────────────────┘
-                    │
-          ┌─────────▼─────────┐
-          │  Shared Server    │
-          │  DB + Shell + MCP │
-          │  port 9703        │
-          └───────────────────┘
+```mermaid
+graph TB
+    A["Alice<br/>Brain + CLI · 9700"]
+    B["Bob<br/>Brain + CLI · 9701"]
+    Ca["Carol<br/>Brain + Telegram · 9702"]
+    S["Shared Server<br/>DB + Shell + MCP · 9703"]
+    A --> S
+    B --> S
+    Ca --> S
+    classDef brain fill:#5DCAA5,stroke:#085041,color:#fff
+    classDef gray fill:#888780,stroke:#444441,color:#fff
+    class A,B,Ca brain
+    class S gray
 ```
 
 ```json
@@ -179,20 +178,19 @@ Each team member has their own Brain and tools, but they share a common memory a
 
 One powerful Brain server handles all thinking. Thin worker clients just expose tools and channels — no LLM cost per client.
 
-```
-                    ┌─────────────────────┐
-                    │   Brain Server      │
-                    │   GPU + paw-brain   │
-                    │   port 9700         │
-                    └──────────┬──────────┘
-           ┌───────────────────┼───────────────────┐
-           │                   │                   │
-  ┌────────▼────────┐ ┌───────▼────────┐ ┌────────▼────────┐
-  │  Client A       │ │  Client B      │ │  Client N       │
-  │  Telegram+Shell │ │  Slack+Browser │ │  CLI+Database   │
-  │  brainSource:   │ │  brainSource:  │ │  brainSource:   │
-  │  "remote"       │ │  "remote"      │ │  "remote"       │
-  └─────────────────┘ └────────────────┘ └─────────────────┘
+```mermaid
+graph TB
+    BS["Brain Server<br/>GPU + paw-brain · port 9700"]
+    C1["Client A<br/>Telegram + Shell<br/>brainSource: remote"]
+    C2["Client B<br/>Slack + Browser<br/>brainSource: remote"]
+    C3["Client N<br/>CLI + Database<br/>brainSource: remote"]
+    C1 --> BS
+    C2 --> BS
+    C3 --> BS
+    classDef brain fill:#5DCAA5,stroke:#085041,color:#fff
+    classDef gray fill:#888780,stroke:#444441,color:#fff
+    class BS brain
+    class C1,C2,C3 gray
 ```
 
 ```json
@@ -235,15 +233,16 @@ One powerful Brain server handles all thinking. Thin worker clients just expose 
 
 Self-organizing agents with no fixed coordinator. Any peer can lead. Tasks automatically forward to the least-loaded instance.
 
-```
-  ┌──────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐
-  │  Agent 1 │◄──►│  Agent 2 │◄──►│  Agent 3 │◄──►│  Agent 4 │
-  │  Brain   │    │  Brain   │    │  Brain   │    │  Brain   │
-  │  Shell   │    │  Browser │    │  DB      │    │  Scraper │
-  └──────────┘    └──────────┘    └──────────┘    └──────────┘
-       ▲                                               ▲
-       └───────────────────────────────────────────────┘
-                    Full mesh — all peers connected
+```mermaid
+graph LR
+    A1["Agent 1<br/>Brain · Shell"] <--> A2["Agent 2<br/>Brain · Browser"]
+    A2 <--> A3["Agent 3<br/>Brain · DB"]
+    A3 <--> A4["Agent 4<br/>Brain · Scraper"]
+    A1 <--> A3
+    A1 <--> A4
+    A2 <--> A4
+    classDef brain fill:#5DCAA5,stroke:#085041,color:#fff
+    class A1,A2,A3,A4 brain
 ```
 
 ```json

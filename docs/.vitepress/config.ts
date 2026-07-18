@@ -1,6 +1,8 @@
 import { defineConfig } from 'vitepress'
+import { withMermaid } from 'vitepress-plugin-mermaid'
 
-export default defineConfig({
+export default withMermaid(
+	defineConfig({
 	title: 'OpenVole',
 	description: 'The self-hosted OS for AI agents — your hardware, any model, peer-to-peer networked.',
 	base: '/openvole/',
@@ -70,4 +72,5 @@ export default defineConfig({
 			provider: 'local',
 		},
 	},
-})
+}),
+)

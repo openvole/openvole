@@ -4,48 +4,24 @@ OpenVole follows a **microkernel architecture** — the core provides the agent 
 
 ## System Diagram
 
-```
-                      vole serve (control plane)
-                       one server · many agents
-                              |
-                              v
-┌──────────────────────────────────────────────────────────────────┐
-│                         VoleEngine                               │
-│                                                                  │
-│   Tool Registry ──── Skill Registry ──── Paw Registry            │
-│        |                   |                  |                  │
-│   ┌──────────────────────────────────────────────────────┐       │
-│   │                Agent Loop (per task)                  │       │
-│   │                                                      │       │
-│   │   BOOTSTRAP ─┐                                       │       │
-│   │              ▼                                       │       │
-│   │   PERCEIVE → COMPACT → THINK → ACT → OBSERVE → loop │       │
-│   │       |         |        |       |        |          │       │
-│   │   Enrich    Compress   Brain  Execute  Process       │       │
-│   │   context   old msgs   plans  tools    results       │       │
-│   │                                                      │       │
-│   │            Context Budget Manager                    │       │
-│   │        (token estimation, priority trimming)         │       │
-│   └──────────────────────────────────────────────────────┘       │
-│                                                                  │
-│   Task Queue ──── Scheduler ──── Message Bus ──── Cost Tracker   │
-│                                                                  │
-│   VoleNet (optional)                                             │
-│   ├── Transport (WebSocket + HTTP fallback)                      │
-│   ├── Discovery (peer registry, health monitoring)               │
-│   ├── Remote Task Manager (tool routing, delegation)             │
-│   ├── Sync (memory + session propagation)                        │
-│   └── Leader Election (heartbeat coordination)                   │
-│                                                                  │
-└──────┬──────────┬──────────┬──────────┬──────────────────────────┘
-       |          |          |          |
-  [Brain Paw] [Channel]  [Tools]   [In-Process]
-   paw-brain  Telegram   Browser    Compact
-   (unified)  Slack      Shell      Memory
-              Discord    MCP        Session
-                         Email      Dashboard
-                         Database
-                         Scraper
+```mermaid
+flowchart TB
+    Serve["vole serve — control plane<br/>one server · many agents"] --> Engine
+    subgraph Engine["VoleEngine"]
+        direction TB
+        Reg["Tool Registry · Skill Registry · Paw Registry"]
+        subgraph Loop["Agent Loop (per task)"]
+            direction LR
+            BO["BOOTSTRAP"] --> PE["PERCEIVE<br/>enrich context"] --> CO["COMPACT<br/>compress old msgs"] --> TH["THINK<br/>Brain plans"] --> AC["ACT<br/>execute tools"] --> OB["OBSERVE<br/>process results"]
+            OB -. loop .-> PE
+        end
+        CBM["Context Budget Manager<br/>token estimation · priority trimming"]
+        Svc["Task Queue · Scheduler · Message Bus · Cost Tracker"]
+        Net["VoleNet (optional)<br/>Transport · Discovery · Remote Task Manager · Sync · Leader Election"]
+        Reg --> Loop
+        Loop --> CBM
+    end
+    Engine --> Paws["Paws — subprocess-sandboxed<br/>Brain · Channels · Tools · In-Process"]
 ```
 
 ## The Agent Loop
@@ -188,21 +164,12 @@ See the [VoleNet documentation](/volenet) for architecture patterns and setup.
 
 `vole serve` runs the **control plane** — a single web server (the `@openvole/dashboard-server` package) that manages every agent from one place. This is the primary way to operate OpenVole.
 
-```
-                         vole serve
-                  control-plane web server
-                    (one port, default 3000)
-                              |
-        ┌─────────────────────┼─────────────────────┐
-        │                     │                     │
-   ┌────▼────┐           ┌────▼────┐           ┌────▼────┐
-   │ agent A │           │ agent B │           │ agent N │
-   │ engine  │           │ engine  │           │ engine  │
-   │ (child) │           │ (child) │           │ (child) │
-   └─────────┘           └─────────┘           └─────────┘
-   own config            own config            own config
-   paws · identity       paws · identity       paws · identity
-   data dir              data dir              data dir
+```mermaid
+flowchart TB
+    S["vole serve<br/>control-plane web server<br/>one port, default 3000"]
+    S --> A["agent A · engine (child)<br/>own config · paws · identity · data dir"]
+    S --> B["agent B · engine (child)<br/>own config · paws · identity · data dir"]
+    S --> N["agent N · engine (child)<br/>own config · paws · identity · data dir"]
 ```
 
 - A **agent** is an isolated agent — its own `vole.config.json`, paws, identity files, and data directory. Each running agent is its own engine subprocess (IPC child), parented to the `vole serve` process (not detached).

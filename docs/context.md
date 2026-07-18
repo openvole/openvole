@@ -17,63 +17,16 @@ Install your custom paw, add it to `vole.config.json`, and the core uses it — 
 
 ## Context Flow
 
-```
-User Input
-    ↓
-┌─────────────────────────────────┐
-│  Bootstrap (once per task)      │
-│  • paw-memory: load MEMORY.md   │
-│    + today/yesterday logs       │
-│  • paw-session: load session    │
-│    history for this session ID  │
-│  • Any paw with bootstrap hook  │
-└──────────────┬──────────────────┘
-               ↓
-      ┌── Loop iteration ──┐
-      ↓                    │
-┌─────────────────────────────────┐
-│  Perceive (every iteration)     │  ← Paws can inject/modify context
-│  • Runs all perceive hooks      │
-│  • Paws read/write              │
-│    context.metadata             │
-└──────────────┬──────────────────┘
-               ↓
-┌─────────────────────────────────┐
-│  Compact (if threshold hit)     │
-│  • paw-compact: summarize old   │
-│    messages, keep recent N      │
-│  • Runs AFTER perceive so       │
-│    compaction sees everything   │
-│  • Brain always sees compressed │
-│    context, not raw history     │
-└──────────────┬──────────────────┘
-               ↓
-┌─────────────────────────────────┐
-│  Think (Brain)                  │
-│  • buildSystemPrompt() reads:   │
-│    - BRAIN.md (system prompt)   │
-│    - Identity files (SOUL.md,   │
-│      USER.md, AGENT.md)         │
-│    - context.metadata.memory    │
-│    - context.metadata           │
-│      .sessionHistory            │
-│    - Available tools + skills   │
-│    - Runtime context (date,     │
-│      time, model)               │
-│  • Sends to LLM → gets plan     │
-└──────────────┬──────────────────┘
-               ↓
-┌─────────────────────────────────┐
-│  Act (execute tool calls)       │
-└──────────────┬──────────────────┘
-               ↓
-┌─────────────────────────────────┐
-│  Observe (after each iteration) │
-│  • Runs all observe hooks       │
-│  • Paws can react to results    │
-└──────────────┬──────────────────┘
-               ↓
-          Next iteration ───┘
+```mermaid
+flowchart TD
+    U([User input]) --> BS
+    BS["<b>Bootstrap</b> — once per task<br/>paw-memory: MEMORY.md + today/yesterday logs<br/>paw-session: history for this session id<br/>any paw with a bootstrap hook"]
+    BS --> PV["<b>Perceive</b> — every iteration<br/>runs all perceive hooks<br/>paws read/write context.metadata"]
+    PV --> CP["<b>Compact</b> — if threshold hit<br/>paw-compact summarizes old messages, keeps recent N<br/>runs after perceive so compaction sees everything<br/>Brain always sees compressed context"]
+    CP --> TH["<b>Think</b> — Brain<br/>buildSystemPrompt(): BRAIN.md · identity files (SOUL/USER/AGENT) ·<br/>memory · session history · tools + skills · runtime context<br/>sends to LLM → gets plan"]
+    TH --> AC["<b>Act</b> — execute tool calls"]
+    AC --> OB["<b>Observe</b> — after each iteration<br/>runs all observe hooks; paws react to results"]
+    OB -->|next iteration| PV
 ```
 
 ## How Paws Inject Context
