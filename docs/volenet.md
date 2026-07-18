@@ -31,6 +31,16 @@ graph TB
 
 One coordinator runs the Brain. Workers expose tools (shell, database, etc.) without needing their own LLM.
 
+```mermaid
+graph LR
+    C["coordinator<br/>Brain · port 9700"] -->|"signed tool call: shell_exec"| W["worker-1<br/>paw-shell · no LLM · port 9701"]
+    W -.->|"result"| C
+    classDef brain fill:#5DCAA5,stroke:#085041,color:#fff
+    classDef gray fill:#888780,stroke:#444441,color:#fff
+    class C brain
+    class W gray
+```
+
 ```json
 // coordinator
 {
@@ -66,6 +76,15 @@ One coordinator runs the Brain. Workers expose tools (shell, database, etc.) wit
 
 Each instance has its own Brain and heartbeat. Peers can share memory and communicate, but think independently.
 
+```mermaid
+graph LR
+    A["backend-vole<br/>Brain · 9700"] <-->|"memory · session · tools"| B["frontend-vole<br/>Brain · 9701"]
+    B <--> C2["tester-vole<br/>Brain · 9702"]
+    A <--> C2
+    classDef brain fill:#5DCAA5,stroke:#085041,color:#fff
+    class A,B,C2 brain
+```
+
 ```json
 {
   "brain": "@openvole/paw-brain",
@@ -86,6 +105,19 @@ Each instance has its own Brain and heartbeat. Peers can share memory and commun
 
 Multiple instances with Brains. Tasks route to the least-loaded peer.
 
+```mermaid
+graph TB
+    T([incoming task]) --> P["least-loaded peer wins"]
+    P --> B1["Brain A<br/>load: 2"]
+    P ==>|"routed"| B2["Brain B<br/>load: 0"]
+    P --> B3["Brain C<br/>load: 5"]
+    B2 -. "queue full → taskOverflow: forward" .-> B1
+    classDef brain fill:#5DCAA5,stroke:#085041,color:#fff
+    classDef gray fill:#888780,stroke:#444441,color:#fff
+    class B1,B2,B3 brain
+    class P gray
+```
+
 ```json
 {
   "net": {
@@ -99,6 +131,13 @@ Multiple instances with Brains. Tasks route to the least-loaded peer.
 ### Pattern 4: Shared Session Multi-Device
 
 Same user, same conversation across devices. Session and memory sync in both directions.
+
+```mermaid
+graph LR
+    M["my-mac<br/>on-demand · port 9700"] <-->|"session + memory sync"| V["my-vps<br/>24/7 · Telegram · port 9701"]
+    classDef brain fill:#5DCAA5,stroke:#085041,color:#fff
+    class M,V brain
+```
 
 ```json
 // Mac (on-demand use)
@@ -277,6 +316,16 @@ Key behaviors:
 ### Pattern 8: Brain Sharing
 
 Workers without a Brain delegate thinking to a coordinator's Brain.
+
+```mermaid
+graph LR
+    W["worker<br/>tools + channels · brainSource: remote"] -->|"delegates thinking"| C["coordinator<br/>Brain · allowBrain: true"]
+    C -.->|"plan"| W
+    classDef brain fill:#5DCAA5,stroke:#085041,color:#fff
+    classDef gray fill:#888780,stroke:#444441,color:#fff
+    class C brain
+    class W gray
+```
 
 ```json
 // coordinator — allows brain sharing
