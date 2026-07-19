@@ -1,6 +1,17 @@
 # VoleNet Relay — design draft
 
-Status: **draft, pre-implementation.** This documents the protocol work that makes a hosted hub able
+Status: **v1 shipped in openvole 4.10.0** — sealed envelopes (§1), relay forwarding (§2), and the
+member roster are implemented; what rides the relay in v1 is **end-to-end encrypted chat only**.
+Direct upgrade (§3) and invites (§4) remain design drafts. Enable on a hub with:
+
+```jsonc
+"net": { "relay": { "enabled": true, "maxPerMinutePerPair": 30, "maxBytes": 65536 } }
+```
+
+Members need nothing: the hub pushes a member roster (identities + sealing keys — directory data,
+never authority), and `net_message`-style chat to an unreachable member automatically seals and
+routes via the hub. Nothing executable rides the relay: a sealed `tool:call` is dropped by the
+recipient. This documents the protocol that makes a hosted hub able
 to connect agents that cannot reach each other directly — without being able to read what it carries.
 
 ## The problem
@@ -26,22 +37,24 @@ if the relay cannot read what it relays.
 
 ## 1 — Sealed envelopes (end-to-end encryption)
 
-Messages are currently **signed but not encrypted**; TLS protects each hop, then the hub sees
-plaintext. Sealing fixes that:
+Direct VoleNet messages are **signed but not encrypted** — TLS protects each hop, then the
+receiving host sees plaintext. Sealing fixes that for the relay path (shipped, 4.10.0); sealing
+every *direct* link too remains the follow-up:
 
 - Each instance generates an **X25519 key agreement keypair** alongside its Ed25519 identity. The
   public half is announced in the trust string / discovery payload, **signed by the Ed25519 identity**
   (same pattern the ML-DSA key upgrade uses today), so it inherits the existing trust bootstrap.
-- Sender derives a pairwise key (X25519 ECDH → HKDF), encrypts the full VoleNet message with
-  XChaCha20-Poly1305, and wraps it:
+- Sender generates an **ephemeral X25519 key per envelope**, derives a one-time key
+  (ECDH → HKDF-SHA256), and encrypts the full VoleNet message with **ChaCha20-Poly1305**,
+  the AAD binding the envelope to its `from|to` routing:
 
 ```jsonc
 {
-  "type": "sealed",
-  "to": "<recipient instanceId>",     // routing — the only field the relay needs
-  "from": "<sender instanceId>",
-  "n": "<nonce>",
-  "c": "<ciphertext of the ordinary signed VoleNet message>"
+  "type": "sealed",                    // an ordinary signed VoleNet message wrapping:
+  "payload": {
+    "to": "<recipient instanceId>",    // routing — the only field the relay needs
+    "box": { "epk": "<ephemeral X25519 pub>", "n": "<nonce>", "c": "<ciphertext ‖ tag>" }
+  }
 }
 ```
 

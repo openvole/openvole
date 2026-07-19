@@ -77,7 +77,8 @@ export class VoleNetTransport {
 	private globalWindow: number[] = []
 	private verifyFn?: (message: VoleNetMessage) => boolean
 	private responder?: (message: VoleNetMessage) => VoleNetMessage | null
-	private onConnectCb?: (peerId: string) => void
+	private onConnectCbs: Array<(peerId: string) => void> = []
+	private onDisconnectCbs: Array<(peerId: string) => void> = []
 	private seenMsgs = new Map<string, number>()
 
 	constructor(config: TransportConfig) {
@@ -113,7 +114,11 @@ export class VoleNetTransport {
 	 * which is what makes reverse delivery (hub→NAT'd-follower) consistent right after (re)connect.
 	 */
 	setOnConnect(fn: (peerId: string) => void): void {
-		this.onConnectCb = fn
+		this.onConnectCbs.push(fn)
+	}
+
+	setOnDisconnect(fn: (peerId: string) => void): void {
+		this.onDisconnectCbs.push(fn)
 	}
 
 	/** Global sliding-window message ceiling across all sources (load shed). False when over. */
@@ -347,6 +352,7 @@ export class VoleNetTransport {
 						})
 					}
 					logger.info(`WebSocket authenticated + bound to peer ${message.from.substring(0, 8)}`)
+					for (const cb of this.onConnectCbs) cb(message.from)
 				} else if (message.from !== authedPeerId) {
 					// A socket authenticated as one peer cannot later speak for another.
 					return
@@ -366,6 +372,7 @@ export class VoleNetTransport {
 						peer.ws = null
 						peer.connected = false
 						logger.info(`WebSocket disconnected: ${peerId.substring(0, 8)}`)
+						for (const cb of this.onDisconnectCbs) cb(peerId)
 						this.scheduleReconnect(peerId)
 						break
 					}
@@ -451,6 +458,10 @@ export class VoleNetTransport {
 		// so the listening port is released promptly. Otherwise server.close() waits on
 		// open connections and a restart races the old listener (EADDRINUSE).
 		if (this.wss) {
+			// wss.close() waits for every client socket; reconnect churn can leave inbound
+			// sockets that no peer entry references (a rebind replaces entry.ws, orphaning the
+			// old one). Terminate them all or close() never calls back and stop() hangs.
+			for (const client of this.wss.clients) client.terminate()
 			await new Promise<void>((resolve) => this.wss!.close(() => resolve()))
 			this.wss = null
 		}
@@ -601,6 +612,7 @@ export class VoleNetTransport {
 	 * Connect to a peer via WebSocket.
 	 */
 	private connectWebSocket(peerId: string): void {
+		if (!this.started) return // no fresh dials during/after shutdown
 		const peer = this.peers.get(peerId)
 		if (!peer) return
 		// Don't open a second socket while one is connecting or already open.
@@ -622,7 +634,7 @@ export class VoleNetTransport {
 				logger.info(`WebSocket connected to ${peerId.substring(0, 8)}`)
 				// Push a signed message now so the remote binds this socket immediately
 				// (don't wait up to a heartbeat interval) — keeps reverse delivery consistent.
-				this.onConnectCb?.(peerId)
+				for (const cb of this.onConnectCbs) cb(peerId)
 			})
 
 			ws.on('message', (data) => {

@@ -105,7 +105,7 @@ When [VoleNet](/volenet) is enabled, nodes exchange signed messages over a share
 - **Public hubs** — `net.publicJoin` lets strangers self-register at a restricted **guest** trust (never `full`, `allowBrain: false`, rate-limited, peer-capped). Pair with `"demo": true` to lock the hub's config from the dashboard. See [VoleNet › Public mesh hub](/volenet#public-mesh-hub).
 
 ::: warning Network exposure
-The VoleNet port has **no transport encryption by default** — traffic is signed (unforgeable) but not encrypted, so it can be eavesdropped. The message endpoint *is* rate-limited (1200/min per connection) and body-capped (1 MB). For public exposure, enable [TLS](/volenet#transport-encryption-tls) (`tls.cert`/`tls.key` + a matching `hostname`) and use `publicJoin` for intentional public meshes. Otherwise keep it on a trusted network, behind a firewall allowlist or a VPN overlay (WireGuard/Tailscale).
+The VoleNet port has **no transport encryption by default** — traffic is signed (unforgeable) but not encrypted, so it can be eavesdropped — except relayed member↔member chat (4.10.0), which is sealed end-to-end so not even the relay hub can read it. The message endpoint *is* rate-limited (1200/min per connection) and body-capped (1 MB). For public exposure, enable [TLS](/volenet#transport-encryption-tls) (`tls.cert`/`tls.key` + a matching `hostname`) and use `publicJoin` for intentional public meshes. Otherwise keep it on a trusted network, behind a firewall allowlist or a VPN overlay (WireGuard/Tailscale).
 :::
 
 ::: tip Post-quantum

@@ -13,12 +13,7 @@ export const MAX_MESSAGE_AGE_MS = 60_000 // reject messages older than 60s
 /**
  * The local node's post-quantum (ML-DSA) signing key, set once at VoleNet start.
  * Module-level because there is exactly one signing identity per process — this lets
- * createMessage dual-sign without threading the key through every call site.
  */
-let activePqSigningKey: KeyObject | undefined
-export function setPqSigningKey(key: KeyObject | undefined): void {
-	activePqSigningKey = key
-}
 
 export type VoleNetMessageType =
 	| 'ping'
@@ -43,6 +38,10 @@ export type VoleNetMessageType =
 	| 'leader:claim'
 	| 'leader:ack'
 	| 'chat:message'
+	| 'sealed'
+	| 'relay:deliver'
+	| 'relay:error'
+	| 'roster'
 
 export interface VoleNetMessage {
 	version: number
@@ -67,6 +66,8 @@ export interface VoleNetInstance {
 	maxTasks: number
 	lastSeen: number
 	version: string
+	/** X25519 public key (base64 SPKI) for sealed envelopes, when the peer announces one. */
+	xPublicKey?: string
 }
 
 export interface RemoteToolInfo {
@@ -86,6 +87,7 @@ export function createMessage(
 	to: string | '*',
 	payload: unknown,
 	privateKey: KeyObject,
+	pqPrivateKey?: KeyObject,
 ): VoleNetMessage {
 	const id = crypto.randomUUID()
 	const timestamp = Date.now()
@@ -93,7 +95,7 @@ export function createMessage(
 	// Sign the canonical payload representation (Ed25519, plus ML-DSA when available — hybrid).
 	const dataToSign = canonicalize(id, type, from, to, timestamp, payload)
 	const signature = sign(privateKey, dataToSign)
-	const sigPq = activePqSigningKey ? sign(activePqSigningKey, dataToSign) : undefined
+	const sigPq = pqPrivateKey ? sign(pqPrivateKey, dataToSign) : undefined
 
 	return {
 		version: VOLENET_VERSION,
@@ -193,8 +195,12 @@ function canonicalJson(value: unknown): string {
 	if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'null'
 	if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`
 	const obj = value as Record<string, unknown>
+	// Skip undefined-valued properties: JSON.stringify omits them on the wire, so signing
+	// them (as anything) guarantees a receiver-side canonical mismatch — the signature would
+	// never verify after transport. Arrays already match (undefined items serialize as null).
 	return `{${Object.keys(obj)
 		.sort()
+		.filter((k) => obj[k] !== undefined)
 		.map((k) => `${JSON.stringify(k)}:${canonicalJson(obj[k])}`)
 		.join(',')}}`
 }

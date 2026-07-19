@@ -52,6 +52,7 @@ export class RemoteTaskManager {
 	private discovery: VoleNetDiscovery
 	private instanceId: string
 	private privateKey: KeyObject
+	private pqPrivateKey?: KeyObject
 	private pendingTasks = new Map<
 		string,
 		{
@@ -75,12 +76,14 @@ export class RemoteTaskManager {
 		discovery: VoleNetDiscovery,
 		instanceId: string,
 		privateKey: KeyObject,
+		pqPrivateKey: KeyObject | undefined,
 		routing?: Record<string, string>,
 	) {
 		this.transport = transport
 		this.discovery = discovery
 		this.instanceId = instanceId
 		this.privateKey = privateKey
+		this.pqPrivateKey = pqPrivateKey
 		this.routing = routing ?? {}
 
 		// Register message handlers
@@ -106,6 +109,7 @@ export class RemoteTaskManager {
 			targetInstanceId,
 			{ ...request, taskId },
 			this.privateKey,
+			this.pqPrivateKey,
 		)
 
 		const sent = await this.transport.sendToPeer(targetInstanceId, message)
@@ -146,6 +150,7 @@ export class RemoteTaskManager {
 			targetInstanceId,
 			{ callId, toolName, params } satisfies RemoteToolCallRequest,
 			this.privateKey,
+			this.pqPrivateKey,
 		)
 
 		const sent = await this.transport.sendToPeer(targetInstanceId, message)

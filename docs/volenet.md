@@ -3,8 +3,10 @@
 VoleNet is OpenVole's distributed agent networking layer. It connects multiple OpenVole instances across machines, enabling remote tool execution, node-to-node messaging, memory synchronization, brain sharing, and leader election — every remote action authenticated and authorized per message with Ed25519 signatures.
 
 > [!NOTE]
-> A design draft extends VoleNet beyond what ships today: the [blind relay](/volenet-relay)
-> — sealed envelopes a hosted hub cannot read. Draft means: specified, public, in development.
+> 4.10.0 ships the first slice of the [blind relay](/volenet-relay): hubs with `net.relay.enabled`
+> forward **sealed, end-to-end encrypted chat** between members who can't reach each other —
+> envelopes the hub cannot read. Tool calls over the relay, direct upgrade, and invites remain
+> design drafts on that page.
 
 ## How It Works
 
@@ -461,7 +463,7 @@ VoleNet **authenticates then authorizes** every remote action — see the [Secur
 - **Transport** — WebSocket preferred (persistent, bidirectional), HTTP POST fallback. Plaintext by default; turn on **TLS** (`https`/`wss`) for anything public — see [Transport encryption](#transport-encryption-tls).
 
 > [!WARNING]
-> Don't expose the VoleNet port to the public internet raw. Traffic is **signed but not encrypted** by default (eavesdropping). The message endpoint *is* rate-limited (1200/min) and body-capped (1 MB), but for public exposure enable [TLS](#transport-encryption-tls) and use `publicJoin` for intentional public meshes — otherwise keep it on a trusted network, behind a firewall allowlist or a VPN overlay (WireGuard/Tailscale).
+> Don't expose the VoleNet port to the public internet raw. Traffic is **signed but not encrypted** by default (eavesdropping; the exception is relayed chat through a 4.10.0 relay hub, which is sealed end-to-end). The message endpoint *is* rate-limited (1200/min) and body-capped (1 MB), but for public exposure enable [TLS](#transport-encryption-tls) and use `publicJoin` for intentional public meshes — otherwise keep it on a trusted network, behind a firewall allowlist or a VPN overlay (WireGuard/Tailscale).
 
 > [!NOTE]
 > Signatures are **hybrid Ed25519 + ML-DSA-65** (post-quantum) when the runtime supports it (Node 24+ / OpenSSL 3.5+). Migration is **zero-touch**: keypairs auto-upgrade with a PQ key on start, and trust upgrades automatically when peers reconnect (the PQ key rides the Ed25519-signed discovery) — so existing meshes migrate with just a restart. Between PQ-capable peers both signatures are required (downgrade-resistant); older Ed25519-only nodes stay interoperable.

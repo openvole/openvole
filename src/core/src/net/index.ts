@@ -22,9 +22,11 @@ import { VoleNetLeader } from './leader.js'
 import {
 	type RemoteToolInfo,
 	type VoleNetInstance,
+	type VoleNetMessage,
 	createMessage,
-	setPqSigningKey,
+	verifyMessage,
 } from './protocol.js'
+import { type SealedBox, relayPairAllow, seal, unseal } from './seal.js'
 import { RemoteTaskManager } from './remote-task.js'
 import { type SyncConfig, VoleNetSync } from './sync.js'
 import { type TransportConfig, VoleNetTransport } from './transport.js'
@@ -176,6 +178,26 @@ export interface VoleNetConfig {
 		/** Queue joins to pending_joins.jsonl for manual `vole net trust` instead of auto-trusting. */
 		requireApproval?: boolean
 	}
+	/**
+	 * Blind relay (hub side): forward sealed member↔member envelopes the hub cannot read.
+	 * v1 carries end-to-end encrypted chat only — no tool calls or delegation ride the relay.
+	 */
+	relay?: {
+		enabled?: boolean
+		/** Forwards allowed per minute per (sender, recipient) pair. Default 30. */
+		maxPerMinutePerPair?: number
+		/** Max sealed envelope size in bytes. Default 65536. */
+		maxBytes?: number
+	}
+}
+
+/** A hub-vouched mesh member, learned from a relay hub's roster broadcast. */
+export interface RosterMember {
+	instanceId: string
+	name: string
+	publicKey: string
+	xPublicKey?: string
+	connected: boolean
 }
 
 /** A single human-capable peer-chat message, stored per peer for the dashboard. */
@@ -185,6 +207,8 @@ export interface ChatEntry {
 	fromName: string
 	timestamp: number
 	messageId: string
+	/** True when this message travelled through a relay hub as a sealed envelope. */
+	relayed?: boolean
 }
 
 export class VoleNetManager {
@@ -203,6 +227,13 @@ export class VoleNetManager {
 	private started = false
 	/** Per-IP join timestamps for public-join rate limiting. */
 	private joinTimestamps = new Map<string, number[]>()
+	/** Relay: per-(from,to) forward windows (hub side). */
+	private relayWindows = new Map<string, number[]>()
+	/** Relay: hub-vouched member rosters, keyed by hub instanceId. */
+	private hubRosters = new Map<string, Map<string, RosterMember>>()
+	/** Relay: inner-message replay guard — the transport's outer guard can't see re-wraps. */
+	private seenSealed = new Map<string, number>()
+	private rosterTimer: ReturnType<typeof setTimeout> | undefined
 	/** Per-peer human chat logs (in-memory; keyed by peer instanceId). */
 	private chatLog = new Map<string, ChatEntry[]>()
 	/** Periodically re-attempts configured peers — self-heals start-order races + drops. */
@@ -239,7 +270,6 @@ export class VoleNetManager {
 		logger.info(`Instance ID: ${this.keyPair.instanceId}`)
 		logger.info(`Public key: ${this.keyPair.publicKeyString}`)
 		// Activate the post-quantum signing key (when this keypair has one) for hybrid signatures.
-		setPqSigningKey(this.keyPair.pqPrivateKey)
 
 		// Start transport
 		const port = this.config.port ?? 9700
@@ -269,8 +299,10 @@ export class VoleNetManager {
 			endpoint,
 			capabilities: this.getCapabilities(),
 			privateKey: this.keyPair.privateKey,
+			pqPrivateKey: this.keyPair.pqPrivateKey,
 			publicKeyString: this.keyPair.publicKeyString,
 			configuredPeerUrls: (this.config.peers ?? []).map((p) => p.url),
+			xPublicKeyB64: this.keyPair.xPublicKeyB64,
 		}
 		this.discovery = new VoleNetDiscovery(this.transport, discoveryConfig)
 		await this.discovery.start()
@@ -312,6 +344,7 @@ export class VoleNetManager {
 					message.from,
 					tools,
 					this.keyPair.privateKey,
+			this.keyPair.pqPrivateKey,
 				)
 				this.transport!.sendToPeer(message.from, response)
 			}
@@ -343,6 +376,7 @@ export class VoleNetManager {
 							message.from,
 							{ callId, success: false, error: `Tool access not allowed: ${toolName}` },
 							this.keyPair.privateKey,
+			this.keyPair.pqPrivateKey,
 						),
 					)
 					return
@@ -362,6 +396,7 @@ export class VoleNetManager {
 							error: `Tool "${toolName}" not found`,
 						},
 						this.keyPair.privateKey,
+			this.keyPair.pqPrivateKey,
 					)
 				} else {
 					try {
@@ -397,6 +432,7 @@ export class VoleNetManager {
 								output,
 							},
 							this.keyPair.privateKey,
+			this.keyPair.pqPrivateKey,
 						)
 					} catch (err) {
 						const errorMsg = err instanceof Error ? err.message : String(err)
@@ -418,6 +454,7 @@ export class VoleNetManager {
 								error: errorMsg,
 							},
 							this.keyPair.privateKey,
+			this.keyPair.pqPrivateKey,
 						)
 					}
 				}
@@ -613,6 +650,7 @@ export class VoleNetManager {
 								'Brain access not allowed. Coordinator must set allowBrain: true for this peer.',
 						},
 						this.keyPair.privateKey,
+			this.keyPair.pqPrivateKey,
 					)
 					await this.transport!.sendToPeer(message.from, deny)
 					return
@@ -660,6 +698,7 @@ export class VoleNetManager {
 									error: t.error,
 								},
 								this.keyPair!.privateKey,
+			this.keyPair!.pqPrivateKey,
 							)
 							await this.transport!.sendToPeer(message.from, result)
 							logger.info(
@@ -678,6 +717,7 @@ export class VoleNetManager {
 							error: 'Task queue not available',
 						},
 						this.keyPair.privateKey,
+			this.keyPair.pqPrivateKey,
 					)
 					await this.transport!.sendToPeer(message.from, noQueue)
 				}
@@ -712,12 +752,111 @@ export class VoleNetManager {
 			})
 		})
 
+		// ── Blind relay (v1: sealed end-to-end chat) ──────────────────────────────
+		const relayCfg = this.config.relay
+		const relayMaxBytes = relayCfg?.maxBytes ?? 65536
+		const relayMaxPerMinute = relayCfg?.maxPerMinutePerPair ?? 30
+
+		// Hub side: forward sealed envelopes between members. The hub verifies WHO sent the
+		// envelope and applies policy — it cannot read what it forwards.
+		this.transport.onMessage((message) => {
+			if (message.type !== 'sealed' || !this.keyPair || !this.transport) return
+			if (!this.discovery?.verifyMessageFrom(message)) {
+				logger.warn(`Rejected unverified sealed envelope from ${message.from.substring(0, 8)}`)
+				return
+			}
+			const payload = message.payload as { to?: string; box?: SealedBox }
+			if (!payload?.to || !payload.box) return
+			if (payload.to === this.keyPair.instanceId) {
+				// addressed to us — we are the recipient, not a relay
+				this.deliverSealed(message.from, payload.box, messageBus)
+				return
+			}
+			if (!relayCfg?.enabled) return // not a relay — drop
+			const to = payload.to
+			const reject = (reason: string) => {
+				logger.warn(
+					`Relay refused ${message.from.substring(0, 8)}→${to.substring(0, 8)}: ${reason}`,
+				)
+				const err = createMessage(
+					'relay:error',
+					this.keyPair!.instanceId,
+					message.from,
+					{ to, reason },
+					this.keyPair!.privateKey,
+			this.keyPair!.pqPrivateKey,
+				)
+				void this.transport!.sendToPeer(message.from, err)
+			}
+			if (JSON.stringify(message).length > relayMaxBytes) return reject('too-large')
+			if (!relayPairAllow(this.relayWindows, message.from, to, relayMaxPerMinute))
+				return reject('rate-limited')
+			const bound = this.transport.getPeers().find((p) => p.peerId === to && p.connected)
+			if (!bound) return reject('peer-unreachable')
+			const wrap = createMessage(
+				'relay:deliver',
+				this.keyPair.instanceId,
+				to,
+				{ from: message.from, box: payload.box },
+				this.keyPair.privateKey,
+			this.keyPair.pqPrivateKey,
+			)
+			void this.transport.sendToPeer(to, wrap)
+		})
+
+		// Member side: a relay hub handed us a sealed envelope from another member.
+		this.transport.onMessage((message) => {
+			if (message.type !== 'relay:deliver' || !this.keyPair) return
+			if (!this.discovery?.verifyMessageFrom(message)) return // the relay must be authorized
+			const payload = message.payload as { from?: string; box?: SealedBox }
+			if (!payload?.from || !payload.box) return
+			this.deliverSealed(payload.from, payload.box, messageBus)
+		})
+
+		// Member side: hub-vouched member directory, enables sealed addressing of members
+		// we have no direct trust relationship with. Directory data only — never authority.
+		this.transport.onMessage((message) => {
+			if (message.type !== 'roster') return
+			if (!this.discovery?.verifyMessageFrom(message)) return
+			const payload = message.payload as { members?: RosterMember[] }
+			if (!Array.isArray(payload?.members)) return
+			const map = new Map<string, RosterMember>()
+			for (const m of payload.members) {
+				if (m?.instanceId && m.instanceId !== this.keyPair?.instanceId) map.set(m.instanceId, m)
+			}
+			this.hubRosters.set(message.from, map)
+		})
+
+		this.transport.onMessage((message) => {
+			if (message.type !== 'relay:error') return
+			if (!this.discovery?.verifyMessageFrom(message)) return
+			const payload = message.payload as { to?: string; reason?: string }
+			logger.warn(
+				`Relay could not deliver to ${payload?.to?.substring(0, 8) ?? '?'}: ${payload?.reason ?? 'unknown'}`,
+			)
+			messageBus?.emit('volenet:relay:error', { via: message.from, ...payload })
+		})
+
+		// Hub side: broadcast the roster on membership changes (debounced).
+		if (relayCfg?.enabled) {
+			const schedule = () => {
+				if (this.rosterTimer) clearTimeout(this.rosterTimer)
+				this.rosterTimer = setTimeout(() => this.broadcastRoster(), 400)
+			}
+			this.transport.setOnConnect(schedule)
+			this.transport.setOnDisconnect(schedule)
+			logger.info(
+				`Relay enabled — sealed member↔member envelopes, ${relayMaxPerMinute}/min per pair, ${relayMaxBytes}B cap`,
+			)
+		}
+
 		// Initialize remote task manager
 		this.remoteTaskMgr = new RemoteTaskManager(
 			this.transport,
 			this.discovery,
 			this.keyPair.instanceId,
 			this.keyPair.privateKey,
+			this.keyPair.pqPrivateKey,
 			this.config.routing,
 		)
 
@@ -732,6 +871,7 @@ export class VoleNetManager {
 			this.keyPair.instanceId,
 			this.config.instanceName ?? 'vole',
 			this.keyPair.privateKey,
+			this.keyPair.pqPrivateKey,
 			syncConfig,
 		)
 
@@ -763,6 +903,7 @@ export class VoleNetManager {
 			this.keyPair.instanceId,
 			this.config.instanceName ?? 'vole',
 			this.keyPair.privateKey,
+			this.keyPair.pqPrivateKey,
 			this.config.leader,
 		)
 		this.leader.start(
@@ -812,6 +953,8 @@ export class VoleNetManager {
 		this.peerConnectTimer = undefined
 		if (this.chatPruneTimer) clearInterval(this.chatPruneTimer)
 		this.chatPruneTimer = undefined
+		if (this.rosterTimer) clearTimeout(this.rosterTimer)
+		this.rosterTimer = undefined
 		this.leader?.stop()
 		this.sync?.dispose()
 		this.remoteTaskMgr?.dispose()
@@ -824,7 +967,6 @@ export class VoleNetManager {
 		this.discovery = null
 		this.transport = null
 		this.started = false
-		setPqSigningKey(undefined)
 		;(globalThis as any).__volenet__ = undefined
 
 		logger.info('VoleNet stopped')
@@ -956,12 +1098,13 @@ export class VoleNetManager {
 	async sendChat(
 		peerId: string,
 		text: string,
-	): Promise<{ ok: boolean; delivered?: boolean; error?: string }> {
+	): Promise<{ ok: boolean; delivered?: boolean; relayed?: boolean; error?: string }> {
 		if (!this.keyPair || !this.transport) return { ok: false, error: 'VoleNet not started' }
 		const target = this.getInstances().find(
 			(i) => i.id === peerId || i.name === peerId || i.id.startsWith(peerId),
 		)
-		if (!target) return { ok: false, error: `No connected peer: "${peerId}"` }
+		// Not directly known — try a relay hub's roster (sealed end-to-end delivery).
+		if (!target) return this.sendChatViaRelay(peerId, text)
 		const fromName = this.getInstanceName()
 		const msg = createMessage(
 			'chat:message',
@@ -969,6 +1112,7 @@ export class VoleNetManager {
 			target.id,
 			{ text, fromName },
 			this.keyPair.privateKey,
+			this.keyPair.pqPrivateKey,
 		)
 		const delivered = await this.transport.sendToPeer(target.id, msg)
 		await this.appendChat(target.id, {
@@ -979,6 +1123,201 @@ export class VoleNetManager {
 			messageId: msg.id,
 		})
 		return { ok: true, delivered }
+	}
+
+	/** Seal a chat message to a hub-rostered member and send it via that hub. */
+	private async sendChatViaRelay(
+		peerRef: string,
+		text: string,
+	): Promise<{ ok: boolean; delivered?: boolean; relayed?: boolean; error?: string }> {
+		if (!this.keyPair || !this.transport) return { ok: false, error: 'VoleNet not started' }
+		for (const [hubId, roster] of this.hubRosters) {
+			const member = [...roster.values()].find(
+				(m) => m.instanceId === peerRef || m.name === peerRef || m.instanceId.startsWith(peerRef),
+			)
+			if (!member) continue
+			if (!member.xPublicKey)
+				return { ok: false, error: `Peer "${peerRef}" announces no sealed-envelope key` }
+			const fromName = this.getInstanceName()
+			const inner = createMessage(
+				'chat:message',
+				this.keyPair.instanceId,
+				member.instanceId,
+				{ text, fromName },
+				this.keyPair.privateKey,
+			this.keyPair.pqPrivateKey,
+			)
+			const box = seal(
+				member.xPublicKey,
+				Buffer.from(JSON.stringify(inner), 'utf8'),
+				`${this.keyPair.instanceId}|${member.instanceId}`,
+			)
+			if (!box) return { ok: false, error: 'Failed to seal envelope' }
+			const outer = createMessage(
+				'sealed',
+				this.keyPair.instanceId,
+				hubId,
+				{ to: member.instanceId, box },
+				this.keyPair.privateKey,
+			this.keyPair.pqPrivateKey,
+			)
+			const delivered = await this.transport.sendToPeer(hubId, outer)
+			await this.appendChat(member.instanceId, {
+				dir: 'out',
+				text,
+				fromName,
+				timestamp: inner.timestamp,
+				messageId: inner.id,
+				relayed: true,
+			})
+			return { ok: true, delivered, relayed: true }
+		}
+		return { ok: false, error: `No connected peer: "${peerRef}"` }
+	}
+
+	/** Unseal, verify, and ingest an envelope addressed to us. v1 allowlist: chat only. */
+	private deliverSealed(
+		fromId: string,
+		box: SealedBox,
+		bus?: import('../core/bus.js').MessageBus,
+	): void {
+		if (!this.keyPair?.xPrivateKey) return
+		const plain = unseal(this.keyPair.xPrivateKey, box, `${fromId}|${this.keyPair.instanceId}`)
+		if (!plain) {
+			logger.warn(`Sealed envelope from ${fromId.substring(0, 8)} failed to unseal`)
+			return
+		}
+		let inner: VoleNetMessage
+		try {
+			inner = JSON.parse(plain.toString('utf8')) as VoleNetMessage
+		} catch {
+			return
+		}
+		// Nothing executable rides the relay in v1 — sealed envelopes carry chat, full stop.
+		if (inner.type !== 'chat:message') {
+			logger.warn(`Dropped relayed '${inner.type}' from ${fromId.substring(0, 8)} — relay carries chat only`)
+			return
+		}
+		if (inner.from !== fromId || inner.to !== this.keyPair.instanceId) return
+		// Inner replay guard: a relay could re-wrap the same inner message in fresh outers.
+		const seenKey = `${inner.from}:${inner.id}`
+		const now = Date.now()
+		for (const [k, ts] of this.seenSealed) if (now - ts > 120_000) this.seenSealed.delete(k)
+		if (this.seenSealed.has(seenKey)) return
+		this.seenSealed.set(seenKey, now)
+		// Verify the inner signature: a directly-trusted key wins; else the hub-vouched roster key.
+		let valid = this.discovery?.verifyMessageFrom(inner) ?? false
+		if (!valid) {
+			const member = this.findRosterMember(fromId)
+			const parsed = member ? parsePublicKey(member.publicKey) : null
+			if (parsed && parsed.instanceId === fromId)
+				valid = verifyMessage(inner, parsed.publicKey, parsed.pqPublicKey).valid
+		}
+		if (!valid) {
+			logger.warn(`Relayed chat from ${fromId.substring(0, 8)} failed signature verification`)
+			return
+		}
+		const payload = inner.payload as { text?: string; fromName?: string }
+		if (!payload?.text) return
+		const fromName = payload.fromName || fromId.substring(0, 8)
+		void this.appendChat(fromId, {
+			dir: 'in',
+			text: payload.text,
+			fromName,
+			timestamp: inner.timestamp,
+			messageId: inner.id,
+			relayed: true,
+		})
+		bus?.emit('volenet:chat', {
+			from: fromId,
+			fromName,
+			text: payload.text,
+			messageId: inner.id,
+			timestamp: inner.timestamp,
+			relayed: true,
+		})
+	}
+
+	private findRosterMember(id: string): RosterMember | undefined {
+		for (const roster of this.hubRosters.values()) {
+			const m = roster.get(id)
+			if (m) return m
+		}
+		return undefined
+	}
+
+	/** Hub: push the current member directory to every connected member. */
+	private broadcastRoster(): void {
+		if (!this.keyPair || !this.transport || !this.discovery) return
+		const connected = new Set(
+			this.transport
+				.getPeers()
+				.filter((p) => p.connected)
+				.map((p) => p.peerId),
+		)
+		const members: RosterMember[] = this.discovery.getInstances().map((i) => ({
+			instanceId: i.id,
+			name: i.name,
+			publicKey: i.publicKey,
+			xPublicKey: i.xPublicKey,
+			connected: connected.has(i.id),
+		}))
+		for (const id of connected) {
+			const msg = createMessage(
+				'roster',
+				this.keyPair.instanceId,
+				id,
+				{ members },
+				this.keyPair.privateKey,
+			this.keyPair.pqPrivateKey,
+			)
+			void this.transport.sendToPeer(id, msg)
+		}
+	}
+
+	/** Rosters received from relay hubs (hub instanceId → member directory). */
+	getRosters(): Map<string, Map<string, RosterMember>> {
+		return this.hubRosters
+	}
+
+	/**
+	 * Relay-reachable members from all hub rosters, flattened for the dashboard.
+	 * A member we ALSO connect to directly is omitted here — direct trumps relay, the same
+	 * precedence sendChat() uses — so the UI never lists one peer in two places.
+	 */
+	getRelayMembers(): Array<{
+		id: string
+		name: string
+		viaHub: string
+		viaHubName: string
+		connected: boolean
+	}> {
+		const direct = new Set(this.getInstances().map((i) => i.id))
+		const out: Array<{
+			id: string
+			name: string
+			viaHub: string
+			viaHubName: string
+			connected: boolean
+		}> = []
+		const seen = new Set<string>()
+		for (const [hubId, roster] of this.hubRosters) {
+			const hubName = this.getInstances().find((i) => i.id === hubId)?.name ?? hubId.substring(0, 8)
+			for (const m of roster.values()) {
+				if (m.instanceId === this.keyPair?.instanceId) continue // self
+				if (direct.has(m.instanceId)) continue // reachable directly — shown as a direct peer
+				if (seen.has(m.instanceId)) continue // same member vouched by two hubs — list once
+				seen.add(m.instanceId)
+				out.push({
+					id: m.instanceId,
+					name: m.name,
+					viaHub: hubId,
+					viaHubName: hubName,
+					connected: m.connected,
+				})
+			}
+		}
+		return out
 	}
 
 	/**
@@ -1158,10 +1497,16 @@ export class VoleNetManager {
 		return this.getPeerTrust(peerId)?.allowBrain === true
 	}
 
-	/** Whether this peer may call our tools at all — explicit tool/full trust, or share.tools. */
+	/**
+	 * Whether this peer may call our tools at all — tool/full trust (from net.peers OR a
+	 * publicJoin guest's granted trustLevel), or share.tools. Uses getPeerTrust, not
+	 * matchPeerConfig, so a publicJoin guest's `trustLevel: "tool"` actually grants tool
+	 * access — matching the documented behavior and how isPeerAllowedBrain already works.
+	 * (Per-tool curation still applies via share.toolAllow in isPeerAllowedTool.)
+	 */
 	private peerToolsEnabled(peerId: string): boolean {
-		const explicit = this.matchPeerConfig(peerId)
-		if (explicit && (explicit.trust === 'full' || explicit.trust === 'tool')) return true
+		const trust = this.getPeerTrust(peerId)
+		if (trust && (trust.trust === 'full' || trust.trust === 'tool')) return true
 		return this.config.share?.tools === true
 	}
 

@@ -72,7 +72,14 @@ describe('VoleNetLeader', () => {
 	describe('electLeader() — lowest instance ID wins', () => {
 		it('elects self as leader when no peers exist', () => {
 			discovery = createMockDiscovery([])
-			leader = new VoleNetLeader(transport, discovery, 'aaaa', 'vole-a', keyPair.privateKey)
+			leader = new VoleNetLeader(
+				transport,
+				discovery,
+				'aaaa',
+				'vole-a',
+				keyPair.privateKey,
+				undefined,
+			)
 			leader.start()
 
 			expect(leader.isLeader()).toBe(true)
@@ -85,7 +92,14 @@ describe('VoleNetLeader', () => {
 				{ id: 'bbbb', name: 'vole-b' },
 				{ id: 'cccc', name: 'vole-c' },
 			])
-			leader = new VoleNetLeader(transport, discovery, 'aaaa', 'vole-a', keyPair.privateKey)
+			leader = new VoleNetLeader(
+				transport,
+				discovery,
+				'aaaa',
+				'vole-a',
+				keyPair.privateKey,
+				undefined,
+			)
 			leader.start()
 
 			expect(leader.isLeader()).toBe(true)
@@ -97,7 +111,14 @@ describe('VoleNetLeader', () => {
 				{ id: 'aaaa', name: 'vole-a' },
 				{ id: 'cccc', name: 'vole-c' },
 			])
-			leader = new VoleNetLeader(transport, discovery, 'bbbb', 'vole-b', keyPair.privateKey)
+			leader = new VoleNetLeader(
+				transport,
+				discovery,
+				'bbbb',
+				'vole-b',
+				keyPair.privateKey,
+				undefined,
+			)
 			leader.start()
 
 			expect(leader.isLeader()).toBe(false)
@@ -116,6 +137,7 @@ describe('VoleNetLeader', () => {
 				'zzzz',
 				'my-vole',
 				keyPair.privateKey,
+				undefined,
 				'my-vole',
 			)
 			leader.start()
@@ -132,6 +154,7 @@ describe('VoleNetLeader', () => {
 				'aaaa',
 				'vole-a',
 				keyPair.privateKey,
+				undefined,
 				'designated-leader',
 			)
 			leader.start()
@@ -148,6 +171,7 @@ describe('VoleNetLeader', () => {
 				'bbbb',
 				'vole-b',
 				keyPair.privateKey,
+				undefined,
 				'missing-leader',
 			)
 			leader.start()
@@ -170,7 +194,14 @@ describe('VoleNetLeader', () => {
 		it('re-elects when peers change', () => {
 			const instances: Partial<VoleNetInstance>[] = [{ id: 'cccc', name: 'vole-c' }]
 			discovery = createMockDiscovery(instances)
-			leader = new VoleNetLeader(transport, discovery, 'bbbb', 'vole-b', keyPair.privateKey)
+			leader = new VoleNetLeader(
+				transport,
+				discovery,
+				'bbbb',
+				'vole-b',
+				keyPair.privateKey,
+				undefined,
+			)
 			leader.start()
 
 			// Self (bbbb) is leader since bbbb < cccc
@@ -189,7 +220,14 @@ describe('VoleNetLeader', () => {
 
 		it('re-elects self when old leader leaves', () => {
 			discovery = createMockDiscovery([{ id: 'aaaa', name: 'vole-a' }])
-			leader = new VoleNetLeader(transport, discovery, 'bbbb', 'vole-b', keyPair.privateKey)
+			leader = new VoleNetLeader(
+				transport,
+				discovery,
+				'bbbb',
+				'vole-b',
+				keyPair.privateKey,
+				undefined,
+			)
 			leader.start()
 
 			expect(leader.isLeader()).toBe(false)
@@ -206,7 +244,14 @@ describe('VoleNetLeader', () => {
 		it('calls onBecomeLeader when elected', () => {
 			const onBecomeLeader = vi.fn()
 			discovery = createMockDiscovery([])
-			leader = new VoleNetLeader(transport, discovery, 'aaaa', 'vole-a', keyPair.privateKey)
+			leader = new VoleNetLeader(
+				transport,
+				discovery,
+				'aaaa',
+				'vole-a',
+				keyPair.privateKey,
+				undefined,
+			)
 			leader.start(onBecomeLeader)
 
 			// Self is leader with no peers — onBecomeLeader should be called
@@ -217,7 +262,14 @@ describe('VoleNetLeader', () => {
 			const onBecomeLeader = vi.fn()
 			const onLoseLeader = vi.fn()
 			discovery = createMockDiscovery([])
-			leader = new VoleNetLeader(transport, discovery, 'bbbb', 'vole-b', keyPair.privateKey)
+			leader = new VoleNetLeader(
+				transport,
+				discovery,
+				'bbbb',
+				'vole-b',
+				keyPair.privateKey,
+				undefined,
+			)
 			leader.start(onBecomeLeader, onLoseLeader)
 
 			expect(onBecomeLeader).toHaveBeenCalledOnce()
@@ -235,7 +287,14 @@ describe('VoleNetLeader', () => {
 		it('does not call onBecomeLeader when not elected', () => {
 			const onBecomeLeader = vi.fn()
 			discovery = createMockDiscovery([{ id: 'aaaa', name: 'vole-a' }])
-			leader = new VoleNetLeader(transport, discovery, 'zzzz', 'vole-z', keyPair.privateKey)
+			leader = new VoleNetLeader(
+				transport,
+				discovery,
+				'zzzz',
+				'vole-z',
+				keyPair.privateKey,
+				undefined,
+			)
 			leader.start(onBecomeLeader)
 
 			expect(onBecomeLeader).not.toHaveBeenCalled()
@@ -244,7 +303,14 @@ describe('VoleNetLeader', () => {
 		it('calls onBecomeLeader when peer leaves and self becomes leader', () => {
 			const onBecomeLeader = vi.fn()
 			discovery = createMockDiscovery([{ id: 'aaaa', name: 'vole-a' }])
-			leader = new VoleNetLeader(transport, discovery, 'bbbb', 'vole-b', keyPair.privateKey)
+			leader = new VoleNetLeader(
+				transport,
+				discovery,
+				'bbbb',
+				'vole-b',
+				keyPair.privateKey,
+				undefined,
+			)
 			leader.start(onBecomeLeader)
 
 			expect(onBecomeLeader).not.toHaveBeenCalled()
@@ -260,7 +326,14 @@ describe('VoleNetLeader', () => {
 	describe('leader:heartbeat handling', () => {
 		it('updates lastHeartbeat when receiving heartbeat from leader', () => {
 			discovery = createMockDiscovery([{ id: 'aaaa', name: 'vole-a' }])
-			leader = new VoleNetLeader(transport, discovery, 'bbbb', 'vole-b', keyPair.privateKey)
+			leader = new VoleNetLeader(
+				transport,
+				discovery,
+				'bbbb',
+				'vole-b',
+				keyPair.privateKey,
+				undefined,
+			)
 			leader.start()
 
 			expect(leader.getState().leaderId).toBe('aaaa')
@@ -285,7 +358,14 @@ describe('VoleNetLeader', () => {
 	describe('leader:claim handling', () => {
 		it('accepts claim from lower-ID peer', () => {
 			discovery = createMockDiscovery([])
-			leader = new VoleNetLeader(transport, discovery, 'bbbb', 'vole-b', keyPair.privateKey)
+			leader = new VoleNetLeader(
+				transport,
+				discovery,
+				'bbbb',
+				'vole-b',
+				keyPair.privateKey,
+				undefined,
+			)
 			leader.start()
 
 			expect(leader.isLeader()).toBe(true)
@@ -309,7 +389,14 @@ describe('VoleNetLeader', () => {
 
 		it('ignores claim from higher-ID peer', () => {
 			discovery = createMockDiscovery([])
-			leader = new VoleNetLeader(transport, discovery, 'aaaa', 'vole-a', keyPair.privateKey)
+			leader = new VoleNetLeader(
+				transport,
+				discovery,
+				'aaaa',
+				'vole-a',
+				keyPair.privateKey,
+				undefined,
+			)
 			leader.start()
 
 			expect(leader.isLeader()).toBe(true)
@@ -332,7 +419,14 @@ describe('VoleNetLeader', () => {
 	describe('stop()', () => {
 		it('clears leader state', () => {
 			discovery = createMockDiscovery([])
-			leader = new VoleNetLeader(transport, discovery, 'aaaa', 'vole-a', keyPair.privateKey)
+			leader = new VoleNetLeader(
+				transport,
+				discovery,
+				'aaaa',
+				'vole-a',
+				keyPair.privateKey,
+				undefined,
+			)
 			leader.start()
 
 			expect(leader.getState().leaderId).toBe('aaaa')

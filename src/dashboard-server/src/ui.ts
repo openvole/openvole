@@ -786,6 +786,12 @@ export function getDashboardHtml(wsPort: number): string {
   .vn-dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; background: var(--text-dim); }
   .vn-dot.online { background: var(--green); }
   .vn-peer-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .vn-group-head { font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-dim); padding: 12px 10px 4px; }
+  .vn-group-head:first-child { padding-top: 4px; }
+  .vn-dot.relay { background: transparent; border: 1.5px solid var(--accent3, #d2a8ff); box-sizing: border-box; }
+  .vn-dot.relay.online { background: var(--accent3, #d2a8ff); }
+  .vn-relay-tag { font-size: 9px; color: var(--accent3, #d2a8ff); border: 1px solid var(--accent3, #d2a8ff); border-radius: 999px; padding: 0 4px; letter-spacing: 0.04em; flex: 0 0 auto; }
+  .vn-msg-relayed { font-size: 10px; color: var(--accent3, #d2a8ff); margin: 0 0 2px 2px; }
   .vn-badge { background: var(--accent); color: #fff; font-size: 10px; border-radius: 9px; padding: 1px 6px; min-width: 16px; text-align: center; }
   .vn-chat { flex: 1; min-width: 0; display: flex; flex-direction: column; padding: 12px 16px; }
   .vn-chat-head { font-size: 13px; font-weight: 600; color: var(--text); padding-bottom: 8px; border-bottom: 1px solid var(--border); margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
@@ -1372,6 +1378,15 @@ export function getDashboardHtml(wsPort: number): string {
             <label class="form-label">net.maxMessagesPerSecond</label>
             <div class="form-help">Global inbound message ceiling across all sources (load shed).</div>
             <input type="number" class="form-input" id="cfg-net-maxMessagesPerSecond" placeholder="5000" min="1" style="width:160px">
+          </div>
+          <div class="form-field">
+            <label class="form-label">net.relay</label>
+            <div class="form-help">Blind relay (hub): forward sealed member-to-member envelopes the hub cannot read. v1 carries end-to-end encrypted chat only.</div>
+            <div class="form-checkbox-row"><input type="checkbox" class="form-checkbox" id="cfg-net-relay-enabled"><label class="form-checkbox-label" for="cfg-net-relay-enabled">relay.enabled</label></div>
+            <div class="form-grid-2">
+              <input type="number" class="form-input" id="cfg-net-relay-maxPerMinutePerPair" placeholder="maxPerMinutePerPair (30)">
+              <input type="number" class="form-input" id="cfg-net-relay-maxBytes" placeholder="maxBytes (65536)">
+            </div>
           </div>
           <div class="form-field">
             <label class="form-label">net.publicJoin</label>
@@ -1988,12 +2003,23 @@ function resetVolenet() {
 
 function refreshVnPeers() {
   if (!currentAgentId) { renderVnPeerList(); return; }
-  sendCommand('volenet_instances').then(function(list) {
-    if (Array.isArray(list)) {
-      vnPeers = list.map(function(i) { return { id: i.id, name: i.name, role: i.role, lastSeen: i.lastSeen }; });
-    }
+  Promise.all([
+    sendCommand('volenet_instances').catch(function() { return []; }),
+    sendCommand('volenet_relay_members').catch(function() { return []; })
+  ]).then(function(res) {
+    var direct = Array.isArray(res[0]) ? res[0] : [];
+    var relay = Array.isArray(res[1]) ? res[1] : [];
+    var peers = direct.map(function(i) {
+      return { id: i.id, name: i.name, role: i.role, lastSeen: i.lastSeen, kind: 'direct' };
+    });
+    relay.forEach(function(m) {
+      // "online" for a relay member is the hub's word: lastSeen stamped now when it says connected
+      peers.push({ id: m.id, name: m.name, kind: 'relay', viaHubName: m.viaHubName,
+        lastSeen: m.connected ? Date.now() : 0 });
+    });
+    vnPeers = peers;
     renderVnPeerList();
-  }).catch(function() { renderVnPeerList(); });
+  });
 }
 var vnPollTimer = null;
 function initVolenetTab() {
@@ -2019,16 +2045,27 @@ function renderVnPeerList() {
     list.innerHTML = '<div class="vn-empty" style="margin-top:20px;font-size:12px">No connected nodes.</div>';
     return;
   }
-  list.innerHTML = vnPeers.map(function(p) {
+  function peerBtn(p) {
+    // A relay member's "online" is the hub's word; a direct peer's is its own heartbeat.
     var online = p.lastSeen && (Date.now() - p.lastSeen) < 30000;
     var unread = vnUnread[p.id] || 0;
     var active = p.id === vnSelectedPeer ? ' active' : '';
-    return '<button class="vn-peer' + active + '" onclick="selectVnPeer(\\'' + esc(p.id) + '\\')">'
-      + '<span class="vn-dot' + (online ? ' online' : '') + '"></span>'
+    var relay = p.kind === 'relay';
+    return '<button class="vn-peer' + active + '" onclick="selectVnPeer(\\'' + esc(p.id) + '\\')"'
+      + (relay ? ' title="Reachable through ' + esc(p.viaHubName || 'a relay hub') + ' — end-to-end encrypted"' : '')
+      + '>'
+      + '<span class="vn-dot' + (relay ? ' relay' : '') + (online ? ' online' : '') + '"></span>'
       + '<span class="vn-peer-name">' + esc(p.name || p.id) + '</span>'
+      + (relay ? '<span class="vn-relay-tag">relay</span>' : '')
       + (unread ? '<span class="vn-badge">' + unread + '</span>' : '')
       + '</button>';
-  }).join('');
+  }
+  var directs = vnPeers.filter(function(p) { return p.kind !== 'relay'; });
+  var relays = vnPeers.filter(function(p) { return p.kind === 'relay'; });
+  var html = '';
+  if (directs.length) html += '<div class="vn-group-head">Direct mesh</div>' + directs.map(peerBtn).join('');
+  if (relays.length) html += '<div class="vn-group-head">\\uD83D\\uDD12 Via relay</div>' + relays.map(peerBtn).join('');
+  list.innerHTML = html;
 }
 
 function selectVnPeer(peerId) {
@@ -2044,17 +2081,23 @@ function selectVnPeer(peerId) {
     box.innerHTML = '';
     var h = (res && res.history) ? res.history : [];
     if (!h.length) { box.innerHTML = '<div class="vn-empty">No messages yet — say hi.</div>'; return; }
-    for (var i = 0; i < h.length; i++) addVnBubble(h[i].dir, h[i].text, h[i].fromName);
+    for (var i = 0; i < h.length; i++) addVnBubble(h[i].dir, h[i].text, h[i].fromName, h[i].relayed);
     box.scrollTop = box.scrollHeight;
   }).catch(function() {
     box.innerHTML = '<div class="vn-empty">Could not load history.</div>';
   });
 }
 
-function addVnBubble(dir, text) {
+function addVnBubble(dir, text, relayed) {
   var box = document.getElementById('vn-messages');
   var empty = box.querySelector('.vn-empty');
   if (empty) empty.remove();
+  if (relayed) {
+    var tag = document.createElement('div');
+    tag.className = 'vn-msg-relayed';
+    tag.textContent = '🔒 via relay — end-to-end encrypted';
+    box.appendChild(tag);
+  }
   var el = document.createElement('div');
   el.className = 'chat-msg chat-msg-' + (dir === 'out' ? 'user' : 'brain');
   el.textContent = text;
@@ -2068,7 +2111,9 @@ function sendVolenetChat() {
   var text = input.value.trim();
   if (!text || !vnSelectedPeer) return;
   input.value = '';
-  var el = addVnBubble('out', text);
+  // Selected peer is a relay member? Badge the sent bubble too.
+  var sel = vnPeers.filter(function(p) { return p.id === vnSelectedPeer; })[0];
+  var el = addVnBubble('out', text, sel && sel.kind === 'relay');
   sendCommand('volenet_chat_send', { peerId: vnSelectedPeer, text: text }).then(function(res) {
     if (!res || res.ok === false) {
       el.className = 'chat-msg chat-msg-error';
@@ -2087,7 +2132,7 @@ function volenetOnMessage(data, agentId) {
   if (!data) return;
   if (agentId !== undefined && currentAgentId && agentId !== currentAgentId) return;
   if (data.from === vnSelectedPeer && currentTab === 'volenet') {
-    addVnBubble('in', data.text);
+    addVnBubble('in', data.text, data.relayed);
   } else {
     vnUnread[data.from] = (vnUnread[data.from] || 0) + 1;
     renderVnPeerList();
@@ -3022,6 +3067,10 @@ function populateNet(net) {
   document.getElementById('cfg-net-maxConnections').value = n.maxConnections != null ? n.maxConnections : '';
   document.getElementById('cfg-net-authTimeoutMs').value = n.authTimeoutMs != null ? n.authTimeoutMs : '';
   document.getElementById('cfg-net-maxMessagesPerSecond').value = n.maxMessagesPerSecond != null ? n.maxMessagesPerSecond : '';
+  var relay = n.relay || {};
+  document.getElementById('cfg-net-relay-enabled').checked = !!relay.enabled;
+  document.getElementById('cfg-net-relay-maxPerMinutePerPair').value = relay.maxPerMinutePerPair != null ? relay.maxPerMinutePerPair : '';
+  document.getElementById('cfg-net-relay-maxBytes').value = relay.maxBytes != null ? relay.maxBytes : '';
   var pj = n.publicJoin || {};
   document.getElementById('cfg-net-pj-enabled').checked = !!pj.enabled;
   document.getElementById('cfg-net-pj-trustLevel').value = pj.trustLevel || '';
@@ -3155,6 +3204,13 @@ function readNetFromForm() {
   if (!isNaN(pjRate)) pj.ratePerMinute = pjRate;
   if (document.getElementById('cfg-net-pj-requireApproval').checked) pj.requireApproval = true;
   if (Object.keys(pj).length > 0) net.publicJoin = pj;
+  var relay = {};
+  if (document.getElementById('cfg-net-relay-enabled').checked) relay.enabled = true;
+  var rpm = document.getElementById('cfg-net-relay-maxPerMinutePerPair').value.trim();
+  if (rpm) relay.maxPerMinutePerPair = parseInt(rpm, 10);
+  var rmb = document.getElementById('cfg-net-relay-maxBytes').value.trim();
+  if (rmb) relay.maxBytes = parseInt(rmb, 10);
+  if (Object.keys(relay).length > 0) net.relay = relay;
 
   var cr = {};
   var crMax = parseInt(document.getElementById('cfg-net-cr-maxMessages').value, 10);
@@ -3173,7 +3229,7 @@ function readNetFromForm() {
   if (Object.keys(routing).length > 0) net.routing = routing;
 
   // Forward-compat: preserve any keys we don't manage so saving never drops them.
-  var managed = { enabled: 1, instanceName: 1, role: 1, port: 1, hostname: 1, publicUrl: 1, keyPath: 1, peers: 1, share: 1, brainSource: 1, discovery: 1, leader: 1, heartbeatMode: 1, brainMode: 1, taskOverflow: 1, maxQueuedTasks: 1, tls: 1, routing: 1, maxConnections: 1, authTimeoutMs: 1, maxMessagesPerSecond: 1, publicJoin: 1, chatRetention: 1 };
+  var managed = { enabled: 1, instanceName: 1, role: 1, port: 1, hostname: 1, publicUrl: 1, keyPath: 1, peers: 1, share: 1, brainSource: 1, discovery: 1, leader: 1, heartbeatMode: 1, brainMode: 1, taskOverflow: 1, maxQueuedTasks: 1, tls: 1, routing: 1, maxConnections: 1, authTimeoutMs: 1, maxMessagesPerSecond: 1, publicJoin: 1, relay: 1, chatRetention: 1 };
   for (var mk in loadedNet) if (!managed[mk]) net[mk] = loadedNet[mk];
   return net;
 }

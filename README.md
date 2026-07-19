@@ -69,7 +69,7 @@ Full walkthrough → [Getting Started](https://openvole.com/openvole/getting-sta
 | 🔌 **Model-agnostic** | One unified brain paw speaks Anthropic, OpenAI, Gemini, xAI, Ollama, and the local Claude Code CLI. Switch providers per agent with a single env var. |
 | 🖥️ **A server, not a script** | `vole serve` is a control plane: create, start, stop, and chat with a fleet of agents from one browser dashboard. No babysitting processes on ports. |
 | 🧩 **Microkernel, zero lock-in** | A tiny, LLM-ignorant core. Every capability is a Paw you can swap, sandbox, or write yourself — and you can bring your own system prompt via `BRAIN.md`. |
-| 🕸️ **VoleNet** | A peer-to-peer AI agent network: remote tools become local, cheap workers share one brain, memory syncs across the mesh — signed with hybrid post-quantum signatures (Ed25519 + ML-DSA-65), with leader election and no central server. |
+| 🕸️ **VoleNet** | A peer-to-peer AI agent network: remote tools become local, cheap workers share one brain, memory syncs across the mesh — signed with hybrid post-quantum signatures (Ed25519 + ML-DSA-65), with leader election, a blind relay (members chat end-to-end encrypted through hubs that cannot read it), and no central server. |
 | 🎛️ **Orchestrator agents** | Grant one agent authority over the fleet and just talk to it: it lists its siblings, delegates tasks and reads back results, writes their identity files, and manages their lifecycle. Authority is human-granted in the server registry, re-verified on every call, and hard-guarded — no self-kill, no deletes, no sandbox weakening. |
 | 🪟 **An app platform** | A Paw can ship its own UI, rendered as a panel under the dashboard's **Apps** tab — the way apps live on a desktop. The control plane becomes a self-hosted app you extend, one panel per paw. |
 
@@ -138,7 +138,9 @@ coordinator, and memory/sessions sync — all authenticated with hybrid post-qua
 no central server.
 
 Agents talk to each other, too: one Brain can message a peer agent (`net_message`), or you can
-chat with a connected peer directly from the dashboard's VoleNet tab. Every remote action — tool
+chat with a connected peer directly from the dashboard's VoleNet tab. Members of a relay-enabled
+hub who can't reach each other directly chat through the hub as **sealed envelopes** — end-to-end
+encrypted, the hub forwards ciphertext it cannot open. Every remote action — tool
 calls, brain delegation, chat — requires a signed message from an authorized peer; tools and brain
 are never exposed to peers unless you explicitly grant them.
 

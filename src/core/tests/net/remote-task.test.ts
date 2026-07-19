@@ -65,7 +65,13 @@ describe('RemoteTaskManager', () => {
 		keyPair = generateTestKeyPair()
 		transport = createMockTransport()
 		discovery = createMockDiscovery()
-		manager = new RemoteTaskManager(transport, discovery, 'local-instance', keyPair.privateKey)
+		manager = new RemoteTaskManager(
+			transport,
+			discovery,
+			'local-instance',
+			keyPair.privateKey,
+			undefined,
+		)
 	})
 
 	afterEach(() => {
@@ -81,9 +87,16 @@ describe('RemoteTaskManager', () => {
 		it('matches exact tool name in routing config', () => {
 			const instances: Partial<VoleNetInstance>[] = [{ id: 'peer-abc', name: 'gpu-worker' }]
 			discovery = createMockDiscovery(instances)
-			manager = new RemoteTaskManager(transport, discovery, 'local', keyPair.privateKey, {
-				image_resize: 'gpu-worker',
-			})
+			manager = new RemoteTaskManager(
+				transport,
+				discovery,
+				'local',
+				keyPair.privateKey,
+				undefined,
+				{
+					image_resize: 'gpu-worker',
+				},
+			)
 
 			const result = manager.resolveToolTarget('image_resize')
 			expect(result).toBe('peer-abc')
@@ -92,9 +105,16 @@ describe('RemoteTaskManager', () => {
 		it('matches glob pattern (prefix*) in routing config', () => {
 			const instances: Partial<VoleNetInstance>[] = [{ id: 'worker-1', name: 'shell-worker' }]
 			discovery = createMockDiscovery(instances)
-			manager = new RemoteTaskManager(transport, discovery, 'local', keyPair.privateKey, {
-				'shell_*': 'shell-worker',
-			})
+			manager = new RemoteTaskManager(
+				transport,
+				discovery,
+				'local',
+				keyPair.privateKey,
+				undefined,
+				{
+					'shell_*': 'shell-worker',
+				},
+			)
 
 			expect(manager.resolveToolTarget('shell_exec')).toBe('worker-1')
 			expect(manager.resolveToolTarget('shell_run')).toBe('worker-1')
@@ -115,7 +135,7 @@ describe('RemoteTaskManager', () => {
 				version: '1.0',
 			}
 			discovery = createMockDiscovery([], { instanceId: 'peer-xyz', instance })
-			manager = new RemoteTaskManager(transport, discovery, 'local', keyPair.privateKey)
+			manager = new RemoteTaskManager(transport, discovery, 'local', keyPair.privateKey, undefined)
 
 			const result = manager.resolveToolTarget('some_tool')
 			expect(result).toBe('peer-xyz')
@@ -123,9 +143,16 @@ describe('RemoteTaskManager', () => {
 
 		it('returns null when routing target instance not found in discovery', () => {
 			discovery = createMockDiscovery([])
-			manager = new RemoteTaskManager(transport, discovery, 'local', keyPair.privateKey, {
-				'tool_*': 'missing-worker',
-			})
+			manager = new RemoteTaskManager(
+				transport,
+				discovery,
+				'local',
+				keyPair.privateKey,
+				undefined,
+				{
+					'tool_*': 'missing-worker',
+				},
+			)
 
 			const result = manager.resolveToolTarget('tool_test')
 			expect(result).toBeNull()
@@ -134,9 +161,16 @@ describe('RemoteTaskManager', () => {
 		it('does not match non-prefix patterns as glob', () => {
 			const instances: Partial<VoleNetInstance>[] = [{ id: 'worker-1', name: 'worker' }]
 			discovery = createMockDiscovery(instances)
-			manager = new RemoteTaskManager(transport, discovery, 'local', keyPair.privateKey, {
-				shell_exec: 'worker',
-			})
+			manager = new RemoteTaskManager(
+				transport,
+				discovery,
+				'local',
+				keyPair.privateKey,
+				undefined,
+				{
+					shell_exec: 'worker',
+				},
+			)
 
 			expect(manager.resolveToolTarget('shell_exec')).toBe('worker-1')
 			expect(manager.resolveToolTarget('shell_exec_2')).toBeNull()

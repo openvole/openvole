@@ -33,6 +33,7 @@ export class VoleNetLeader {
 	private instanceId: string
 	private instanceName: string
 	private privateKey: KeyObject
+	private pqPrivateKey?: KeyObject
 
 	private leaderId: string | null = null
 	private leaderName: string | null = null
@@ -52,6 +53,7 @@ export class VoleNetLeader {
 		instanceId: string,
 		instanceName: string,
 		privateKey: KeyObject,
+		pqPrivateKey: KeyObject | undefined,
 		forcedLeader?: string,
 	) {
 		this.transport = transport
@@ -59,6 +61,7 @@ export class VoleNetLeader {
 		this.instanceId = instanceId
 		this.instanceName = instanceName
 		this.privateKey = privateKey
+		this.pqPrivateKey = pqPrivateKey
 		this.forcedLeader = forcedLeader === 'auto' ? undefined : forcedLeader
 
 		this.transport.onMessage((message) => {
@@ -183,6 +186,7 @@ export class VoleNetLeader {
 				'*',
 				{ timestamp: Date.now() },
 				this.privateKey,
+				this.pqPrivateKey,
 			)
 			this.transport.broadcast(message)
 		}, LEADER_HEARTBEAT_INTERVAL_MS)
@@ -260,6 +264,7 @@ export class VoleNetLeader {
 						message.from,
 						{ accepted: true },
 						this.privateKey,
+						this.pqPrivateKey,
 					)
 					this.transport.sendToPeer(message.from, ack)
 				}

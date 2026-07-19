@@ -27,9 +27,13 @@ export interface DiscoveryConfig {
 	endpoint: string
 	capabilities: string[]
 	privateKey: KeyObject
+	/** ML-DSA-65 signing key — hybrid signatures when present. */
+	pqPrivateKey?: KeyObject
 	publicKeyString: string
 	/** Peer URLs from vole.config.json — used only to warn when one goes stale (endpoint drift). */
 	configuredPeerUrls?: string[]
+	/** Our X25519 public key (base64 SPKI), announced so peers can seal envelopes to us. */
+	xPublicKeyB64?: string
 }
 
 /**
@@ -144,8 +148,10 @@ export class VoleNetDiscovery {
 				capabilities: this.config.capabilities,
 				role: this.config.role,
 				version: '3.0.0',
+				xPublicKey: this.config.xPublicKeyB64,
 			} satisfies Partial<VoleNetInstance>,
 			this.config.privateKey,
+			this.config.pqPrivateKey,
 		)
 
 		try {
@@ -242,8 +248,10 @@ export class VoleNetDiscovery {
 				capabilities: this.config.capabilities,
 				role: this.config.role,
 				version: '3.0.0',
+				xPublicKey: this.config.xPublicKeyB64,
 			},
 			this.config.privateKey,
+			this.config.pqPrivateKey,
 		)
 	}
 
@@ -296,6 +304,7 @@ export class VoleNetDiscovery {
 			maxTasks: 5,
 			lastSeen: Date.now(),
 			version: info.version ?? 'unknown',
+			xPublicKey: info.xPublicKey,
 		}
 
 		this.instances.set(parsed.instanceId, instance)
@@ -323,8 +332,10 @@ export class VoleNetDiscovery {
 				capabilities: this.config.capabilities,
 				role: this.config.role,
 				version: '3.0.0',
+				xPublicKey: this.config.xPublicKeyB64,
 			},
 			this.config.privateKey,
+			this.config.pqPrivateKey,
 		)
 		this.transport.sendToPeer(parsed.instanceId, response)
 
@@ -335,6 +346,7 @@ export class VoleNetDiscovery {
 			parsed.instanceId,
 			{},
 			this.config.privateKey,
+			this.config.pqPrivateKey,
 		)
 		this.transport.sendToPeer(parsed.instanceId, toolReq)
 	}
@@ -380,6 +392,7 @@ export class VoleNetDiscovery {
 			maxTasks: 5,
 			lastSeen: Date.now(),
 			version: info.version ?? 'unknown',
+			xPublicKey: info.xPublicKey,
 		}
 
 		this.instances.set(parsed.instanceId, instance)
@@ -405,6 +418,7 @@ export class VoleNetDiscovery {
 				parsed.instanceId,
 				{},
 				this.config.privateKey,
+				this.config.pqPrivateKey,
 			),
 		)
 	}
@@ -419,6 +433,7 @@ export class VoleNetDiscovery {
 			message.from,
 			{ timestamp: Date.now() },
 			this.config.privateKey,
+			this.config.pqPrivateKey,
 		)
 		this.transport.sendToPeer(message.from, pong)
 	}
@@ -458,6 +473,7 @@ export class VoleNetDiscovery {
 			peerId,
 			{ timestamp: Date.now() },
 			this.config.privateKey,
+			this.config.pqPrivateKey,
 		)
 		this.transport.sendToPeer(peerId, ping)
 	}
@@ -483,6 +499,7 @@ export class VoleNetDiscovery {
 				id,
 				{ timestamp: now },
 				this.config.privateKey,
+				this.config.pqPrivateKey,
 			)
 			this.transport.sendToPeer(id, ping)
 		}

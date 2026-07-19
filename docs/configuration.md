@@ -405,6 +405,7 @@ Distributed agent networking — connect multiple OpenVole instances across mach
 | `taskOverflow` | `string` | `"reject"` | `"reject"`: reject when queue full. `"forward"`: forward to least-loaded peer. |
 | `maxQueuedTasks` | `number` | `10` | Max queued tasks before overflow triggers. |
 | `tls` | `object` | — | `{ cert, key }` file paths — enables `https`/`wss` transport. Pair with `hostname`. See [Transport encryption](/volenet#transport-encryption-tls). |
+| `relay` | `object` | — | Blind relay (hub): `{ enabled, maxPerMinutePerPair (30), maxBytes (65536) }` — forward sealed member↔member envelopes the hub cannot read. v1 carries end-to-end encrypted chat only. See [Relay](/volenet-relay). |
 | `discovery` | `string` | `"manual"` | Peer discovery method: `"manual"` or `"mdns"`. |
 
 #### Peer Configuration

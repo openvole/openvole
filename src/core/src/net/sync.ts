@@ -71,6 +71,7 @@ export class VoleNetSync {
 	private instanceId: string
 	private instanceName: string
 	private privateKey: KeyObject
+	private pqPrivateKey?: KeyObject
 	private config: SyncConfig
 
 	// Callbacks for local memory/session operations
@@ -98,6 +99,7 @@ export class VoleNetSync {
 		instanceId: string,
 		instanceName: string,
 		privateKey: KeyObject,
+		pqPrivateKey: KeyObject | undefined,
 		config: SyncConfig,
 	) {
 		this.transport = transport
@@ -105,6 +107,7 @@ export class VoleNetSync {
 		this.instanceId = instanceId
 		this.instanceName = instanceName
 		this.privateKey = privateKey
+		this.pqPrivateKey = pqPrivateKey
 		this.config = config
 
 		// Register message handlers
@@ -152,7 +155,7 @@ export class VoleNetSync {
 		// Clean old entries (keep last 5 minutes)
 		setTimeout(() => this.recentSyncs.delete(syncKey), 300_000)
 
-		const message = createMessage('memory:sync', this.instanceId, '*', entry, this.privateKey)
+		const message = createMessage('memory:sync', this.instanceId, '*', entry, this.privateKey, this.pqPrivateKey)
 
 		const sent = await this.transport.broadcast(message)
 		if (sent > 0) {
@@ -188,6 +191,7 @@ export class VoleNetSync {
 				requestId,
 			} satisfies MemorySearchRequest,
 			this.privateKey,
+			this.pqPrivateKey,
 		)
 
 		// Set up result collector
@@ -220,7 +224,7 @@ export class VoleNetSync {
 		this.recentSyncs.add(syncKey)
 		setTimeout(() => this.recentSyncs.delete(syncKey), 300_000)
 
-		const message = createMessage('session:sync', this.instanceId, '*', entry, this.privateKey)
+		const message = createMessage('session:sync', this.instanceId, '*', entry, this.privateKey, this.pqPrivateKey)
 
 		await this.transport.broadcast(message)
 	}
@@ -293,6 +297,7 @@ export class VoleNetSync {
 					results,
 				} satisfies MemorySearchResult,
 				this.privateKey,
+				this.pqPrivateKey,
 			)
 			await this.transport.sendToPeer(message.from, response)
 		} catch (err) {

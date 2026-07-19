@@ -5,7 +5,6 @@ import * as path from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { VoleNetManager } from '../../src/net/index.js'
 import { generateKeyPair } from '../../src/net/keys.js'
-import { setPqSigningKey } from '../../src/net/protocol.js'
 
 /**
  * End-to-end proof of `net.publicUrl`: a hub listening on a raw port behind a real
@@ -79,17 +78,11 @@ beforeAll(async () => {
 	const joinerDir = path.join(root, 'joiner')
 
 	// Keys + mutual trust (what `vole net trust` / `vole net join` set up).
-	// PQ is deliberately stripped: hybrid signing uses a module-level ambient key
-	// (protocol.ts setPqSigningKey), so TWO instances in ONE process would sign each
-	// other's messages with whichever key loaded last and fail verification. Real
-	// deployments run one instance per process and are unaffected; this test pins
-	// the transport to Ed25519-only so both directions verify.
-	const edOnly = (s: string) => s.split(' ').slice(0, 3).join(' ')
 	const hubKeys = await generateKeyPair(path.join(hubDir, '.openvole/net'), 'hub')
 	const joinerKeys = await generateKeyPair(path.join(joinerDir, '.openvole/net'), 'joiner')
 	const { trustPeer } = await import('../../src/net/keys.js')
-	await trustPeer(path.join(hubDir, '.openvole/net'), edOnly(joinerKeys.publicKeyString))
-	await trustPeer(path.join(joinerDir, '.openvole/net'), edOnly(hubKeys.publicKeyString))
+	await trustPeer(path.join(hubDir, '.openvole/net'), joinerKeys.publicKeyString)
+	await trustPeer(path.join(joinerDir, '.openvole/net'), hubKeys.publicKeyString)
 
 	proxy = await startProxy()
 
@@ -118,7 +111,6 @@ beforeAll(async () => {
 		joinerDir,
 	)
 	await joiner.start()
-	setPqSigningKey(undefined) // Ed25519-only from here (see the trust-strip comment above)
 }, 20000)
 
 afterAll(async () => {

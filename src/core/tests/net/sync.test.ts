@@ -63,10 +63,18 @@ describe('VoleNetSync', () => {
 		keyPair = generateTestKeyPair()
 		transport = createMockTransport()
 		discovery = createMockDiscovery()
-		sync = new VoleNetSync(transport, discovery, 'instance-1', 'test-vole', keyPair.privateKey, {
-			memory: true,
-			session: true,
-		})
+		sync = new VoleNetSync(
+			transport,
+			discovery,
+			'instance-1',
+			'test-vole',
+			keyPair.privateKey,
+			undefined,
+			{
+				memory: true,
+				session: true,
+			},
+		)
 	})
 
 	afterEach(() => {
@@ -135,10 +143,18 @@ describe('VoleNetSync', () => {
 		})
 
 		it('does not propagate when memory sync is disabled', async () => {
-			sync = new VoleNetSync(transport, discovery, 'instance-1', 'test-vole', keyPair.privateKey, {
-				memory: false,
-				session: true,
-			})
+			sync = new VoleNetSync(
+				transport,
+				discovery,
+				'instance-1',
+				'test-vole',
+				keyPair.privateKey,
+				undefined,
+				{
+					memory: false,
+					session: true,
+				},
+			)
 
 			await sync.propagateMemoryWrite({
 				file: 'notes.md',
@@ -214,10 +230,18 @@ describe('VoleNetSync', () => {
 		})
 
 		it('does not propagate when session sync is disabled', async () => {
-			sync = new VoleNetSync(transport, discovery, 'instance-1', 'test-vole', keyPair.privateKey, {
-				memory: true,
-				session: false,
-			})
+			sync = new VoleNetSync(
+				transport,
+				discovery,
+				'instance-1',
+				'test-vole',
+				keyPair.privateKey,
+				undefined,
+				{
+					memory: true,
+					session: false,
+				},
+			)
 
 			await sync.propagateSessionWrite({
 				sessionId: 'session-1',
@@ -562,6 +586,7 @@ describe('VoleNetSync', () => {
 				'instance-1',
 				'test-vole',
 				keyPair.privateKey,
+				undefined,
 				{ memory: true, session: true },
 			)
 			await sync2.propagateMemoryWrite(entry)

@@ -24,6 +24,11 @@ export interface VoleKeyPair {
 	/** Post-quantum (ML-DSA-65) keys — present when the runtime supports it (OpenSSL 3.5+ / Node 24+). */
 	pqPublicKey?: crypto.KeyObject
 	pqPrivateKey?: crypto.KeyObject
+	/** X25519 key-agreement keys for sealed (end-to-end encrypted) envelopes. */
+	xPublicKey?: crypto.KeyObject
+	xPrivateKey?: crypto.KeyObject
+	/** Base64 SPKI of xPublicKey — announced to peers via discovery. */
+	xPublicKeyB64?: string
 }
 
 /** Generate an ML-DSA-65 keypair if the runtime supports it, else null. */
@@ -89,6 +94,19 @@ export async function generateKeyPair(netDir: string, instanceName: string): Pro
 		await fs.writeFile(authorizedPath, '', 'utf-8')
 	}
 
+	// X25519 key-agreement pair for sealed envelopes (relay E2E). Separate from the signing
+	// identity on purpose: signing keys sign, agreement keys agree.
+	const x = crypto.generateKeyPairSync('x25519')
+	await fs.writeFile(
+		path.join(netDir, 'vole_key.x25519'),
+		x.privateKey.export({ type: 'pkcs8', format: 'pem' }) as string,
+		{ mode: 0o600 },
+	)
+	const xPublicKeyB64 = Buffer.from(x.publicKey.export({ type: 'spki', format: 'der' })).toString(
+		'base64',
+	)
+	await fs.writeFile(path.join(netDir, 'vole_key.x25519.pub'), `${xPublicKeyB64}\n`, 'utf-8')
+
 	const instanceId = deriveInstanceId(publicB64)
 	logger.info(
 		`Generated keypair — instance ID: ${instanceId}${pq ? ' (hybrid Ed25519 + ML-DSA)' : ' (Ed25519)'}`,
@@ -101,6 +119,9 @@ export async function generateKeyPair(netDir: string, instanceName: string): Pro
 		instanceId,
 		pqPublicKey: pq?.publicKey,
 		pqPrivateKey: pq?.privateKey,
+		xPublicKey: x.publicKey,
+		xPrivateKey: x.privateKey,
+		xPublicKeyB64,
 	}
 }
 
@@ -149,11 +170,38 @@ export async function loadKeyPair(netDir: string): Promise<VoleKeyPair | null> {
 						'base64',
 					)
 					finalPublicKeyString = `vole-ed25519 ${parts[1]} ${parts[2] ?? instanceId.substring(0, 8)} ${pqB64}`
-					await fs.writeFile(path.join(netDir, 'vole_key.pub'), finalPublicKeyString + '\n', 'utf-8')
+					await fs.writeFile(
+						path.join(netDir, 'vole_key.pub'),
+						finalPublicKeyString + '\n',
+						'utf-8',
+					)
 					logger.info('Upgraded keypair with a post-quantum (ML-DSA) key')
 				}
 			}
 		}
+
+		// X25519 agreement key — load, or auto-upgrade older keypairs by generating one.
+		let xPrivateKey: crypto.KeyObject | undefined
+		let xPublicKey: crypto.KeyObject | undefined
+		try {
+			const xPem = await fs.readFile(path.join(netDir, 'vole_key.x25519'), 'utf-8')
+			xPrivateKey = crypto.createPrivateKey(xPem)
+			xPublicKey = crypto.createPublicKey(xPrivateKey)
+		} catch {
+			const x = crypto.generateKeyPairSync('x25519')
+			xPrivateKey = x.privateKey
+			xPublicKey = x.publicKey
+			await fs.writeFile(
+				path.join(netDir, 'vole_key.x25519'),
+				x.privateKey.export({ type: 'pkcs8', format: 'pem' }) as string,
+				{ mode: 0o600 },
+			)
+			logger.info('Upgraded keypair with an X25519 (sealed envelope) key')
+		}
+		const xPublicKeyB64 = Buffer.from(xPublicKey.export({ type: 'spki', format: 'der' })).toString(
+			'base64',
+		)
+		await fs.writeFile(path.join(netDir, 'vole_key.x25519.pub'), `${xPublicKeyB64}\n`, 'utf-8')
 
 		return {
 			publicKey,
@@ -162,6 +210,9 @@ export async function loadKeyPair(netDir: string): Promise<VoleKeyPair | null> {
 			instanceId,
 			pqPublicKey,
 			pqPrivateKey,
+			xPublicKey,
+			xPrivateKey,
+			xPublicKeyB64,
 		}
 	} catch (err) {
 		if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
@@ -281,7 +332,9 @@ export async function trustPeer(
 		const allowUpgrade = opts?.allowUpgrade !== false
 		if (allowUpgrade && !current.pqPublicKey && parsed.pqPublicKey) {
 			await replaceAuthorizedLine(netDir, parsed.instanceId, publicKeyString.trim())
-			logger.info(`Upgraded peer to hybrid PQ: ${parsed.name} (${parsed.instanceId.substring(0, 8)})`)
+			logger.info(
+				`Upgraded peer to hybrid PQ: ${parsed.name} (${parsed.instanceId.substring(0, 8)})`,
+			)
 		}
 		return parsed.instanceId
 	}

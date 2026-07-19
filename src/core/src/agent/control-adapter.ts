@@ -244,6 +244,11 @@ export function installControlAdapter(engine: VoleEngine, projectRoot: string): 
 					result = vn?.isActive() ? vn.getInstances() : []
 					break
 				}
+				case 'volenet_relay_members': {
+					const vn = (globalThis as any).__volenet__
+					result = vn?.isActive() ? vn.getRelayMembers() : []
+					break
+				}
 				case 'volenet_chat_history': {
 					const vn = (globalThis as any).__volenet__
 					const history = vn?.isActive() ? await vn.getChatHistory(params.peerId as string) : []

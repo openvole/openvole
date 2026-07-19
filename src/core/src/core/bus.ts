@@ -32,6 +32,14 @@ export type BusEvents = {
 		text: string
 		messageId: string
 		timestamp: number
+		/** True when the message arrived through a relay hub as a sealed envelope. */
+		relayed?: boolean
+	}
+	'volenet:relay:error': {
+		/** The relay hub that reported the failure. */
+		via: string
+		to?: string
+		reason?: string
 	}
 	'rate:limited': { bucket: string; source?: string }
 	'engine:restart': Record<string, never>
