@@ -1,5 +1,25 @@
 # Changelog
 
+## v4.10.0 (2026-07-20)
+
+> Ships as `openvole` 4.10.0 and `@openvole/dashboard-server` 0.7.5. Theme: **the blind relay** — two agents behind NAT talk through a hub that cannot read a word of it.
+
+### VoleNet relay (v1)
+- **Sealed envelopes** — X25519 ECIES with a fresh ephemeral key per envelope, ChaCha20-Poly1305, AAD bound to the `from|to` routing so a relay cannot re-address ciphertext. Every instance now carries an X25519 agreement keypair alongside its signing identity (existing keypairs auto-upgrade on load).
+- **`net.relay`** — a hub forwards sealed member↔member envelopes with per-pair rate limits and a size cap, and returns `relay:error` when the recipient is offline. The hub verifies **who** sent an envelope; it cannot read **what** it forwards — verified in tests by capturing every forwarded byte.
+- **Member roster** — relay hubs push a signed member directory (identities + sealing keys) so members can address each other without exchanging keys first. Directory data, never authority: relayed messages still verify the sender's own signature, and **v1 carries end-to-end encrypted chat only** — a sealed `tool:call` is dropped by the recipient.
+- `sendChat` to a member you can't reach directly now seals and routes via the hub automatically.
+
+### Fixed
+- **`publicJoin` guests were never actually granted tool access by their `trustLevel`.** `peerToolsEnabled` consulted only `net.peers` (via `matchPeerConfig`), not `getPeerTrust` — so a `publicJoin: { trustLevel: "tool" }` guest, which the docs say may call tools, got nothing unless `share.tools: true` was *also* set. Tool access now honors the granted trust level, consistent with how brain access already worked. (`share.toolAllow` still curates which tools.)
+- **Signed messages with `undefined`-valued payload properties could never verify** — the canonical form signed them as `null` while JSON omitted them on the wire, so the receiver reconstructed a different canonical string. Canonicalization now matches wire semantics.
+- **`stop()` could hang forever** — reconnect churn leaves inbound sockets no peer entry references, and the WebSocket server's close waits for all of them. Shutdown now terminates orphaned clients, and no fresh dials start during shutdown.
+- **Hybrid post-quantum signing no longer uses a process-global key.** The ML-DSA key is threaded through every signing site per instance — fixing broken hybrid signatures whenever two VoleNet instances share one process.
+
+### Dashboard
+- Config → NET form exposes `relay` (`@openvole/dashboard-server` 0.7.5).
+- **VoleNet tab distinguishes relay members from the direct mesh** — a separate "Via relay" group with a `relay` tag and lilac ring dot, and relayed messages carry a "🔒 via relay — end-to-end encrypted" marker. A member reachable both ways shows only as direct.
+
 ## v4.9.0 (2026-07-17)
 
 > Ships as `openvole` 4.9.0 and `@openvole/dashboard-server` 0.7.3. Theme: **VoleNet behind a reverse proxy** — expose 443, not the mesh port.
