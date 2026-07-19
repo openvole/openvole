@@ -47,7 +47,10 @@ export default withMermaid(
 			},
 			{
 				text: 'VoleNet',
-				items: [{ text: 'Distributed Networking', link: '/volenet' }],
+				items: [
+					{ text: 'Distributed Networking', link: '/volenet' },
+					{ text: 'Relay (design draft)', link: '/volenet-relay' },
+				],
 			},
 			{
 				text: 'CLI',

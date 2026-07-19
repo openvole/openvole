@@ -2,6 +2,10 @@
 
 VoleNet is OpenVole's distributed agent networking layer. It connects multiple OpenVole instances across machines, enabling remote tool execution, node-to-node messaging, memory synchronization, brain sharing, and leader election — every remote action authenticated and authorized per message with Ed25519 signatures.
 
+> [!NOTE]
+> A design draft extends VoleNet beyond what ships today: the [blind relay](/volenet-relay)
+> — sealed envelopes a hosted hub cannot read. Draft means: specified, public, in development.
+
 ## How It Works
 
 ```mermaid
