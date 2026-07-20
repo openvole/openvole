@@ -1,6 +1,6 @@
 {
   "name": "@openvole/dashboard-server",
-  "version": "0.7.7",
+  "version": "0.7.8",
   "description": "Reusable web dashboard server + UI for OpenVole — single-engine paw and multi-space control plane",
   "type": "module",
   "main": "./dist/index.js",
