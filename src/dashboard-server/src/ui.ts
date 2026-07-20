@@ -2081,7 +2081,7 @@ function selectVnPeer(peerId) {
     box.innerHTML = '';
     var h = (res && res.history) ? res.history : [];
     if (!h.length) { box.innerHTML = '<div class="vn-empty">No messages yet — say hi.</div>'; return; }
-    for (var i = 0; i < h.length; i++) addVnBubble(h[i].dir, h[i].text, h[i].fromName, h[i].relayed);
+    for (var i = 0; i < h.length; i++) addVnBubble(h[i].dir, h[i].text, h[i].relayed);
     box.scrollTop = box.scrollHeight;
   }).catch(function() {
     box.innerHTML = '<div class="vn-empty">Could not load history.</div>';
