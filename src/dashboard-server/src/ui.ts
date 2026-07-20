@@ -1724,6 +1724,17 @@ function selectAgent(id) {
   currentAgentId = id;
   if (changed) resetChat();
   if (changed) resetVolenet();
+  if (changed) {
+    // Config and Identity tabs load lazily and cache per (former) agent. Without resetting
+    // here, switching agents leaves the previous agent's config/identity in the form — and
+    // saving would write THOSE values to the newly-selected agent. Force a reload for the
+    // new agent (immediately if that tab is open, else on next view).
+    configLoaded = false;
+    cachedConfig = null;
+    identityLoaded = false;
+    if (currentTab === 'config') loadConfig();
+    if (currentTab === 'identity') loadIdentity();
+  }
   updateAgentHeader();
   sendCommand('select_agent', { agentId: id })
     .then(function(state) { renderState(state || {}); })
