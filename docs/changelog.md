@@ -1,5 +1,14 @@
 # Changelog
 
+## v4.10.3 (2026-07-20)
+
+> Ships as `openvole` 4.10.3 and `@openvole/dashboard-server` 0.7.8. Completes the 4.10.2 config-isolation fix.
+
+### Fixed
+- **The 4.10.2 config-cross-write fix was incomplete.** It reset the cached form on agent switch but, when reloading, called `read_config` *before* the server recorded the new selection — so it re-read the *previous* agent's config and the form still showed stale values. The reload now runs after `select_agent` is acknowledged, so switching agents (including while sitting on the Config tab) shows the correct agent's config. Verified against the full switch sequence.
+
+**Upgrading a running `vole serve`:** restart the server after upgrading (Node caches the dashboard module at startup) and hard-refresh the browser.
+
 ## v4.10.2 (2026-07-20)
 
 > Ships as `openvole` 4.10.2 and `@openvole/dashboard-server` 0.7.7. A data-integrity fix for multi-agent servers.
