@@ -1,5 +1,12 @@
 # Changelog
 
+## v4.10.2 (2026-07-20)
+
+> Ships as `openvole` 4.10.2 and `@openvole/dashboard-server` 0.7.7. A data-integrity fix for multi-agent servers.
+
+### Fixed
+- **Saving config (or identity) for one agent could overwrite it for another.** The Config and Identity tabs load lazily and cache, but switching agents in the dashboard never reset them — so the form kept the *previous* agent's values, and saving wrote those to the newly-selected agent. Repeated across agents, their configs converged. Switching agents now reloads config and identity for the agent you're actually on. **Multi-agent `vole serve` users should review each agent's `vole.config.json`** — configs saved from the dashboard before this fix may hold another agent's values.
+
 ## v4.10.1 (2026-07-20)
 
 > Ships as `openvole` 4.10.1 and `@openvole/dashboard-server` 0.7.6. A dashboard fix on top of the 4.10.0 relay.
