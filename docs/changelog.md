@@ -1,5 +1,12 @@
 # Changelog
 
+## v4.10.1 (2026-07-20)
+
+> Ships as `openvole` 4.10.1 and `@openvole/dashboard-server` 0.7.6. A dashboard fix on top of the 4.10.0 relay.
+
+### Fixed
+- **VoleNet tab wrongly tagged direct-mesh chat history as "🔒 via relay".** When loading a conversation's history, the render call passed the message's `fromName` into `addVnBubble`'s `relayed` slot — a non-empty name is truthy, so every past message got the relay badge, direct or not. Only genuinely relayed messages are badged now. (Live send and incoming paths were already correct.)
+
 ## v4.10.0 (2026-07-20)
 
 > Ships as `openvole` 4.10.0 and `@openvole/dashboard-server` 0.7.5. Theme: **the blind relay** — two agents behind NAT talk through a hub that cannot read a word of it.
