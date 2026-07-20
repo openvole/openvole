@@ -1722,22 +1722,26 @@ function selectAgent(id) {
   if (!id) { currentAgentId = null; clearPanels(); return; }
   var changed = currentAgentId !== id;
   currentAgentId = id;
-  if (changed) resetChat();
-  if (changed) resetVolenet();
   if (changed) {
+    resetChat();
+    resetVolenet();
     // Config and Identity tabs load lazily and cache per (former) agent. Without resetting
     // here, switching agents leaves the previous agent's config/identity in the form — and
-    // saving would write THOSE values to the newly-selected agent. Force a reload for the
-    // new agent (immediately if that tab is open, else on next view).
+    // saving would write THOSE values to the newly-selected agent. Reset so the next view
+    // reloads; the immediate reload (if we're on that tab) happens in the select_agent
+    // callback below — it MUST run after the server records the new selection, or read_config
+    // returns the OLD agent's config.
     configLoaded = false;
     cachedConfig = null;
     identityLoaded = false;
-    if (currentTab === 'config') loadConfig();
-    if (currentTab === 'identity') loadIdentity();
   }
   updateAgentHeader();
   sendCommand('select_agent', { agentId: id })
-    .then(function(state) { renderState(state || {}); })
+    .then(function(state) {
+      renderState(state || {});
+      if (changed && currentTab === 'config') loadConfig();
+      if (changed && currentTab === 'identity') loadIdentity();
+    })
     .catch(function() { clearPanels(); });
 }
 function clearPanels() {
