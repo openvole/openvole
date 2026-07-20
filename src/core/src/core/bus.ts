@@ -41,6 +41,12 @@ export type BusEvents = {
 		to?: string
 		reason?: string
 	}
+	/** A relay member asked to connect — awaiting this agent's approval. */
+	'volenet:relay:request': { from: string; fromName: string; note?: string }
+	/** A relay member accepted this agent's connect-request. */
+	'volenet:relay:accepted': { from: string; fromName: string }
+	/** A relay member denied this agent's connect-request. */
+	'volenet:relay:denied': { from: string; fromName: string }
 	'rate:limited': { bucket: string; source?: string }
 	'engine:restart': Record<string, never>
 }

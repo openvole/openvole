@@ -12,10 +12,13 @@ import type { ToolRegistry } from '../tool/registry.js'
 import { type DiscoveryConfig, VoleNetDiscovery } from './discovery.js'
 import {
 	type VoleKeyPair,
+	addRelayAccept,
 	generateKeyPair,
 	loadAuthorizedVoles,
 	loadKeyPair,
+	loadRelayAccepts,
 	parsePublicKey,
+	removeRelayAccept,
 	trustPeer,
 } from './keys.js'
 import { VoleNetLeader } from './leader.js'
@@ -23,11 +26,12 @@ import {
 	type RemoteToolInfo,
 	type VoleNetInstance,
 	type VoleNetMessage,
+	type VoleNetMessageType,
 	createMessage,
 	verifyMessage,
 } from './protocol.js'
-import { type SealedBox, relayPairAllow, seal, unseal } from './seal.js'
 import { RemoteTaskManager } from './remote-task.js'
+import { type SealedBox, relayPairAllow, seal, unseal } from './seal.js'
 import { type SyncConfig, VoleNetSync } from './sync.js'
 import { type TransportConfig, VoleNetTransport } from './transport.js'
 
@@ -188,6 +192,13 @@ export interface VoleNetConfig {
 		maxPerMinutePerPair?: number
 		/** Max sealed envelope size in bytes. Default 65536. */
 		maxBytes?: number
+		/**
+		 * Member side: who may reach ME over a relay. Sharing a hub is not consent — a member's
+		 * relayed chat is dropped until I accept it. Default (unset): only peers I've explicitly
+		 * approved (a connect-request) or already directly trust. '*' opens me to any hub member
+		 * (community-hub behaviour). A list pre-authorises peers by name or instanceId prefix.
+		 */
+		acceptFrom?: '*' | string[]
 	}
 }
 
@@ -234,6 +245,17 @@ export class VoleNetManager {
 	/** Relay: inner-message replay guard — the transport's outer guard can't see re-wraps. */
 	private seenSealed = new Map<string, number>()
 	private rosterTimer: ReturnType<typeof setTimeout> | undefined
+	/** Relay consent gate: instanceIds whose relayed chat I accept (persisted to relay_accepts). */
+	private relayAcceptIds = new Set<string>()
+	/** Relay: inbound connect-requests awaiting my approval (in-memory; keyed by requester id). */
+	private relayRequests = new Map<
+		string,
+		{ id: string; name: string; viaHub: string; viaHubName: string; note?: string; ts: number }
+	>()
+	/** Relay: connect-requests I sent that aren't confirmed yet (for the "awaiting" UI hint). */
+	private relayOutgoing = new Set<string>()
+	/** Relay: peers that have accepted MY request (in-memory; distinguishes connected vs awaiting). */
+	private relayConfirmed = new Set<string>()
 	/** Per-peer human chat logs (in-memory; keyed by peer instanceId). */
 	private chatLog = new Map<string, ChatEntry[]>()
 	/** Periodically re-attempts configured peers — self-heals start-order races + drops. */
@@ -270,6 +292,13 @@ export class VoleNetManager {
 		logger.info(`Instance ID: ${this.keyPair.instanceId}`)
 		logger.info(`Public key: ${this.keyPair.publicKeyString}`)
 		// Activate the post-quantum signing key (when this keypair has one) for hybrid signatures.
+
+		// Relay consent: load previously-approved senders so past approvals survive restarts.
+		try {
+			this.relayAcceptIds = new Set((await loadRelayAccepts(netDir)).keys())
+		} catch {
+			this.relayAcceptIds = new Set()
+		}
 
 		// Start transport
 		const port = this.config.port ?? 9700
@@ -344,7 +373,7 @@ export class VoleNetManager {
 					message.from,
 					tools,
 					this.keyPair.privateKey,
-			this.keyPair.pqPrivateKey,
+					this.keyPair.pqPrivateKey,
 				)
 				this.transport!.sendToPeer(message.from, response)
 			}
@@ -376,7 +405,7 @@ export class VoleNetManager {
 							message.from,
 							{ callId, success: false, error: `Tool access not allowed: ${toolName}` },
 							this.keyPair.privateKey,
-			this.keyPair.pqPrivateKey,
+							this.keyPair.pqPrivateKey,
 						),
 					)
 					return
@@ -396,7 +425,7 @@ export class VoleNetManager {
 							error: `Tool "${toolName}" not found`,
 						},
 						this.keyPair.privateKey,
-			this.keyPair.pqPrivateKey,
+						this.keyPair.pqPrivateKey,
 					)
 				} else {
 					try {
@@ -432,7 +461,7 @@ export class VoleNetManager {
 								output,
 							},
 							this.keyPair.privateKey,
-			this.keyPair.pqPrivateKey,
+							this.keyPair.pqPrivateKey,
 						)
 					} catch (err) {
 						const errorMsg = err instanceof Error ? err.message : String(err)
@@ -454,7 +483,7 @@ export class VoleNetManager {
 								error: errorMsg,
 							},
 							this.keyPair.privateKey,
-			this.keyPair.pqPrivateKey,
+							this.keyPair.pqPrivateKey,
 						)
 					}
 				}
@@ -650,7 +679,7 @@ export class VoleNetManager {
 								'Brain access not allowed. Coordinator must set allowBrain: true for this peer.',
 						},
 						this.keyPair.privateKey,
-			this.keyPair.pqPrivateKey,
+						this.keyPair.pqPrivateKey,
 					)
 					await this.transport!.sendToPeer(message.from, deny)
 					return
@@ -698,7 +727,7 @@ export class VoleNetManager {
 									error: t.error,
 								},
 								this.keyPair!.privateKey,
-			this.keyPair!.pqPrivateKey,
+								this.keyPair!.pqPrivateKey,
 							)
 							await this.transport!.sendToPeer(message.from, result)
 							logger.info(
@@ -717,7 +746,7 @@ export class VoleNetManager {
 							error: 'Task queue not available',
 						},
 						this.keyPair.privateKey,
-			this.keyPair.pqPrivateKey,
+						this.keyPair.pqPrivateKey,
 					)
 					await this.transport!.sendToPeer(message.from, noQueue)
 				}
@@ -784,7 +813,7 @@ export class VoleNetManager {
 					message.from,
 					{ to, reason },
 					this.keyPair!.privateKey,
-			this.keyPair!.pqPrivateKey,
+					this.keyPair!.pqPrivateKey,
 				)
 				void this.transport!.sendToPeer(message.from, err)
 			}
@@ -799,7 +828,7 @@ export class VoleNetManager {
 				to,
 				{ from: message.from, box: payload.box },
 				this.keyPair.privateKey,
-			this.keyPair.pqPrivateKey,
+				this.keyPair.pqPrivateKey,
 			)
 			void this.transport.sendToPeer(to, wrap)
 		})
@@ -1125,11 +1154,22 @@ export class VoleNetManager {
 		return { ok: true, delivered }
 	}
 
-	/** Seal a chat message to a hub-rostered member and send it via that hub. */
-	private async sendChatViaRelay(
+	/**
+	 * Find a hub-rostered member by ref, seal an inner message to it, and forward via its hub.
+	 * Shared by relayed chat and the consent handshake — the hub sees only ciphertext.
+	 */
+	private async sealToMemberViaRelay(
 		peerRef: string,
-		text: string,
-	): Promise<{ ok: boolean; delivered?: boolean; relayed?: boolean; error?: string }> {
+		innerType: VoleNetMessageType,
+		innerPayload: Record<string, unknown>,
+	): Promise<{
+		ok: boolean
+		delivered?: boolean
+		member?: RosterMember
+		hubId?: string
+		inner?: VoleNetMessage
+		error?: string
+	}> {
 		if (!this.keyPair || !this.transport) return { ok: false, error: 'VoleNet not started' }
 		for (const [hubId, roster] of this.hubRosters) {
 			const member = [...roster.values()].find(
@@ -1138,14 +1178,13 @@ export class VoleNetManager {
 			if (!member) continue
 			if (!member.xPublicKey)
 				return { ok: false, error: `Peer "${peerRef}" announces no sealed-envelope key` }
-			const fromName = this.getInstanceName()
 			const inner = createMessage(
-				'chat:message',
+				innerType,
 				this.keyPair.instanceId,
 				member.instanceId,
-				{ text, fromName },
+				innerPayload,
 				this.keyPair.privateKey,
-			this.keyPair.pqPrivateKey,
+				this.keyPair.pqPrivateKey,
 			)
 			const box = seal(
 				member.xPublicKey,
@@ -1159,20 +1198,119 @@ export class VoleNetManager {
 				hubId,
 				{ to: member.instanceId, box },
 				this.keyPair.privateKey,
-			this.keyPair.pqPrivateKey,
+				this.keyPair.pqPrivateKey,
 			)
 			const delivered = await this.transport.sendToPeer(hubId, outer)
-			await this.appendChat(member.instanceId, {
-				dir: 'out',
-				text,
-				fromName,
-				timestamp: inner.timestamp,
-				messageId: inner.id,
-				relayed: true,
-			})
-			return { ok: true, delivered, relayed: true }
+			return { ok: true, delivered, member, hubId, inner }
 		}
 		return { ok: false, error: `No connected peer: "${peerRef}"` }
+	}
+
+	/** Seal a chat message to a hub-rostered member and send it via that hub. */
+	private async sendChatViaRelay(
+		peerRef: string,
+		text: string,
+	): Promise<{ ok: boolean; delivered?: boolean; relayed?: boolean; error?: string }> {
+		const fromName = this.getInstanceName()
+		const r = await this.sealToMemberViaRelay(peerRef, 'chat:message', { text, fromName })
+		if (!r.ok || !r.member || !r.inner)
+			return { ok: false, error: r.error ?? `No connected peer: "${peerRef}"` }
+		await this.appendChat(r.member.instanceId, {
+			dir: 'out',
+			text,
+			fromName,
+			timestamp: r.inner.timestamp,
+			messageId: r.inner.id,
+			relayed: true,
+		})
+		return { ok: true, delivered: r.delivered, relayed: true }
+	}
+
+	/** Resolve a relay-member ref (id / name / id-prefix) against every hub roster. */
+	private resolveRelayPeer(ref: string): RosterMember | undefined {
+		for (const roster of this.hubRosters.values()) {
+			const m = [...roster.values()].find(
+				(x) => x.instanceId === ref || x.name === ref || x.instanceId.startsWith(ref),
+			)
+			if (m) return m
+		}
+		return undefined
+	}
+
+	/** Persist consent to a peer, pinning its roster-vouched key line in relay_accepts. */
+	private async persistRelayAccept(member: RosterMember): Promise<void> {
+		try {
+			await addRelayAccept(this.getNetDir(), member.publicKey)
+		} catch (e) {
+			logger.warn(
+				`Failed to persist relay consent for ${member.instanceId.substring(0, 8)}: ${e instanceof Error ? e.message : String(e)}`,
+			)
+		}
+	}
+
+	/**
+	 * Ask a rostered member to accept relay contact. Initiating implies consent to receive its
+	 * reply, so the peer is added to my accept list immediately (persisted).
+	 */
+	async requestRelayConnect(
+		peerRef: string,
+		note?: string,
+	): Promise<{ ok: boolean; error?: string }> {
+		const fromName = this.getInstanceName()
+		const r = await this.sealToMemberViaRelay(peerRef, 'relay:connect-request', { fromName, note })
+		if (!r.ok || !r.member)
+			return { ok: false, error: r.error ?? `No connected peer: "${peerRef}"` }
+		this.relayAcceptIds.add(r.member.instanceId)
+		this.relayOutgoing.add(r.member.instanceId)
+		await this.persistRelayAccept(r.member)
+		return { ok: true }
+	}
+
+	/** Approve an inbound connect-request: consent to the peer, persist it, and notify the peer. */
+	async approveRelayConnect(peerRef: string): Promise<{ ok: boolean; error?: string }> {
+		const member = this.resolveRelayPeer(peerRef)
+		if (!member) return { ok: false, error: `No relay member: "${peerRef}"` }
+		this.relayAcceptIds.add(member.instanceId)
+		this.relayConfirmed.add(member.instanceId) // they requested me → mutual
+		this.relayRequests.delete(member.instanceId)
+		await this.persistRelayAccept(member)
+		const fromName = this.getInstanceName()
+		await this.sealToMemberViaRelay(member.instanceId, 'relay:connect-accept', { fromName })
+		return { ok: true }
+	}
+
+	/** Deny an inbound connect-request: clear it and (best-effort) tell the peer. */
+	async denyRelayConnect(peerRef: string): Promise<{ ok: boolean; error?: string }> {
+		const member = this.resolveRelayPeer(peerRef)
+		this.relayRequests.delete(member?.instanceId ?? peerRef)
+		if (member) {
+			const fromName = this.getInstanceName()
+			await this.sealToMemberViaRelay(member.instanceId, 'relay:connect-deny', { fromName })
+		}
+		return { ok: true }
+	}
+
+	/** Withdraw previously-granted relay consent for a peer (removes it from relay_accepts). */
+	async revokeRelayConnect(peerRef: string): Promise<{ ok: boolean }> {
+		const id = this.resolveRelayPeer(peerRef)?.instanceId ?? peerRef
+		this.relayAcceptIds.delete(id)
+		this.relayConfirmed.delete(id)
+		this.relayOutgoing.delete(id)
+		this.relayRequests.delete(id)
+		await removeRelayAccept(this.getNetDir(), id).catch(() => false)
+		return { ok: true }
+	}
+
+	/** Inbound relay connect-requests awaiting my approval (newest first). */
+	getRelayRequests(): Array<{
+		id: string
+		name: string
+		viaHub: string
+		viaHubName: string
+		note?: string
+		ts: number
+	}> {
+		return [...this.relayRequests.values()].sort((a, b) => b.ts - a.ts)
 	}
 
 	/** Unseal, verify, and ingest an envelope addressed to us. v1 allowlist: chat only. */
@@ -1193,9 +1331,16 @@ export class VoleNetManager {
 		} catch {
 			return
 		}
-		// Nothing executable rides the relay in v1 — sealed envelopes carry chat, full stop.
-		if (inner.type !== 'chat:message') {
-			logger.warn(`Dropped relayed '${inner.type}' from ${fromId.substring(0, 8)} — relay carries chat only`)
+		// Relay v1 allowlist: end-to-end chat plus the consent handshake. Nothing executable rides.
+		const permitted =
+			inner.type === 'chat:message' ||
+			inner.type === 'relay:connect-request' ||
+			inner.type === 'relay:connect-accept' ||
+			inner.type === 'relay:connect-deny'
+		if (!permitted) {
+			logger.warn(
+				`Dropped relayed '${inner.type}' from ${fromId.substring(0, 8)} — not a permitted relay message`,
+			)
 			return
 		}
 		if (inner.from !== fromId || inner.to !== this.keyPair.instanceId) return
@@ -1206,7 +1351,8 @@ export class VoleNetManager {
 		if (this.seenSealed.has(seenKey)) return
 		this.seenSealed.set(seenKey, now)
 		// Verify the inner signature: a directly-trusted key wins; else the hub-vouched roster key.
-		let valid = this.discovery?.verifyMessageFrom(inner) ?? false
+		const directlyTrusted = this.discovery?.verifyMessageFrom(inner) ?? false
+		let valid = directlyTrusted
 		if (!valid) {
 			const member = this.findRosterMember(fromId)
 			const parsed = member ? parsePublicKey(member.publicKey) : null
@@ -1214,12 +1360,49 @@ export class VoleNetManager {
 				valid = verifyMessage(inner, parsed.publicKey, parsed.pqPublicKey).valid
 		}
 		if (!valid) {
-			logger.warn(`Relayed chat from ${fromId.substring(0, 8)} failed signature verification`)
+			logger.warn(
+				`Relayed '${inner.type}' from ${fromId.substring(0, 8)} failed signature verification`,
+			)
 			return
 		}
+
+		// Consent handshake. Sharing a hub is not consent — a member's relayed chat is dropped
+		// (surfaced as a pending connect-request) until I accept it. A directly-trusted peer is
+		// exempt: I'd already accept its direct connection, so the relay isn't a new trust grant.
+		if (inner.type === 'relay:connect-request') {
+			const p = inner.payload as { fromName?: string; note?: string }
+			this.recordRelayRequest(fromId, p?.fromName, p?.note)
+			bus?.emit('volenet:relay:request', {
+				from: fromId,
+				fromName: p?.fromName || this.rosterName(fromId),
+				note: p?.note,
+			})
+			return
+		}
+		if (inner.type === 'relay:connect-accept') {
+			this.relayOutgoing.delete(fromId)
+			this.relayConfirmed.add(fromId)
+			bus?.emit('volenet:relay:accepted', { from: fromId, fromName: this.rosterName(fromId) })
+			return
+		}
+		if (inner.type === 'relay:connect-deny') {
+			this.relayOutgoing.delete(fromId)
+			bus?.emit('volenet:relay:denied', { from: fromId, fromName: this.rosterName(fromId) })
+			return
+		}
+
+		// chat:message
 		const payload = inner.payload as { text?: string; fromName?: string }
 		if (!payload?.text) return
 		const fromName = payload.fromName || fromId.substring(0, 8)
+		if (!directlyTrusted && !this.isRelayAccepted(fromId, fromName)) {
+			this.recordRelayRequest(fromId, fromName)
+			bus?.emit('volenet:relay:request', { from: fromId, fromName })
+			logger.info(
+				`Held relayed chat from unaccepted ${fromName} (${fromId.substring(0, 8)}) — awaiting consent`,
+			)
+			return
+		}
 		void this.appendChat(fromId, {
 			dir: 'in',
 			text: payload.text,
@@ -1236,6 +1419,47 @@ export class VoleNetManager {
 			timestamp: inner.timestamp,
 			relayed: true,
 		})
+	}
+
+	/** True when a relay sender may reach me: '*' policy, an acceptFrom match, or a prior approval. */
+	private isRelayAccepted(fromId: string, fromName?: string): boolean {
+		const policy = this.config.relay?.acceptFrom
+		if (policy === '*') return true
+		if (Array.isArray(policy)) {
+			for (const raw of policy) {
+				const t = typeof raw === 'string' ? raw.trim() : ''
+				if (!t) continue
+				if (t === '*') return true
+				if (t === fromId || fromId.startsWith(t)) return true
+				if (fromName && t === fromName) return true
+			}
+		}
+		return this.relayAcceptIds.has(fromId)
+	}
+
+	/** Record (or refresh) an inbound relay connect-request awaiting my approval. */
+	private recordRelayRequest(fromId: string, fromName?: string, note?: string): void {
+		let viaHub = ''
+		let viaHubName = ''
+		for (const [hubId, roster] of this.hubRosters) {
+			if (roster.has(fromId)) {
+				viaHub = hubId
+				viaHubName = this.getInstances().find((i) => i.id === hubId)?.name ?? hubId.substring(0, 8)
+				break
+			}
+		}
+		this.relayRequests.set(fromId, {
+			id: fromId,
+			name: fromName || this.rosterName(fromId),
+			viaHub,
+			viaHubName,
+			note,
+			ts: Date.now(),
+		})
+	}
+
+	private rosterName(id: string): string {
+		return this.findRosterMember(id)?.name ?? id.substring(0, 8)
 	}
 
 	private findRosterMember(id: string): RosterMember | undefined {
@@ -1269,7 +1493,7 @@ export class VoleNetManager {
 				id,
 				{ members },
 				this.keyPair.privateKey,
-			this.keyPair.pqPrivateKey,
+				this.keyPair.pqPrivateKey,
 			)
 			void this.transport.sendToPeer(id, msg)
 		}
@@ -1291,6 +1515,12 @@ export class VoleNetManager {
 		viaHub: string
 		viaHubName: string
 		connected: boolean
+		/** I accept this member's relayed chat ('*'/acceptFrom match or an approval). */
+		accepted: boolean
+		/** This member has an inbound connect-request awaiting my approval. */
+		incoming: boolean
+		/** I've requested this member but it hasn't accepted yet. */
+		awaiting: boolean
 	}> {
 		const direct = new Set(this.getInstances().map((i) => i.id))
 		const out: Array<{
@@ -1299,6 +1529,9 @@ export class VoleNetManager {
 			viaHub: string
 			viaHubName: string
 			connected: boolean
+			accepted: boolean
+			incoming: boolean
+			awaiting: boolean
 		}> = []
 		const seen = new Set<string>()
 		for (const [hubId, roster] of this.hubRosters) {
@@ -1314,6 +1547,9 @@ export class VoleNetManager {
 					viaHub: hubId,
 					viaHubName: hubName,
 					connected: m.connected,
+					accepted: this.isRelayAccepted(m.instanceId, m.name),
+					incoming: this.relayRequests.has(m.instanceId),
+					awaiting: this.relayOutgoing.has(m.instanceId) && !this.relayConfirmed.has(m.instanceId),
 				})
 			}
 		}
@@ -1651,7 +1887,16 @@ export class VoleNetManager {
 }
 
 // Re-export key types and functions for CLI use
-export { generateKeyPair, loadKeyPair, trustPeer, revokePeer, loadAuthorizedVoles } from './keys.js'
+export {
+	generateKeyPair,
+	loadKeyPair,
+	trustPeer,
+	revokePeer,
+	loadAuthorizedVoles,
+	loadRelayAccepts,
+	addRelayAccept,
+	removeRelayAccept,
+} from './keys.js'
 export type { VoleKeyPair } from './keys.js'
 export type { VoleNetInstance, RemoteToolInfo } from './protocol.js'
 export { RemoteTaskManager } from './remote-task.js'

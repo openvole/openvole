@@ -94,6 +94,14 @@ export class ControlPlane {
 				volenetChatSend: (peerId, text, id) =>
 					this.callAgent(id, 'volenet_chat_send', { peerId, text }),
 				volenetChatClear: (peerId, id) => this.callAgent(id, 'volenet_chat_clear', { peerId }),
+				volenetRelayMembers: (id) => this.callAgent(id, 'volenet_relay_members'),
+				volenetRelayRequests: (id) => this.callAgent(id, 'volenet_relay_requests'),
+				volenetRelayConnect: (peerId, note, id) =>
+					this.callAgent(id, 'volenet_relay_connect', { peerId, note }),
+				volenetRelayApprove: (peerId, id) =>
+					this.callAgent(id, 'volenet_relay_approve', { peerId }),
+				volenetRelayDeny: (peerId, id) => this.callAgent(id, 'volenet_relay_deny', { peerId }),
+				volenetRelayRevoke: (peerId, id) => this.callAgent(id, 'volenet_relay_revoke', { peerId }),
 				getPanelHtml: (agentId, paw) => this.callAgent(agentId, 'panel_html', { paw }),
 				listMcpTools: (agentId) => this.callAgent(agentId, 'tools_mcp'),
 				callPawTool: (agentId, name, params) => this.callAgent(agentId, 'tool', { name, params }),

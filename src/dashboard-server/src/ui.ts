@@ -791,7 +791,24 @@ export function getDashboardHtml(wsPort: number): string {
   .vn-dot.relay { background: transparent; border: 1.5px solid var(--accent3, #d2a8ff); box-sizing: border-box; }
   .vn-dot.relay.online { background: var(--accent3, #d2a8ff); }
   .vn-relay-tag { font-size: 9px; color: var(--accent3, #d2a8ff); border: 1px solid var(--accent3, #d2a8ff); border-radius: 999px; padding: 0 4px; letter-spacing: 0.04em; flex: 0 0 auto; }
+  .vn-relay-tag.vn-tag-wait { color: var(--text-dim); border-color: var(--border); }
+  .vn-relay-tag.vn-tag-new { color: var(--accent); border-color: var(--accent); }
   .vn-msg-relayed { font-size: 10px; color: var(--accent3, #d2a8ff); margin: 0 0 2px 2px; }
+  .vn-group-req { color: var(--accent); }
+  .vn-req { margin: 2px 6px 8px; padding: 8px 10px; border: 1px solid var(--accent3, #d2a8ff); border-radius: 8px; background: color-mix(in srgb, var(--accent3, #d2a8ff) 8%, transparent); }
+  .vn-req-top { display: flex; align-items: baseline; gap: 6px; }
+  .vn-req-via { font-size: 10px; color: var(--text-dim); }
+  .vn-req-note { font-size: 11px; color: var(--text-dim); margin: 4px 0 0; word-break: break-word; }
+  .vn-req-actions { display: flex; gap: 6px; margin-top: 8px; }
+  .vn-req-ok, .vn-req-no { flex: 1; font-size: 11px; border-radius: 6px; padding: 4px 0; cursor: pointer; border: 1px solid var(--border); background: var(--bg); color: var(--text); }
+  .vn-req-ok { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .vn-req-ok:hover { filter: brightness(1.08); }
+  .vn-req-no:hover { border-color: var(--text-dim); }
+  .vn-connect { max-width: 420px; margin: 24px auto; text-align: center; color: var(--text-dim); font-size: 13px; line-height: 1.5; }
+  .vn-connect-title { font-size: 15px; font-weight: 600; color: var(--text); margin-bottom: 8px; }
+  .vn-connect b { color: var(--text); }
+  .vn-connect-btn { margin-top: 14px; font-size: 13px; padding: 8px 18px; border-radius: 8px; border: 1px solid var(--accent); background: var(--accent); color: #fff; cursor: pointer; }
+  .vn-connect-btn:hover { filter: brightness(1.08); }
   .vn-badge { background: var(--accent); color: #fff; font-size: 10px; border-radius: 9px; padding: 1px 6px; min-width: 16px; text-align: center; }
   .vn-chat { flex: 1; min-width: 0; display: flex; flex-direction: column; padding: 12px 16px; }
   .vn-chat-head { font-size: 13px; font-weight: 600; color: var(--text); padding-bottom: 8px; border-bottom: 1px solid var(--border); margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
@@ -1387,6 +1404,8 @@ export function getDashboardHtml(wsPort: number): string {
               <input type="number" class="form-input" id="cfg-net-relay-maxPerMinutePerPair" placeholder="maxPerMinutePerPair (30)">
               <input type="number" class="form-input" id="cfg-net-relay-maxBytes" placeholder="maxBytes (65536)">
             </div>
+            <div class="form-help" style="margin-top:8px">relay.acceptFrom — who may reach you over a relay. Blank = only peers you approve or already trust. <code>*</code> = any hub member. Or a comma-separated list of names / id-prefixes.</div>
+            <input type="text" class="form-input" id="cfg-net-relay-acceptFrom" placeholder="acceptFrom (blank, * , or name,id-prefix,…)">
           </div>
           <div class="form-field">
             <label class="form-label">net.publicJoin</label>
@@ -2020,17 +2039,31 @@ function refreshVnPeers() {
   if (!currentAgentId) { renderVnPeerList(); return; }
   Promise.all([
     sendCommand('volenet_instances').catch(function() { return []; }),
-    sendCommand('volenet_relay_members').catch(function() { return []; })
+    sendCommand('volenet_relay_members').catch(function() { return []; }),
+    sendCommand('volenet_relay_requests').catch(function() { return []; })
   ]).then(function(res) {
     var direct = Array.isArray(res[0]) ? res[0] : [];
     var relay = Array.isArray(res[1]) ? res[1] : [];
+    var requests = Array.isArray(res[2]) ? res[2] : [];
+    var reqById = {};
+    requests.forEach(function(r) { reqById[r.id] = r; });
     var peers = direct.map(function(i) {
-      return { id: i.id, name: i.name, role: i.role, lastSeen: i.lastSeen, kind: 'direct' };
+      return { id: i.id, name: i.name, role: i.role, lastSeen: i.lastSeen, kind: 'direct', accepted: true };
     });
     relay.forEach(function(m) {
-      // "online" for a relay member is the hub's word: lastSeen stamped now when it says connected
+      // "online" for a relay member is the hub's word: lastSeen stamped now when it says connected.
+      // accepted/incoming/awaiting drive the consent handshake surface.
       peers.push({ id: m.id, name: m.name, kind: 'relay', viaHubName: m.viaHubName,
+        accepted: !!m.accepted, incoming: !!m.incoming || !!reqById[m.id], awaiting: !!m.awaiting,
+        note: reqById[m.id] ? reqById[m.id].note : undefined,
         lastSeen: m.connected ? Date.now() : 0 });
+    });
+    // A requester that dropped out of the roster still deserves an Approve/Deny row.
+    requests.forEach(function(r) {
+      if (!peers.some(function(p) { return p.id === r.id; })) {
+        peers.push({ id: r.id, name: r.name, kind: 'relay', viaHubName: r.viaHubName,
+          accepted: false, incoming: true, awaiting: false, note: r.note, lastSeen: 0 });
+      }
     });
     vnPeers = peers;
     renderVnPeerList();
@@ -2066,18 +2099,36 @@ function renderVnPeerList() {
     var unread = vnUnread[p.id] || 0;
     var active = p.id === vnSelectedPeer ? ' active' : '';
     var relay = p.kind === 'relay';
+    // Relay state → tag: accepted (chattable) shows "relay"; requested shows "awaiting";
+    // a fresh member shows "connect" to invite the handshake.
+    var tag = '';
+    if (relay && p.accepted) tag = '<span class="vn-relay-tag">relay</span>';
+    else if (relay && p.awaiting) tag = '<span class="vn-relay-tag vn-tag-wait">awaiting</span>';
+    else if (relay) tag = '<span class="vn-relay-tag vn-tag-new">connect</span>';
     return '<button class="vn-peer' + active + '" onclick="selectVnPeer(\\'' + esc(p.id) + '\\')"'
       + (relay ? ' title="Reachable through ' + esc(p.viaHubName || 'a relay hub') + ' — end-to-end encrypted"' : '')
       + '>'
       + '<span class="vn-dot' + (relay ? ' relay' : '') + (online ? ' online' : '') + '"></span>'
       + '<span class="vn-peer-name">' + esc(p.name || p.id) + '</span>'
-      + (relay ? '<span class="vn-relay-tag">relay</span>' : '')
+      + tag
       + (unread ? '<span class="vn-badge">' + unread + '</span>' : '')
       + '</button>';
   }
+  function reqRow(p) {
+    return '<div class="vn-req">'
+      + '<div class="vn-req-top"><span class="vn-peer-name">' + esc(p.name || p.id) + '</span>'
+      + '<span class="vn-req-via">via ' + esc(p.viaHubName || 'relay') + '</span></div>'
+      + (p.note ? '<div class="vn-req-note">' + esc(p.note) + '</div>' : '')
+      + '<div class="vn-req-actions">'
+      + '<button class="vn-req-ok" onclick="vnApprove(\\'' + esc(p.id) + '\\')">Approve</button>'
+      + '<button class="vn-req-no" onclick="vnDeny(\\'' + esc(p.id) + '\\')">Deny</button>'
+      + '</div></div>';
+  }
+  var incoming = vnPeers.filter(function(p) { return p.kind === 'relay' && p.incoming && !p.accepted; });
   var directs = vnPeers.filter(function(p) { return p.kind !== 'relay'; });
-  var relays = vnPeers.filter(function(p) { return p.kind === 'relay'; });
+  var relays = vnPeers.filter(function(p) { return p.kind === 'relay' && !(p.incoming && !p.accepted); });
   var html = '';
+  if (incoming.length) html += '<div class="vn-group-head vn-group-req">Connection requests</div>' + incoming.map(reqRow).join('');
   if (directs.length) html += '<div class="vn-group-head">Direct mesh</div>' + directs.map(peerBtn).join('');
   if (relays.length) html += '<div class="vn-group-head">\\uD83D\\uDD12 Via relay</div>' + relays.map(peerBtn).join('');
   list.innerHTML = html;
@@ -2088,9 +2139,28 @@ function selectVnPeer(peerId) {
   vnUnread[peerId] = 0;
   var peer = vnPeers.filter(function(p) { return p.id === peerId; })[0];
   document.getElementById('vn-chat-head').textContent = peer ? (peer.name || peerId) : peerId;
-  document.getElementById('vn-composer').style.display = '';
   renderVnPeerList();
   var box = document.getElementById('vn-messages');
+  var comp = document.getElementById('vn-composer');
+  // Relay member without mutual consent: no chat box — a connect prompt (or an "awaiting" note)
+  // instead. Sharing a hub isn't consent; the recipient must approve first.
+  if (peer && peer.kind === 'relay' && !peer.accepted) {
+    comp.style.display = 'none';
+    if (peer.awaiting) {
+      box.innerHTML = '<div class="vn-empty">Waiting for <b>' + esc(peer.name || peerId)
+        + '</b> to accept your connection request&hellip;</div>';
+    } else {
+      box.innerHTML = '<div class="vn-connect">'
+        + '<div class="vn-connect-title">Not connected yet</div>'
+        + '<p>You and <b>' + esc(peer.name || peerId) + '</b> share a relay hub but have no connection. '
+        + 'Send a request — they must approve before either of you can chat. '
+        + 'Messages are end-to-end encrypted; the hub never sees them.</p>'
+        + '<button class="vn-connect-btn" onclick="vnConnect(\\'' + esc(peerId) + '\\')">Send connection request</button>'
+        + '</div>';
+    }
+    return;
+  }
+  comp.style.display = '';
   box.innerHTML = '<div class="vn-empty">Loading&hellip;</div>';
   sendCommand('volenet_chat_history', { peerId: peerId }).then(function(res) {
     box.innerHTML = '';
@@ -2152,6 +2222,59 @@ function volenetOnMessage(data, agentId) {
     vnUnread[data.from] = (vnUnread[data.from] || 0) + 1;
     renderVnPeerList();
     showToast('Message from ' + (data.fromName || 'a node'), 'success');
+  }
+}
+
+/* ── Relay consent handshake ── */
+function vnConnect(peerId) {
+  sendCommand('volenet_relay_connect', { peerId: peerId }).then(function(res) {
+    if (res && res.ok === false) { showToast('Connect failed: ' + (res.error || 'unknown'), 'error'); return; }
+    showToast('Connection request sent', 'success');
+    var box = document.getElementById('vn-messages');
+    if (vnSelectedPeer === peerId && box) {
+      box.innerHTML = '<div class="vn-empty">Waiting for approval&hellip;</div>';
+      document.getElementById('vn-composer').style.display = 'none';
+    }
+    refreshVnPeers();
+  }).catch(function(e) { showToast('Connect failed: ' + e.message, 'error'); });
+}
+
+function vnApprove(peerId) {
+  sendCommand('volenet_relay_approve', { peerId: peerId }).then(function(res) {
+    if (res && res.ok === false) { showToast('Approve failed: ' + (res.error || 'unknown'), 'error'); return; }
+    showToast('Connection approved — you can chat now', 'success');
+    refreshVnPeers();
+  }).catch(function(e) { showToast('Approve failed: ' + e.message, 'error'); });
+}
+
+function vnDeny(peerId) {
+  sendCommand('volenet_relay_deny', { peerId: peerId }).then(function() {
+    showToast('Request denied', 'success');
+    if (vnSelectedPeer === peerId) resetVolenetChatPane();
+    refreshVnPeers();
+  }).catch(function(e) { showToast('Deny failed: ' + e.message, 'error'); });
+}
+
+function resetVolenetChatPane() {
+  var box = document.getElementById('vn-messages');
+  if (box) box.innerHTML = '<div class="vn-empty">Pick a node on the left to start chatting.</div>';
+  var comp = document.getElementById('vn-composer');
+  if (comp) comp.style.display = 'none';
+  var head = document.getElementById('vn-chat-head');
+  if (head) head.textContent = 'Select a node to chat';
+  vnSelectedPeer = null;
+}
+
+function volenetOnRelayEvent(event, data, agentId) {
+  if (agentId !== undefined && currentAgentId && agentId !== currentAgentId) return;
+  var who = (data && data.fromName) || 'A node';
+  if (event === 'volenet:relay:request') showToast(who + ' wants to connect', 'success');
+  else if (event === 'volenet:relay:accepted') showToast(who + ' accepted your connection', 'success');
+  else if (event === 'volenet:relay:denied') showToast(who + ' declined your connection', 'error');
+  if (currentTab === 'volenet' && currentAgentId) refreshVnPeers();
+  // If the peer we're viewing just accepted us, flip the pane into a live chat.
+  if (event === 'volenet:relay:accepted' && data && data.from === vnSelectedPeer) {
+    setTimeout(function() { selectVnPeer(vnSelectedPeer); }, 300);
   }
 }
 
@@ -3086,6 +3209,8 @@ function populateNet(net) {
   document.getElementById('cfg-net-relay-enabled').checked = !!relay.enabled;
   document.getElementById('cfg-net-relay-maxPerMinutePerPair').value = relay.maxPerMinutePerPair != null ? relay.maxPerMinutePerPair : '';
   document.getElementById('cfg-net-relay-maxBytes').value = relay.maxBytes != null ? relay.maxBytes : '';
+  document.getElementById('cfg-net-relay-acceptFrom').value =
+    relay.acceptFrom === '*' ? '*' : (Array.isArray(relay.acceptFrom) ? relay.acceptFrom.join(', ') : '');
   var pj = n.publicJoin || {};
   document.getElementById('cfg-net-pj-enabled').checked = !!pj.enabled;
   document.getElementById('cfg-net-pj-trustLevel').value = pj.trustLevel || '';
@@ -3225,6 +3350,9 @@ function readNetFromForm() {
   if (rpm) relay.maxPerMinutePerPair = parseInt(rpm, 10);
   var rmb = document.getElementById('cfg-net-relay-maxBytes').value.trim();
   if (rmb) relay.maxBytes = parseInt(rmb, 10);
+  var raf = document.getElementById('cfg-net-relay-acceptFrom').value.trim();
+  if (raf === '*') relay.acceptFrom = '*';
+  else if (raf) relay.acceptFrom = raf.split(',').map(function(s) { return s.trim(); }).filter(Boolean);
   if (Object.keys(relay).length > 0) net.relay = relay;
 
   var cr = {};
@@ -3457,6 +3585,10 @@ ws.onmessage = function(evt) {
     }
     if (msg.event === 'volenet:chat') {
       volenetOnMessage(msg.data, msg.agentId);
+    }
+    if (msg.event === 'volenet:relay:request' || msg.event === 'volenet:relay:accepted'
+        || msg.event === 'volenet:relay:denied') {
+      volenetOnRelayEvent(msg.event, msg.data, msg.agentId);
     }
     if (!currentAgentId || msg.agentId === undefined || msg.agentId === currentAgentId) {
       addEvent(msg.event, msg.data);

@@ -22,6 +22,10 @@ const FORWARDED_EVENTS: Array<keyof BusEvents> = [
 	'rate:limited',
 	'volenet:tool:executed',
 	'volenet:chat',
+	'volenet:relay:request',
+	'volenet:relay:accepted',
+	'volenet:relay:denied',
+	'volenet:relay:error',
 ]
 
 /** Aggregate engine state for the dashboard (shape matches PawRegistry.handleQuery). */
@@ -247,6 +251,35 @@ export function installControlAdapter(engine: VoleEngine, projectRoot: string): 
 				case 'volenet_relay_members': {
 					const vn = (globalThis as any).__volenet__
 					result = vn?.isActive() ? vn.getRelayMembers() : []
+					break
+				}
+				case 'volenet_relay_requests': {
+					const vn = (globalThis as any).__volenet__
+					result = vn?.isActive() ? vn.getRelayRequests() : []
+					break
+				}
+				case 'volenet_relay_connect': {
+					const vn = (globalThis as any).__volenet__
+					if (!vn?.isActive()) throw new Error('VoleNet is not active in this agent')
+					result = await vn.requestRelayConnect(params.peerId as string, params.note as string)
+					break
+				}
+				case 'volenet_relay_approve': {
+					const vn = (globalThis as any).__volenet__
+					if (!vn?.isActive()) throw new Error('VoleNet is not active in this agent')
+					result = await vn.approveRelayConnect(params.peerId as string)
+					break
+				}
+				case 'volenet_relay_deny': {
+					const vn = (globalThis as any).__volenet__
+					if (!vn?.isActive()) throw new Error('VoleNet is not active in this agent')
+					result = await vn.denyRelayConnect(params.peerId as string)
+					break
+				}
+				case 'volenet_relay_revoke': {
+					const vn = (globalThis as any).__volenet__
+					if (!vn?.isActive()) throw new Error('VoleNet is not active in this agent')
+					result = await vn.revokeRelayConnect(params.peerId as string)
 					break
 				}
 				case 'volenet_chat_history': {

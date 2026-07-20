@@ -75,6 +75,9 @@ beforeAll(async () => {
 		role: 'peer' as const,
 		port,
 		peers: [{ url: `http://127.0.0.1:${HUB}`, trust: 'tool' as const }],
+		// Open community-hub shape: accept relayed chat from any hub member. The consent handshake
+		// (default deny → request → approve) is exercised in relay-consent.test.ts.
+		relay: { acceptFrom: '*' as const },
 	})
 	a = new VoleNetManager(memberCfg('member-a', A), dirs.a)
 	await a.start()

@@ -42,6 +42,11 @@ export type VoleNetMessageType =
 	| 'relay:deliver'
 	| 'relay:error'
 	| 'roster'
+	// Relay consent handshake (sealed inner types): a member must be accepted before its
+	// relayed chat is delivered. A requests, the recipient approves or denies.
+	| 'relay:connect-request'
+	| 'relay:connect-accept'
+	| 'relay:connect-deny'
 
 export interface VoleNetMessage {
 	version: number

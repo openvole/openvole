@@ -495,6 +495,11 @@ export class VoleNetTransport {
 			try {
 				peer.ws.send(serialize(message))
 				peer.lastSeen = Date.now()
+				// A successful push proves the channel is live — heal `connected` in case a prior
+				// HTTP-fallback failure (e.g. to a NAT'd peer's unreachable advertised endpoint)
+				// latched it false. Only the WS bind/open path sets it true, so without this a
+				// stuck-false peer would never recover even while its socket works.
+				peer.connected = true
 				return true
 			} catch {
 				// Fall through to HTTP
@@ -517,7 +522,11 @@ export class VoleNetTransport {
 			logger.warn(
 				`Send failed for ${peerId.substring(0, 8)}: ${err instanceof Error ? err.message : String(err)}`,
 			)
-			peer.connected = false
+			// Do NOT latch `connected = false` here. This one-shot HTTP POST fails routinely for
+			// NAT'd peers whose advertised endpoint (a LAN/private IP) the hub can't reach — but
+			// their real delivery path is the inbound WebSocket they hold open to us. Connectivity
+			// is owned by the WS bind (true) / close (false) lifecycle; a failed best-effort
+			// fallback must not mark a peer with a live socket offline.
 			return false
 		}
 	}

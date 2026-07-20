@@ -45,6 +45,16 @@ export interface DashboardCallbacks {
 	volenetChatHistory?: (peerId?: string, agentId?: string) => Promise<unknown>
 	volenetChatSend?: (peerId: string, text: string, agentId?: string) => Promise<unknown>
 	volenetChatClear?: (peerId: string, agentId?: string) => Promise<unknown>
+	volenetRelayMembers?: (agentId?: string) => Promise<unknown>
+	volenetRelayRequests?: (agentId?: string) => Promise<unknown>
+	volenetRelayConnect?: (
+		peerId: string,
+		note: string | undefined,
+		agentId?: string,
+	) => Promise<unknown>
+	volenetRelayApprove?: (peerId: string, agentId?: string) => Promise<unknown>
+	volenetRelayDeny?: (peerId: string, agentId?: string) => Promise<unknown>
+	volenetRelayRevoke?: (peerId: string, agentId?: string) => Promise<unknown>
 	getPanelHtml?: (agentId: string, paw: string) => Promise<unknown>
 	/** Tools with real JSON-schema parameters for the MCP bridge (falls back to fetchState). */
 	listMcpTools?: (agentId?: string) => Promise<unknown>
@@ -370,6 +380,32 @@ export function createDashboardServer(
 				case 'volenet_chat_clear': {
 					const p = cmd.params as { peerId: string }
 					respond(await callbacks.volenetChatClear?.(p?.peerId, sel()))
+					break
+				}
+				case 'volenet_relay_members':
+					respond(await callbacks.volenetRelayMembers?.(sel()))
+					break
+				case 'volenet_relay_requests':
+					respond(await callbacks.volenetRelayRequests?.(sel()))
+					break
+				case 'volenet_relay_connect': {
+					const p = cmd.params as { peerId: string; note?: string }
+					respond(await callbacks.volenetRelayConnect?.(p?.peerId, p?.note, sel()))
+					break
+				}
+				case 'volenet_relay_approve': {
+					const p = cmd.params as { peerId: string }
+					respond(await callbacks.volenetRelayApprove?.(p?.peerId, sel()))
+					break
+				}
+				case 'volenet_relay_deny': {
+					const p = cmd.params as { peerId: string }
+					respond(await callbacks.volenetRelayDeny?.(p?.peerId, sel()))
+					break
+				}
+				case 'volenet_relay_revoke': {
+					const p = cmd.params as { peerId: string }
+					respond(await callbacks.volenetRelayRevoke?.(p?.peerId, sel()))
 					break
 				}
 				case 'select_agent': {

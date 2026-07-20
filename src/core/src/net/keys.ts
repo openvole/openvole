@@ -397,6 +397,76 @@ export async function revokePeer(netDir: string, instanceIdOrKey: string): Promi
 }
 
 /**
+ * Relay consent store: peers whose relayed (hub-forwarded) chat this vole accepts. Distinct from
+ * authorized_voles — accepting relay contact from a peer does NOT grant it direct-connect trust
+ * (memory sync, tool sharing). Same on-disk line format so keys stay pinned to identities.
+ * Storage: .openvole/net/relay_accepts
+ */
+export async function loadRelayAccepts(
+	netDir: string,
+): Promise<
+	Map<string, { publicKey: crypto.KeyObject; name: string; pqPublicKey?: crypto.KeyObject }>
+> {
+	const acceptsPath = path.join(netDir, 'relay_accepts')
+	const accepts = new Map<
+		string,
+		{ publicKey: crypto.KeyObject; name: string; pqPublicKey?: crypto.KeyObject }
+	>()
+	try {
+		const content = await fs.readFile(acceptsPath, 'utf-8')
+		for (const line of content.split('\n')) {
+			const trimmed = line.trim()
+			if (!trimmed || trimmed.startsWith('#')) continue
+			const parsed = parsePublicKey(trimmed)
+			if (parsed) {
+				accepts.set(parsed.instanceId, {
+					publicKey: parsed.publicKey,
+					name: parsed.name,
+					pqPublicKey: parsed.pqPublicKey,
+				})
+			}
+		}
+	} catch {
+		// No relay_accepts file — nothing accepted yet
+	}
+	return accepts
+}
+
+/** Record consent to receive relayed contact from a peer (append its pinned key line). */
+export async function addRelayAccept(netDir: string, publicKeyString: string): Promise<string> {
+	const parsed = parsePublicKey(publicKeyString)
+	if (!parsed) throw new Error('Invalid public key format. Expected: vole-ed25519 <base64> <name>')
+	const acceptsPath = path.join(netDir, 'relay_accepts')
+	const existing = await loadRelayAccepts(netDir)
+	if (existing.has(parsed.instanceId)) return parsed.instanceId
+	await fs.appendFile(acceptsPath, publicKeyString.trim() + '\n', 'utf-8')
+	logger.info(`Accepted relay contact: ${parsed.name} (${parsed.instanceId.substring(0, 8)})`)
+	return parsed.instanceId
+}
+
+/** Withdraw relay consent for a peer (remove its line from relay_accepts). */
+export async function removeRelayAccept(netDir: string, instanceIdOrKey: string): Promise<boolean> {
+	const acceptsPath = path.join(netDir, 'relay_accepts')
+	try {
+		const content = await fs.readFile(acceptsPath, 'utf-8')
+		const lines = content.split('\n')
+		const filtered = lines.filter((line) => {
+			const trimmed = line.trim()
+			if (!trimmed || trimmed.startsWith('#')) return true
+			const parsed = parsePublicKey(trimmed)
+			if (!parsed) return true
+			return parsed.instanceId !== instanceIdOrKey && !trimmed.includes(instanceIdOrKey)
+		})
+		if (filtered.length === lines.length) return false
+		await fs.writeFile(acceptsPath, filtered.join('\n'), 'utf-8')
+		logger.info(`Withdrew relay consent: ${instanceIdOrKey.substring(0, 8)}`)
+		return true
+	} catch {
+		return false
+	}
+}
+
+/**
  * Generate a random nonce for challenge-response auth.
  */
 export function generateNonce(): string {
