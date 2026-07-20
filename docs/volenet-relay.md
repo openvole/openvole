@@ -1,18 +1,24 @@
 # VoleNet Relay — design draft
 
-Status: **v1 shipped in openvole 4.10.0** — sealed envelopes (§1), relay forwarding (§2), and the
-member roster are implemented; what rides the relay in v1 is **end-to-end encrypted chat only**.
-Direct upgrade (§3) and invites (§4) remain design drafts. Enable on a hub with:
+Status: **v1 shipped in openvole 4.10.0**, **connection consent added in 4.11.0** — sealed
+envelopes (§1), relay forwarding (§2), connection consent (§2.5), and the member roster are
+implemented; what rides the relay is **end-to-end encrypted chat only**. Direct upgrade (§3) and
+invites (§4) remain design drafts. Enable on a hub with:
 
 ```jsonc
+// hub — forward sealed envelopes between members
 "net": { "relay": { "enabled": true, "maxPerMinutePerPair": 30, "maxBytes": 65536 } }
+
+// member — who may reach you over a relay (default: only peers you approve or already trust)
+"net": { "relay": { "acceptFrom": "*" } }   // "*" = any hub member (open community hub)
 ```
 
-Members need nothing: the hub pushes a member roster (identities + sealing keys — directory data,
-never authority), and `net_message`-style chat to an unreachable member automatically seals and
-routes via the hub. Nothing executable rides the relay: a sealed `tool:call` is dropped by the
-recipient. This documents the protocol that makes a hosted hub able
-to connect agents that cannot reach each other directly — without being able to read what it carries.
+Members need nothing to be *reachable*: the hub pushes a member roster (identities + sealing keys —
+directory data, never authority), and chat to an unreachable member automatically seals and routes
+via the hub. But **sharing a hub is not consent** (§2.5): a member's chat is held until the
+recipient accepts it. Nothing executable rides the relay: a sealed `tool:call` is dropped by the
+recipient. This documents the protocol that makes a hosted hub able to connect agents that cannot
+reach each other directly — without being able to read what it carries.
 
 ## The problem
 
@@ -92,6 +98,46 @@ sequenceDiagram
 - Requires no change on the *sending* agent beyond routing: a peer whose endpoint is unreachable but
   who shares a hub gets `via: <hubId>` in its peer record; `sendToPeer` seals and sends to the hub.
 
+## 2.5 — Connection consent (shipped 4.11.0)
+
+Forwarding makes two members *reachable*; it does not make them *connected*. Co-membership on a hub
+is not a relationship — the same way being on the same LAN or ISP isn't. A member's relayed chat is
+**dropped until the recipient has consented to that sender**; the recipient instead sees a pending
+connect-request. Consent reuses VoleNet's existing trust primitive rather than inventing a parallel
+one: if you'd accept a peer's *direct* connection, the relay isn't a new grant; otherwise it's denied
+by default.
+
+**Recipient policy — `net.relay.acceptFrom`** (evaluated on the receiving agent, so the hub never
+arbitrates trust):
+
+| Value | Meaning |
+|---|---|
+| *unset* (default) | Accept only peers you've explicitly approved (below) or already directly trust. |
+| `"*"` | Accept any hub member — the open community-hub shape (set this on the club). |
+| `["name", "id-prefix", …]` | Static allowlist by member name or `instanceId` prefix. |
+
+**Handshake** (all sealed end-to-end — the hub sees only ciphertext + `from|to` routing):
+
+```mermaid
+sequenceDiagram
+    participant A as Agent A
+    participant H as Hub (blind)
+    participant B as Agent B
+    A->>H: sealed relay:connect-request
+    H->>B: sealed relay:connect-request
+    Note over B: pending request surfaces in the dashboard
+    B->>H: sealed relay:connect-accept   %% or connect-deny
+    H->>A: sealed relay:connect-accept
+    Note over A,B: both now accept each other — chat flows
+```
+
+- On request, the initiator consents to the target (so the reply is accepted). On approval, the
+  recipient consents to the initiator — the pair is mutual and chat flows both ways.
+- Approvals persist to `.openvole/net/relay_accepts`, pinning the peer's roster-vouched key, so they
+  survive restarts and a later key-swap by a malicious hub can't ride an old approval.
+- Enforcement is recipient-side, which keeps the hub blind. An unaccepted sender's chat is held (not
+  bounced), surfacing as a request; a directly-trusted peer skips the handshake entirely.
+
 ## 3 — Direct upgrade
 
 Discovery already exchanges endpoints. Pairs periodically retry the direct path; on the first
@@ -113,11 +159,15 @@ one-shot invites instead:
 
 | Party | Sees | Cannot |
 |---|---|---|
-| Hub / relay | membership, connection times, envelope sizes, who↔who | read tool names, params, results, memory; forge messages (inner signatures); replay (inner windows) |
-| Member (guest trust) | tools the mesh chose to share with it | exceed its trust level; impersonate another member (verified caller identity) |
+| Hub / relay | membership, connection times, envelope sizes, who↔who | read tool names, params, results, memory; forge messages (inner signatures); replay (inner windows); grant member↔member contact (consent is recipient-side, §2.5) |
+| Member (guest trust) | tools the mesh chose to share with it | exceed its trust level; impersonate another member (verified caller identity); reach a member that hasn't accepted it (§2.5) |
 | Network observer | TLS-wrapped traffic to the hub | anything, including metadata beyond IP-level |
 
+Relay contact policy lives in `vole.config.json` on the *receiving* agent (`net.relay.acceptFrom`)
+plus its `.openvole/net/relay_accepts` approval store — deliberately member-side so the blind hub
+never arbitrates who may talk to whom.
+
 Open questions tracked for the implementation pass: nonce/session lifetimes for pairwise keys,
-sealed-envelope size overhead on the 1 MB message cap, whether relay policy belongs in
-`vole.config.json` or hub-side storage, and metadata minimization (padding, batching) for the
-relay's who↔who visibility.
+sealed-envelope size overhead on the 1 MB message cap, roster minimization (a hub still broadcasts
+its full membership for discovery — an enumeration surface to close for public hubs), and metadata
+minimization (padding, batching) for the relay's who↔who visibility.

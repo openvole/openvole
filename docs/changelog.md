@@ -1,5 +1,30 @@
 # Changelog
 
+## v4.11.0 (2026-07-21)
+
+> Ships as `openvole` 4.11.0 and `@openvole/dashboard-server` 0.8.0. Theme: **relay consent** — sharing a hub is not consent, plus two fixes that made relay members look offline.
+
+### VoleNet relay — connection consent
+
+Sharing a relay hub no longer means two agents can reach each other. A member's relayed chat is now **held until the recipient accepts it** — surfaced as a pending connect-request, not delivered. The relay moves bytes between peers that consent to each other; it never manufactures trust from co-membership.
+
+- **`net.relay.acceptFrom`** (member-side policy): who may reach you over a relay.
+  - *unset* (default) — only peers you've explicitly approved or already directly trust (secure default).
+  - `"*"` — any hub member (the open community-hub shape; set this on the club and similar).
+  - `["name", "id-prefix", …]` — a static allowlist by name or instanceId prefix.
+- **Connect handshake:** A sends a sealed `relay:connect-request` → B approves or denies → on approval both accept each other and chat flows. Approvals persist to `.openvole/net/relay_accepts` (survive restarts) and pin the peer's key. A directly-trusted peer is exempt — you'd already accept its direct connection.
+- **Dashboard:** the VoleNet tab shows incoming requests with **Approve/Deny**, marks relay members `relay` / `awaiting` / `connect`, and gates the chat box — an unaccepted member shows a **Send connection request** prompt instead of a composer. `net.relay.acceptFrom` is editable in the Config tab.
+- The hub stays **blind** throughout: connect-requests, approvals, and chat are all sealed end-to-end; the hub sees only ciphertext and routing.
+
+**Behavior change:** members on a shared/community hub that relied on open member-to-member chat must set `net.relay.acceptFrom: "*"` (or complete the handshake). This is the secure default the relay should have shipped with.
+
+### Fixed
+
+- **NAT'd relay members were stuck `connected: false` and unreachable.** A member behind NAT advertises its LAN address, which the hub can't reach. When a roster push briefly missed the member's live WebSocket, `sendToPeer` fell back to an HTTP POST at that unreachable address, failed, and **latched `connected = false` — with nothing ever setting it true again.** The member then looked offline forever and the relay refused to forward to it, even though its socket was working. `connected` is now owned purely by the WebSocket bind/close lifecycle: a successful push heals it, a failed best-effort fallback never latches it false.
+- **Relay members never appeared in the VoleNet tab under `vole serve`.** The `volenet_relay_members` command was handled by the agent adapter but never wired through the control plane, so it fell through to "Unknown command" and the UI silently showed nothing. Now wired (along with the new consent commands).
+
+**Upgrading a running `vole serve`:** restart the server after upgrading (Node caches the dashboard module at startup) and hard-refresh the browser. **Relay hubs (e.g. the club) must upgrade** to get the connected-latch fix — it is hub-side.
+
 ## v4.10.3 (2026-07-20)
 
 > Ships as `openvole` 4.10.3 and `@openvole/dashboard-server` 0.7.8. Completes the 4.10.2 config-isolation fix.
