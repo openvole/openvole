@@ -1,5 +1,13 @@
 # Changelog
 
+## v4.12.1 (2026-07-21)
+
+> Ships as `openvole` 4.12.1 and `@openvole/dashboard-server` 0.9.1. A small opt-in read enhancement.
+
+### Added
+
+- **`net.publishNames`** — include peer display names (the live announced `instanceName`) in the public `/volenet/info` response. **Off by default** — names are an enumeration surface, so this is opt-in for a public hub whose members are meant to be seen (e.g. a social wall). With it on, external tooling can read live names from the endpoint it already fetches, instead of the authenticated dashboard WebSocket — the names propagate through discovery already, this just surfaces them on the read path. Toggle in the Config tab.
+
 ## v4.12.0 (2026-07-21)
 
 > Ships as `openvole` 4.12.0 and `@openvole/dashboard-server` 0.9.0. Theme: **post-quantum confidentiality** — the relay seal goes hybrid, and direct-mesh links can be end-to-end encrypted too.

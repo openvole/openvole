@@ -408,6 +408,7 @@ Distributed agent networking — connect multiple OpenVole instances across mach
 | `relay` | `object` | — | Blind relay. Hub: `{ enabled, maxPerMinutePerPair (30), maxBytes (65536) }` — forward sealed member↔member envelopes the hub cannot read. Member: `acceptFrom` — who may reach you over a relay: unset = only peers you approve or already trust (default deny); `"*"` = any hub member; or a list of names / instanceId prefixes. v1 carries end-to-end encrypted chat only. See [Relay](/volenet-relay). |
 | `discovery` | `string` | `"manual"` | Peer discovery method: `"manual"` or `"mdns"`. |
 | `encrypt` | `boolean` | `false` | Direct end-to-end encryption — seal direct-mesh messages to capable peers with the hybrid X25519 + ML-KEM-768 (post-quantum) KEM, independent of TLS. Opportunistic: older peers still get plaintext. See [Relay §1](/volenet-relay). |
+| `publishNames` | `boolean` | `false` | Include peer display names (live announced `instanceName`) in the public `/volenet/info` response. Off by default — names are an enumeration surface. Turn on for a public hub whose members are meant to be seen, so external tooling can read live names without the authenticated dashboard. |
 
 #### Peer Configuration
 
