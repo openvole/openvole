@@ -39,6 +39,9 @@ export type VoleNetMessageType =
 	| 'leader:ack'
 	| 'chat:message'
 	| 'sealed'
+	// Direct end-to-end encryption: any post-handshake message to a capable peer is wrapped in a
+	// sealed:direct envelope and unwrapped on receipt, transparent to every other handler.
+	| 'sealed:direct'
 	| 'relay:deliver'
 	| 'relay:error'
 	| 'roster'
@@ -73,6 +76,8 @@ export interface VoleNetInstance {
 	version: string
 	/** X25519 public key (base64 SPKI) for sealed envelopes, when the peer announces one. */
 	xPublicKey?: string
+	/** ML-KEM-768 public key (base64 SPKI) — the post-quantum half of the hybrid seal. */
+	mlkemPublicKey?: string
 }
 
 export interface RemoteToolInfo {

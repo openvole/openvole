@@ -68,6 +68,8 @@ export class VoleNetTransport {
 	private wss: WebSocketServer | null = null
 	private peers = new Map<string, PeerConnection>()
 	private messageHandlers: MessageHandler[] = []
+	/** Optional outbound transform — wraps a message in a sealed:direct envelope before sending. */
+	private sealer: ((peerId: string, message: VoleNetMessage) => VoleNetMessage) | null = null
 	private joinHandler: JoinHandler | null = null
 	private msgWindow = new Map<string, number[]>()
 	private wsConnSeq = 0
@@ -479,6 +481,23 @@ export class VoleNetTransport {
 		this.messageHandlers.push(handler)
 	}
 
+	/** Install the outbound seal transform (direct end-to-end encryption). */
+	setSealer(fn: (peerId: string, message: VoleNetMessage) => VoleNetMessage): void {
+		this.sealer = fn
+	}
+
+	/**
+	 * Feed a message into the normal receive pipeline as if it arrived over the wire. Used to
+	 * re-dispatch the inner message recovered from a sealed:direct envelope, so every handler
+	 * (tool calls, sync, chat) processes it — with full signature/replay/authorization checks —
+	 * exactly as an unencrypted direct message.
+	 */
+	injectMessage(message: VoleNetMessage): boolean {
+		if (!this.verifyAndAccept(message)) return false
+		for (const handler of this.messageHandlers) handler(message, message.from)
+		return true
+	}
+
 	/**
 	 * Send a message to a peer.
 	 * Prefers WebSocket (instant, bidirectional), falls back to HTTP POST.
@@ -490,10 +509,14 @@ export class VoleNetTransport {
 			return false
 		}
 
+		// Direct-seal hook: the manager may wrap this into a sealed:direct envelope (transparent
+		// end-to-end encryption to a capable peer). Relay/bootstrap types pass through unchanged.
+		const outbound = this.sealer ? this.sealer(peerId, message) : message
+
 		// Try WebSocket first
 		if (peer.ws && peer.ws.readyState === WebSocket.OPEN) {
 			try {
-				peer.ws.send(serialize(message))
+				peer.ws.send(serialize(outbound))
 				peer.lastSeen = Date.now()
 				// A successful push proves the channel is live — heal `connected` in case a prior
 				// HTTP-fallback failure (e.g. to a NAT'd peer's unreachable advertised endpoint)
@@ -511,7 +534,7 @@ export class VoleNetTransport {
 			const response = await fetch(`${peer.endpoint}/volenet/message`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: serialize(message),
+				body: serialize(outbound),
 				// Short fallback: when there's no live socket (e.g. a NAT'd peer mid-reconnect),
 				// fail fast instead of hanging — the WS is the real delivery path.
 				signal: AbortSignal.timeout(5000),

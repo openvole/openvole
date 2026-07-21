@@ -13,6 +13,7 @@ import * as crypto from 'node:crypto'
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 import { createLogger } from '../core/logger.js'
+import { generateMlKemKeyPair } from './seal.js'
 
 const logger = createLogger('volenet-keys')
 
@@ -29,6 +30,11 @@ export interface VoleKeyPair {
 	xPrivateKey?: crypto.KeyObject
 	/** Base64 SPKI of xPublicKey — announced to peers via discovery. */
 	xPublicKeyB64?: string
+	/** ML-KEM-768 keys — the post-quantum half of the hybrid seal (OpenSSL 3.5+ / Node 24+). */
+	mlkemPublicKey?: crypto.KeyObject
+	mlkemPrivateKey?: crypto.KeyObject
+	/** Base64 SPKI of mlkemPublicKey — announced to peers via discovery alongside xPublicKeyB64. */
+	mlkemPublicKeyB64?: string
 }
 
 /** Generate an ML-DSA-65 keypair if the runtime supports it, else null. */
@@ -107,6 +113,21 @@ export async function generateKeyPair(netDir: string, instanceName: string): Pro
 	)
 	await fs.writeFile(path.join(netDir, 'vole_key.x25519.pub'), `${xPublicKeyB64}\n`, 'utf-8')
 
+	// ML-KEM-768 encapsulation pair — the post-quantum half of the hybrid seal (best effort).
+	const mlkem = generateMlKemKeyPair()
+	let mlkemPublicKeyB64: string | undefined
+	if (mlkem) {
+		await fs.writeFile(
+			path.join(netDir, 'vole_key.mlkem'),
+			mlkem.privateKey.export({ type: 'pkcs8', format: 'pem' }) as string,
+			{ mode: 0o600 },
+		)
+		mlkemPublicKeyB64 = Buffer.from(
+			mlkem.publicKey.export({ type: 'spki', format: 'der' }),
+		).toString('base64')
+		await fs.writeFile(path.join(netDir, 'vole_key.mlkem.pub'), `${mlkemPublicKeyB64}\n`, 'utf-8')
+	}
+
 	const instanceId = deriveInstanceId(publicB64)
 	logger.info(
 		`Generated keypair — instance ID: ${instanceId}${pq ? ' (hybrid Ed25519 + ML-DSA)' : ' (Ed25519)'}`,
@@ -122,6 +143,9 @@ export async function generateKeyPair(netDir: string, instanceName: string): Pro
 		xPublicKey: x.publicKey,
 		xPrivateKey: x.privateKey,
 		xPublicKeyB64,
+		mlkemPublicKey: mlkem?.publicKey,
+		mlkemPrivateKey: mlkem?.privateKey,
+		mlkemPublicKeyB64,
 	}
 }
 
@@ -203,6 +227,35 @@ export async function loadKeyPair(netDir: string): Promise<VoleKeyPair | null> {
 		)
 		await fs.writeFile(path.join(netDir, 'vole_key.x25519.pub'), `${xPublicKeyB64}\n`, 'utf-8')
 
+		// ML-KEM-768 encapsulation key — load, or auto-upgrade older keypairs by generating one
+		// (best effort; a runtime without ML-KEM leaves these undefined and the seal stays X25519).
+		let mlkemPrivateKey: crypto.KeyObject | undefined
+		let mlkemPublicKey: crypto.KeyObject | undefined
+		let mlkemPublicKeyB64: string | undefined
+		try {
+			const mlkemPem = await fs.readFile(path.join(netDir, 'vole_key.mlkem'), 'utf-8')
+			mlkemPrivateKey = crypto.createPrivateKey(mlkemPem)
+			mlkemPublicKey = crypto.createPublicKey(mlkemPrivateKey)
+		} catch {
+			const mlkem = generateMlKemKeyPair()
+			if (mlkem) {
+				mlkemPrivateKey = mlkem.privateKey
+				mlkemPublicKey = mlkem.publicKey
+				await fs.writeFile(
+					path.join(netDir, 'vole_key.mlkem'),
+					mlkem.privateKey.export({ type: 'pkcs8', format: 'pem' }) as string,
+					{ mode: 0o600 },
+				)
+				logger.info('Upgraded keypair with an ML-KEM-768 (post-quantum seal) key')
+			}
+		}
+		if (mlkemPublicKey) {
+			mlkemPublicKeyB64 = Buffer.from(
+				mlkemPublicKey.export({ type: 'spki', format: 'der' }),
+			).toString('base64')
+			await fs.writeFile(path.join(netDir, 'vole_key.mlkem.pub'), `${mlkemPublicKeyB64}\n`, 'utf-8')
+		}
+
 		return {
 			publicKey,
 			privateKey,
@@ -213,6 +266,9 @@ export async function loadKeyPair(netDir: string): Promise<VoleKeyPair | null> {
 			xPublicKey,
 			xPrivateKey,
 			xPublicKeyB64,
+			mlkemPublicKey,
+			mlkemPrivateKey,
+			mlkemPublicKeyB64,
 		}
 	} catch (err) {
 		if ((err as NodeJS.ErrnoException).code === 'ENOENT') {

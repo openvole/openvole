@@ -37,6 +37,30 @@ import { type TransportConfig, VoleNetTransport } from './transport.js'
 
 const logger = createLogger('volenet')
 
+/**
+ * Message types NEVER wrapped in a sealed:direct envelope: the handshake/transport types that must
+ * be readable to bootstrap encryption (they carry no secrets — public keys, endpoints, liveness),
+ * the seal envelopes themselves, the relay envelopes (already end-to-end sealed to a third party),
+ * and high-frequency leader election (not confidential). Everything else is sealed when enabled.
+ */
+const PLAINTEXT_DIRECT_TYPES = new Set<VoleNetMessageType>([
+	'discover',
+	'discover:response',
+	'ping',
+	'pong',
+	'auth:challenge',
+	'auth:response',
+	'auth:result',
+	'sealed',
+	'sealed:direct',
+	'relay:deliver',
+	'relay:error',
+	'roster',
+	'leader:heartbeat',
+	'leader:claim',
+	'leader:ack',
+])
+
 const DEFAULT_CHAT_MAX_MESSAGES = 1000
 const DEFAULT_CHAT_MAX_AGE_DAYS = 90
 const CHAT_PRUNE_INTERVAL_MS = 6 * 60 * 60_000 // prune stale chat sessions every 6h
@@ -200,6 +224,13 @@ export interface VoleNetConfig {
 		 */
 		acceptFrom?: '*' | string[]
 	}
+	/**
+	 * Direct end-to-end encryption. When true, post-handshake messages to a peer that supports it
+	 * (announces an ML-KEM key) are sealed with the hybrid X25519 + ML-KEM-768 KEM before sending —
+	 * confidentiality independent of TLS, and post-quantum. Opportunistic: peers that don't support
+	 * it (older versions) still receive plaintext, so a mixed-version mesh keeps working. Default off.
+	 */
+	encrypt?: boolean
 }
 
 /** A hub-vouched mesh member, learned from a relay hub's roster broadcast. */
@@ -208,6 +239,7 @@ export interface RosterMember {
 	name: string
 	publicKey: string
 	xPublicKey?: string
+	mlkemPublicKey?: string
 	connected: boolean
 }
 
@@ -332,6 +364,7 @@ export class VoleNetManager {
 			publicKeyString: this.keyPair.publicKeyString,
 			configuredPeerUrls: (this.config.peers ?? []).map((p) => p.url),
 			xPublicKeyB64: this.keyPair.xPublicKeyB64,
+			mlkemPublicKeyB64: this.keyPair.mlkemPublicKeyB64,
 		}
 		this.discovery = new VoleNetDiscovery(this.transport, discoveryConfig)
 		await this.discovery.start()
@@ -879,6 +912,35 @@ export class VoleNetManager {
 			)
 		}
 
+		// ── Direct end-to-end encryption (opt-in) ────────────────────────────────
+		// Outbound: seal post-handshake messages to capable peers into sealed:direct envelopes.
+		this.transport.setSealer((peerId, msg) => this.maybeSealDirect(peerId, msg))
+		// Inbound: unwrap a sealed:direct envelope and re-inject the inner message so every handler
+		// (tool calls, sync, chat) processes it with full verification — transparent decryption.
+		this.transport.onMessage((message) => {
+			if (message.type !== 'sealed:direct' || !this.keyPair?.xPrivateKey || !this.transport) return
+			if (!this.discovery?.verifyMessageFrom(message)) return // outer envelope must be signed
+			const payload = message.payload as { box?: SealedBox }
+			if (!payload?.box) return
+			const aad = `${message.from}|${this.keyPair.instanceId}`
+			const plain = unseal(this.keyPair.xPrivateKey, payload.box, aad, this.keyPair.mlkemPrivateKey)
+			if (!plain) {
+				logger.warn(`sealed:direct from ${message.from.substring(0, 8)} failed to unseal`)
+				return
+			}
+			let inner: VoleNetMessage
+			try {
+				inner = JSON.parse(plain.toString('utf8')) as VoleNetMessage
+			} catch {
+				return
+			}
+			// The envelope's sender must be the inner author — no wrapping another identity's message.
+			if (inner.from !== message.from) return
+			this.transport.injectMessage(inner)
+		})
+		if (this.config.encrypt)
+			logger.info('Direct encryption enabled — hybrid X25519 + ML-KEM-768 seal')
+
 		// Initialize remote task manager
 		this.remoteTaskMgr = new RemoteTaskManager(
 			this.transport,
@@ -1190,6 +1252,7 @@ export class VoleNetManager {
 				member.xPublicKey,
 				Buffer.from(JSON.stringify(inner), 'utf8'),
 				`${this.keyPair.instanceId}|${member.instanceId}`,
+				member.mlkemPublicKey,
 			)
 			if (!box) return { ok: false, error: 'Failed to seal envelope' }
 			const outer = createMessage(
@@ -1224,6 +1287,36 @@ export class VoleNetManager {
 			relayed: true,
 		})
 		return { ok: true, delivered: r.delivered, relayed: true }
+	}
+
+	/**
+	 * Outbound direct-seal transform. Wraps a message in a sealed:direct envelope when encryption is
+	 * enabled and the target peer supports it (announces an ML-KEM key ⟹ 4.12.0+, can unwrap). The
+	 * inner message is already signed; the recipient recovers and re-verifies it. Handshake, relay,
+	 * and leader types pass through untouched. Never throws — falls back to plaintext on any issue.
+	 */
+	private maybeSealDirect(peerId: string, message: VoleNetMessage): VoleNetMessage {
+		if (!this.config.encrypt || !this.keyPair?.privateKey) return message
+		if (PLAINTEXT_DIRECT_TYPES.has(message.type)) return message
+		const peer = this.discovery?.getInstances().find((i) => i.id === peerId)
+		// Seal only to a peer that announced BOTH agreement keys (the post-quantum-capable path).
+		if (!peer?.xPublicKey || !peer.mlkemPublicKey) return message
+		const aad = `${this.keyPair.instanceId}|${peerId}`
+		const box = seal(
+			peer.xPublicKey,
+			Buffer.from(JSON.stringify(message), 'utf8'),
+			aad,
+			peer.mlkemPublicKey,
+		)
+		if (!box) return message
+		return createMessage(
+			'sealed:direct',
+			this.keyPair.instanceId,
+			peerId,
+			{ box },
+			this.keyPair.privateKey,
+			this.keyPair.pqPrivateKey,
+		)
 	}
 
 	/** Resolve a relay-member ref (id / name / id-prefix) against every hub roster. */
@@ -1320,7 +1413,12 @@ export class VoleNetManager {
 		bus?: import('../core/bus.js').MessageBus,
 	): void {
 		if (!this.keyPair?.xPrivateKey) return
-		const plain = unseal(this.keyPair.xPrivateKey, box, `${fromId}|${this.keyPair.instanceId}`)
+		const plain = unseal(
+			this.keyPair.xPrivateKey,
+			box,
+			`${fromId}|${this.keyPair.instanceId}`,
+			this.keyPair.mlkemPrivateKey,
+		)
 		if (!plain) {
 			logger.warn(`Sealed envelope from ${fromId.substring(0, 8)} failed to unseal`)
 			return
@@ -1484,6 +1582,7 @@ export class VoleNetManager {
 			name: i.name,
 			publicKey: i.publicKey,
 			xPublicKey: i.xPublicKey,
+			mlkemPublicKey: i.mlkemPublicKey,
 			connected: connected.has(i.id),
 		}))
 		for (const id of connected) {

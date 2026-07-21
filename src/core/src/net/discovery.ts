@@ -34,6 +34,8 @@ export interface DiscoveryConfig {
 	configuredPeerUrls?: string[]
 	/** Our X25519 public key (base64 SPKI), announced so peers can seal envelopes to us. */
 	xPublicKeyB64?: string
+	/** Our ML-KEM-768 public key (base64 SPKI), announced for post-quantum hybrid seals. */
+	mlkemPublicKeyB64?: string
 }
 
 /**
@@ -149,6 +151,7 @@ export class VoleNetDiscovery {
 				role: this.config.role,
 				version: '3.0.0',
 				xPublicKey: this.config.xPublicKeyB64,
+				mlkemPublicKey: this.config.mlkemPublicKeyB64,
 			} satisfies Partial<VoleNetInstance>,
 			this.config.privateKey,
 			this.config.pqPrivateKey,
@@ -249,6 +252,7 @@ export class VoleNetDiscovery {
 				role: this.config.role,
 				version: '3.0.0',
 				xPublicKey: this.config.xPublicKeyB64,
+				mlkemPublicKey: this.config.mlkemPublicKeyB64,
 			},
 			this.config.privateKey,
 			this.config.pqPrivateKey,
@@ -305,6 +309,7 @@ export class VoleNetDiscovery {
 			lastSeen: Date.now(),
 			version: info.version ?? 'unknown',
 			xPublicKey: info.xPublicKey,
+			mlkemPublicKey: info.mlkemPublicKey,
 		}
 
 		this.instances.set(parsed.instanceId, instance)
@@ -333,6 +338,7 @@ export class VoleNetDiscovery {
 				role: this.config.role,
 				version: '3.0.0',
 				xPublicKey: this.config.xPublicKeyB64,
+				mlkemPublicKey: this.config.mlkemPublicKeyB64,
 			},
 			this.config.privateKey,
 			this.config.pqPrivateKey,
@@ -393,6 +399,7 @@ export class VoleNetDiscovery {
 			lastSeen: Date.now(),
 			version: info.version ?? 'unknown',
 			xPublicKey: info.xPublicKey,
+			mlkemPublicKey: info.mlkemPublicKey,
 		}
 
 		this.instances.set(parsed.instanceId, instance)
