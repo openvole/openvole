@@ -1,9 +1,10 @@
 # VoleNet Relay — design draft
 
-Status: **v1 shipped in openvole 4.10.0**, **connection consent added in 4.11.0** — sealed
-envelopes (§1), relay forwarding (§2), connection consent (§2.5), and the member roster are
-implemented; what rides the relay is **end-to-end encrypted chat only**. Direct upgrade (§3) and
-invites (§4) remain design drafts. Enable on a hub with:
+Status: **v1 shipped in openvole 4.10.0**, **connection consent added in 4.11.0**, **post-quantum
+hybrid seal + direct-mesh encryption added in 4.12.0** — sealed envelopes (§1), relay forwarding
+(§2), connection consent (§2.5), and the member roster are implemented; what rides the relay is
+**end-to-end encrypted chat only**. Direct upgrade (§3) and invites (§4) remain design drafts.
+Enable on a hub with:
 
 ```jsonc
 // hub — forward sealed envelopes between members
@@ -41,37 +42,44 @@ if the relay cannot read what it relays.
 4. **Zero joiner ceremony.** Members join a hub once (`vole net join`); relay reachability falls out
    of the connection they already hold.
 
-## 1 — Sealed envelopes (end-to-end encryption)
+## 1 — Sealed envelopes (post-quantum hybrid, relay + direct)
 
-Direct VoleNet messages are **signed but not encrypted** — TLS protects each hop, then the
-receiving host sees plaintext. Sealing fixes that for the relay path (shipped, 4.10.0); sealing
-every *direct* link too remains the follow-up:
+Direct VoleNet messages are **signed** — TLS optionally protects each hop, then the receiving host
+sees plaintext. Sealing adds application-layer confidentiality that doesn't depend on TLS: the relay
+path is always sealed (shipped 4.10.0), and every *direct* link can be too (`net.encrypt: true`,
+shipped 4.12.0).
 
-- Each instance generates an **X25519 key agreement keypair** alongside its Ed25519 identity. The
-  public half is announced in the trust string / discovery payload, **signed by the Ed25519 identity**
-  (same pattern the ML-DSA key upgrade uses today), so it inherits the existing trust bootstrap.
-- Sender generates an **ephemeral X25519 key per envelope**, derives a one-time key
-  (ECDH → HKDF-SHA256), and encrypts the full VoleNet message with **ChaCha20-Poly1305**,
-  the AAD binding the envelope to its `from|to` routing:
+- Each instance generates an **X25519 key-agreement keypair** and an **ML-KEM-768** encapsulation
+  keypair alongside its Ed25519 identity. Both public halves are announced in the discovery payload,
+  **signed by the Ed25519 identity** (same pattern the ML-DSA upgrade uses), so they inherit the
+  existing trust bootstrap; existing keypairs auto-upgrade on load.
+- The seal is a **hybrid KEM**: a fresh **ephemeral X25519** ECDH shared secret is concatenated with
+  an **ML-KEM-768** encapsulated shared secret, HKDF-SHA256 derives the key, and **ChaCha20-Poly1305**
+  encrypts the full VoleNet message — the AAD binding the envelope to its `from|to` routing:
 
 ```jsonc
 {
-  "type": "sealed",                    // an ordinary signed VoleNet message wrapping:
+  "type": "sealed",                    // (relay) or "sealed:direct" (direct) — a signed message wrapping:
   "payload": {
-    "to": "<recipient instanceId>",    // routing — the only field the relay needs
-    "box": { "epk": "<ephemeral X25519 pub>", "n": "<nonce>", "c": "<ciphertext ‖ tag>" }
+    "to": "<recipient instanceId>",    // routing — relay only; sealed:direct is addressed by transport
+    "box": {
+      "epk": "<ephemeral X25519 pub>",
+      "kem": "<ML-KEM-768 ciphertext>",  // omitted when the peer has no PQ key (X25519-only fallback)
+      "n": "<nonce>", "c": "<ciphertext ‖ tag>"
+    }
   }
 }
 ```
 
+- Confidentiality holds unless **both** the classical (X25519) and post-quantum (ML-KEM) KEMs are
+  broken — defeating harvest-now-decrypt-later. The scheme is bound into the KDF, so stripping the
+  KEM ciphertext yields a wrong key and fails the tag; a downgrade can drop a message, never weaken it.
 - The recipient decrypts, then verifies the inner message exactly as if it had arrived directly:
   signature, replay window, authorization, trust level. **Sealing wraps the existing protocol; it
-  does not replace any of its checks.**
-- Post-quantum: pair X25519 with **ML-KEM-768** (hybrid KEM) the same zero-touch way Ed25519 was
-  paired with ML-DSA-65 — announced, signed, auto-upgraded on reconnect.
-
-Sealing is worth shipping even without a relay: it upgrades every direct VoleNet link from
-signed-plaintext to signed-and-encrypted, closing the documented eavesdropping caveat.
+  does not replace any of its checks.** For `sealed:direct`, the recovered inner message is re-injected
+  into the normal receive pipeline, so all message types (tool calls, sync, chat) ride it transparently.
+- **Opportunistic**: a peer that announces no ML-KEM key (older version) receives an X25519-only seal
+  or plaintext, so a mixed-version mesh keeps working. Direct encryption is opt-in per node.
 
 ## 2 — Relay forwarding
 
@@ -161,13 +169,16 @@ one-shot invites instead:
 |---|---|---|
 | Hub / relay | membership, connection times, envelope sizes, who↔who | read tool names, params, results, memory; forge messages (inner signatures); replay (inner windows); grant member↔member contact (consent is recipient-side, §2.5) |
 | Member (guest trust) | tools the mesh chose to share with it | exceed its trust level; impersonate another member (verified caller identity); reach a member that hasn't accepted it (§2.5) |
-| Network observer | TLS-wrapped traffic to the hub | anything, including metadata beyond IP-level |
+| Network observer | ciphertext (sealed traffic) or TLS-wrapped bytes; envelope sizes | read sealed content, even by recording it for a future quantum computer (hybrid X25519 + ML-KEM-768) |
 
 Relay contact policy lives in `vole.config.json` on the *receiving* agent (`net.relay.acceptFrom`)
 plus its `.openvole/net/relay_accepts` approval store — deliberately member-side so the blind hub
-never arbitrates who may talk to whom.
+never arbitrates who may talk to whom. Direct-link confidentiality is opt-in per node
+(`net.encrypt`); the relay path is always sealed.
 
-Open questions tracked for the implementation pass: nonce/session lifetimes for pairwise keys,
-sealed-envelope size overhead on the 1 MB message cap, roster minimization (a hub still broadcasts
-its full membership for discovery — an enumeration surface to close for public hubs), and metadata
-minimization (padding, batching) for the relay's who↔who visibility.
+Open questions tracked for the implementation pass: **per-message ML-KEM encapsulation is fine at
+mesh scale but wants a per-peer session key / ratchet for high-volume direct traffic** (the
+"nonce/session lifetimes for pairwise keys" item); sealed-envelope size overhead (a hybrid box adds
+~1.5 KB) on the 1 MB message cap; roster minimization (a hub still broadcasts its full membership for
+discovery — an enumeration surface to close for public hubs); and metadata minimization (padding,
+batching) for the relay's who↔who visibility.

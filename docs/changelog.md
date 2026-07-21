@@ -1,5 +1,30 @@
 # Changelog
 
+## v4.12.0 (2026-07-21)
+
+> Ships as `openvole` 4.12.0 and `@openvole/dashboard-server` 0.9.0. Theme: **post-quantum confidentiality** — the relay seal goes hybrid, and direct-mesh links can be end-to-end encrypted too.
+
+### Post-quantum hybrid seal
+
+Sealed envelopes now mix an **X25519** ECDH shared secret with an **ML-KEM-768** (post-quantum) shared secret — HKDF-SHA256 over both — so confidentiality holds unless *both* the classical and the post-quantum KEM are broken. This closes the harvest-now-decrypt-later gap: ciphertext recorded today can't be read by a future quantum computer. Native (OpenSSL 3.5+ / Node 24+), no new dependency — the same best-effort pattern as the existing ML-DSA signatures.
+
+- Every instance gains an ML-KEM-768 keypair (existing keypairs auto-upgrade on load) and announces its public key via discovery, signed by its identity.
+- The **relay** seal upgrades to hybrid automatically whenever the peer announced an ML-KEM key.
+- Backward-compatible and **downgrade-resistant**: a peer without an ML-KEM key (or a runtime without ML-KEM) falls back to X25519-only, and stripping the KEM ciphertext from a hybrid envelope fails the auth tag rather than silently weakening it.
+
+### Direct-mesh end-to-end encryption
+
+`net.encrypt: true` seals **direct** peer-to-peer messages too — not just relayed ones. Confidentiality no longer depends on TLS being configured; the message is encrypted to the peer's identity key with the same hybrid KEM.
+
+- Transparent: a transport-level sealer wraps every post-handshake message in a `sealed:direct` envelope; the recipient unwraps and re-injects it through the normal pipeline, so signatures, replay windows, and authorization all still apply. Handshake, relay, and leader-election traffic stay plaintext (they bootstrap the keys / carry no secrets).
+- **Opportunistic + opt-in**: seals only to peers that support it (announce an ML-KEM key); older peers still receive plaintext, so a mixed-version mesh keeps working. Off by default; toggle in the Config tab (`net.encrypt`).
+
+### Dashboard
+
+- Config → NET form exposes `net.encrypt` (`@openvole/dashboard-server` 0.9.0).
+
+**Upgrading a running `vole serve`:** restart the server after upgrading and hard-refresh the browser. Post-quantum keys are generated on first load — no manual step. To turn on direct encryption, set `net.encrypt: true` on each agent (peers that haven't upgraded keep talking in plaintext until they do).
+
 ## v4.11.0 (2026-07-21)
 
 > Ships as `openvole` 4.11.0 and `@openvole/dashboard-server` 0.8.0. Theme: **relay consent** — sharing a hub is not consent, plus two fixes that made relay members look offline.
