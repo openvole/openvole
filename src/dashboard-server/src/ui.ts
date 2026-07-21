@@ -1349,6 +1349,11 @@ export function getDashboardHtml(wsPort: number): string {
             <div class="form-checkbox-row"><input type="checkbox" class="form-checkbox" id="cfg-net-encrypt"><label class="form-checkbox-label" for="cfg-net-encrypt">encrypt direct messages</label></div>
           </div>
           <div class="form-field">
+            <label class="form-label">net.publishNames</label>
+            <div class="form-help">Include peer display names in the public /volenet/info response. Off by default (names are an enumeration surface). Turn on for a public hub whose members are meant to be seen.</div>
+            <div class="form-checkbox-row"><input type="checkbox" class="form-checkbox" id="cfg-net-publishNames"><label class="form-checkbox-label" for="cfg-net-publishNames">publish peer names on /volenet/info</label></div>
+          </div>
+          <div class="form-field">
             <label class="form-label">net.leader</label>
             <div class="form-help">auto | &lt;instanceName&gt;</div>
             <input type="text" class="form-input" id="cfg-net-leader" placeholder="auto">
@@ -3200,6 +3205,7 @@ function populateNet(net) {
   document.getElementById('cfg-net-brainSource').value = n.brainSource || '';
   document.getElementById('cfg-net-discovery').value = n.discovery || '';
   document.getElementById('cfg-net-encrypt').checked = !!n.encrypt;
+  document.getElementById('cfg-net-publishNames').checked = !!n.publishNames;
   document.getElementById('cfg-net-leader').value = n.leader || '';
   document.getElementById('cfg-net-heartbeatMode').value = n.heartbeatMode || '';
   document.getElementById('cfg-net-brainMode').value = n.brainMode || '';
@@ -3318,6 +3324,7 @@ function readNetFromForm() {
   var discovery = document.getElementById('cfg-net-discovery').value;
   if (discovery) net.discovery = discovery;
   if (document.getElementById('cfg-net-encrypt').checked) net.encrypt = true;
+  if (document.getElementById('cfg-net-publishNames').checked) net.publishNames = true;
   var leader = document.getElementById('cfg-net-leader').value.trim();
   if (leader) net.leader = leader;
   var heartbeatMode = document.getElementById('cfg-net-heartbeatMode').value;

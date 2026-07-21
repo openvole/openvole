@@ -43,6 +43,8 @@ export interface TransportConfig {
 	authTimeoutMs?: number
 	/** Global inbound message ceiling per second across all sources (load shed). Default 5000. */
 	maxMessagesPerSecond?: number
+	/** Publish peer display names in /volenet/info (off by default — names are enumeration surface). */
+	publishNames?: boolean
 }
 
 export type MessageHandler = (message: VoleNetMessage, peerId: string) => void
@@ -70,6 +72,8 @@ export class VoleNetTransport {
 	private messageHandlers: MessageHandler[] = []
 	/** Optional outbound transform — wraps a message in a sealed:direct envelope before sending. */
 	private sealer: ((peerId: string, message: VoleNetMessage) => VoleNetMessage) | null = null
+	/** Resolves a full peerId to its announced display name (for /volenet/info when publishNames). */
+	private nameResolver: ((peerId: string) => string | undefined) | null = null
 	private joinHandler: JoinHandler | null = null
 	private msgWindow = new Map<string, number[]>()
 	private wsConnSeq = 0
@@ -223,6 +227,9 @@ export class VoleNetTransport {
 
 			if (req.url === '/volenet/info' && req.method === 'GET') {
 				const peerList = this.getPeers()
+				// Display names are opt-in: they're an enumeration surface, so only exposed when the
+				// operator sets net.publishNames (e.g. a public hub whose members are meant to be seen).
+				const withNames = this.config.publishNames && this.nameResolver
 				res.writeHead(200, { 'Content-Type': 'application/json' })
 				res.end(
 					JSON.stringify({
@@ -231,6 +238,7 @@ export class VoleNetTransport {
 						version: 1,
 						peers: peerList.map((p) => ({
 							id: p.peerId.substring(0, 8),
+							...(withNames ? { name: this.nameResolver?.(p.peerId) } : {}),
 							endpoint: p.endpoint,
 							connected: p.connected,
 							transport: p.transport,
@@ -484,6 +492,11 @@ export class VoleNetTransport {
 	/** Install the outbound seal transform (direct end-to-end encryption). */
 	setSealer(fn: (peerId: string, message: VoleNetMessage) => VoleNetMessage): void {
 		this.sealer = fn
+	}
+
+	/** Install the display-name resolver used by /volenet/info when publishNames is enabled. */
+	setNameResolver(fn: (peerId: string) => string | undefined): void {
+		this.nameResolver = fn
 	}
 
 	/**

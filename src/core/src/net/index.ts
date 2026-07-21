@@ -231,6 +231,13 @@ export interface VoleNetConfig {
 	 * it (older versions) still receive plaintext, so a mixed-version mesh keeps working. Default off.
 	 */
 	encrypt?: boolean
+	/**
+	 * Publish peer display names (the live announced `instanceName`) in the public /volenet/info
+	 * response. Off by default — names are an enumeration surface. Turn on for a public hub whose
+	 * members are meant to be seen (e.g. a social wall), so external tooling can read live names
+	 * without the authenticated dashboard.
+	 */
+	publishNames?: boolean
 }
 
 /** A hub-vouched mesh member, learned from a relay hub's roster broadcast. */
@@ -340,8 +347,16 @@ export class VoleNetManager {
 			maxConnections: this.config.maxConnections,
 			authTimeoutMs: this.config.authTimeoutMs,
 			maxMessagesPerSecond: this.config.maxMessagesPerSecond,
+			publishNames: this.config.publishNames,
 		}
 		this.transport = new VoleNetTransport(transportConfig)
+		// Live display names for /volenet/info (opt-in): the announced instanceName from discovery,
+		// with the hub-vouched roster as a fallback for relay-only members.
+		this.transport.setNameResolver(
+			(id) =>
+				this.discovery?.getInstances().find((i) => i.id === id)?.name ??
+				this.findRosterMember(id)?.name,
+		)
 		await this.transport.start()
 
 		// Start discovery
