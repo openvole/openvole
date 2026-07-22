@@ -1,5 +1,19 @@
 # Changelog
 
+## v4.12.2 (2026-07-22)
+
+> Ships as `openvole` 4.12.2 and `@openvole/dashboard-server` 0.10.0. A dashboard UI refresh — no core changes.
+
+### Dashboard
+
+- **Overview redesign.** The Overview tab is now a compact grid of summary cards — Paws, Tools, Skills, VoleNet, Schedules — each opening a slide-in detail drawer instead of long inline lists. VoleNet moved after Skills, and section headers are tinted so sections are easy to tell apart at a glance.
+- **VoleNet tab.** A status card (instance name/id, leader badge, live peer / online / remote-tool counts) plus a per-peer detail drawer, following the same card convention as the Overview.
+- **Live Events fills the page.** The event stream now expands to use the remaining height below the cards, so it's readable without scrolling the whole tab. The Tasks panel gets a sensible min/max height.
+- **Responsive.** The tab bar and sections adapt to narrow / mobile viewports — horizontally scrollable tabs, stacked cards, and a full-width drawer.
+- **Chat tab** gets a brain icon (fixes a glyph that rendered as a literal escape).
+
+**Upgrading a running `vole serve`:** restart the server after upgrading (Node caches the dashboard module at startup) and hard-refresh the browser.
+
 ## v4.12.1 (2026-07-21)
 
 > Ships as `openvole` 4.12.1 and `@openvole/dashboard-server` 0.9.1. A small opt-in read enhancement.
