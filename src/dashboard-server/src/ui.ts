@@ -221,6 +221,7 @@ export function getDashboardHtml(wsPort: number): string {
   .sumcard-sub { font-size: 11px; color: var(--text-dim); margin-top: 6px; line-height: 1.4; }
   .sc-chip { display: inline-block; font-size: 10px; padding: 1px 7px; border-radius: 999px; background: var(--bg); border: 1px solid var(--border); color: var(--text-dim); margin: 3px 3px 0 0; }
   .sc-chip b { color: var(--text); font-weight: 600; }
+  .sc-chip-off { opacity: .5; border-style: dashed; }
   .sumcard.paws    { --sc-tint: color-mix(in srgb, var(--accent) 9%, var(--surface)); }
   .sumcard.tools   { --sc-tint: color-mix(in srgb, #5aa9ff 11%, var(--surface)); }
   .sumcard.skills  { --sc-tint: color-mix(in srgb, var(--green) 12%, var(--surface)); }
@@ -3533,6 +3534,16 @@ function readConfigFromForm() {
   var net = readNetFromForm();
   if (net.enabled || Object.keys(net).length > 1) cfg.net = net;
 
+  // Preserve any top-level config keys the form does not model (skills, demo, schedules, …).
+  // write_config replaces the whole file, so without this a Save would silently drop them —
+  // this is what deregistered installed skills (they stayed on disk but vanished from config.skills).
+  if (cachedConfig && typeof cachedConfig === 'object') {
+    var managed = { brain: 1, loop: 1, heartbeat: 1, security: 1, paws: 1, toolProfiles: 1, agents: 1, net: 1 };
+    for (var k in cachedConfig) {
+      if (cachedConfig.hasOwnProperty(k) && !managed[k] && !(k in cfg)) cfg[k] = cachedConfig[k];
+    }
+  }
+
   return cfg;
 }
 
@@ -3736,11 +3747,14 @@ function renderSkills(skills) {
   var el = document.getElementById('sum-skills');
   if (!el) return;
   var active = skills.filter(function(s) { return s.active; });
-  var names = active.slice(0, 4).map(function(s) { return '<span class="sc-chip">' + esc(s.name) + '</span>'; }).join('');
-  var more = active.length > 4 ? '<span class="sc-chip">+' + (active.length - 4) + '</span>' : '';
+  // Show names for ALL loaded skills (active first, inactive muted) so an installed-but-inactive skill
+  // — e.g. one still waiting on a required tool — stays visible on the card, not hidden in the drawer.
+  var ordered = active.concat(skills.filter(function(s) { return !s.active; }));
+  var names = ordered.slice(0, 4).map(function(s) { return '<span class="sc-chip' + (s.active ? '' : ' sc-chip-off') + '" title="' + esc(s.name) + (s.active ? '' : ' \\u2014 inactive') + '">' + esc(s.name) + '</span>'; }).join('');
+  var more = ordered.length > 4 ? '<span class="sc-chip">+' + (ordered.length - 4) + '</span>' : '';
   el.innerHTML = '<div class="sumcard-metric">' + active.length + '<small>/' + skills.length + ' active</small></div>'
-    + (active.length ? '<div style="margin-top:6px">' + names + more + '</div>'
-        : '<div class="sumcard-sub">' + (skills.length ? 'none active' : 'none loaded') + '</div>');
+    + (skills.length ? '<div style="margin-top:6px">' + names + more + '</div>'
+        : '<div class="sumcard-sub">none loaded</div>');
 }
 
 function renderTasks(tasks) {
