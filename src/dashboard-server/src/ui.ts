@@ -196,6 +196,66 @@ export function getDashboardHtml(wsPort: number): string {
   .panel-body::-webkit-scrollbar-track { background: var(--bg); }
   .panel-body::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
   .panel-body::-webkit-scrollbar-thumb:hover { background: #555; }
+
+  /* ── Overview: compact summary cards ── */
+  .ov { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
+  .sum-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+    gap: 12px;
+    padding: 16px;
+    flex-shrink: 0;
+  }
+  .sumcard { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; display: flex; flex-direction: column; }
+  .sumcard-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 12px; cursor: pointer; border-bottom: 1px solid var(--border);
+    background: var(--sc-tint, var(--surface)); transition: filter .12s;
+  }
+  .sumcard-head:hover { filter: brightness(1.08); }
+  .sumcard-head h3 { margin: 0; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text); font-weight: 600; display: flex; align-items: center; gap: 6px; }
+  .sumcard-head .sc-arrow { color: var(--text-dim); font-size: 15px; line-height: 1; }
+  .sumcard-body { padding: 12px; flex: 1; }
+  .sumcard-metric { font-size: 24px; font-weight: 700; color: var(--text); font-family: var(--mono); line-height: 1.1; }
+  .sumcard-metric small { font-size: 13px; color: var(--text-dim); font-weight: 500; }
+  .sumcard-sub { font-size: 11px; color: var(--text-dim); margin-top: 6px; line-height: 1.4; }
+  .sc-chip { display: inline-block; font-size: 10px; padding: 1px 7px; border-radius: 999px; background: var(--bg); border: 1px solid var(--border); color: var(--text-dim); margin: 3px 3px 0 0; }
+  .sc-chip b { color: var(--text); font-weight: 600; }
+  .sumcard.paws    { --sc-tint: color-mix(in srgb, var(--accent) 9%, var(--surface)); }
+  .sumcard.tools   { --sc-tint: color-mix(in srgb, #5aa9ff 11%, var(--surface)); }
+  .sumcard.skills  { --sc-tint: color-mix(in srgb, var(--green) 12%, var(--surface)); }
+  .sumcard.volenet { --sc-tint: color-mix(in srgb, var(--accent3, #d2a8ff) 15%, var(--surface)); }
+  .sumcard.sched   { --sc-tint: color-mix(in srgb, var(--yellow) 13%, var(--surface)); }
+  .tasks-panel { margin: 0 16px 16px; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; flex-shrink: 0; }
+  .tasks-panel .panel-header { border-bottom: 1px solid var(--border); background: color-mix(in srgb, var(--accent) 7%, var(--surface)); }
+  .tasks-panel .panel-body { min-height: 190px; max-height: 400px; }
+
+  /* ── Detail drawer ── */
+  .drawer-scrim { position: fixed; inset: 0; background: rgba(0,0,0,0.45); opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 60; }
+  .drawer-scrim.open { opacity: 1; pointer-events: auto; }
+  .drawer { position: fixed; top: 0; right: 0; height: 100%; width: min(500px, 94vw); background: var(--surface); border-left: 1px solid var(--border); transform: translateX(100%); transition: transform .22s ease; z-index: 61; display: flex; flex-direction: column; box-shadow: -8px 0 24px rgba(0,0,0,0.25); }
+  .drawer.open { transform: translateX(0); }
+  .drawer-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+  .drawer-head h3 { margin: 0; font-size: 14px; text-transform: uppercase; letter-spacing: 0.06em; }
+  .drawer-close { background: none; border: none; color: var(--text-dim); font-size: 22px; cursor: pointer; line-height: 1; padding: 0 4px; }
+  .drawer-close:hover { color: var(--text); }
+  .drawer-body { flex: 1; overflow-y: auto; padding: 12px 18px 24px; }
+  .kv { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; font-size: 12px; margin: 4px 0 10px; }
+  .kv dt { color: var(--text-dim); }
+  .kv dd { margin: 0; color: var(--text); word-break: break-word; }
+
+  /* ── Responsive: nav + overview + drawer ── */
+  @media (max-width: 680px) {
+    .tab-bar { padding: 0 8px; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+    .tab-bar::-webkit-scrollbar { display: none; }
+    .tab-btn { flex-shrink: 0; padding: 11px 12px 9px; }
+    .sum-grid { grid-template-columns: 1fr 1fr; gap: 8px; padding: 10px; }
+    .tasks-panel { margin: 0 10px 10px; }
+    .ov { overflow-y: auto; }
+    .events-bar { flex: 0 0 auto; min-height: 220px; }
+    .drawer { width: 100vw; }
+  }
+  @media (max-width: 400px) { .sum-grid { grid-template-columns: 1fr; } }
   table {
     width: 100%;
     border-collapse: collapse;
@@ -243,8 +303,8 @@ export function getDashboardHtml(wsPort: number): string {
     border-top: 1px solid var(--border);
     display: flex;
     flex-direction: column;
-    height: 200px;
-    flex-shrink: 0;
+    flex: 1 1 0;
+    min-height: 120px;
   }
   .events-header {
     padding: 8px 16px;
@@ -777,9 +837,20 @@ export function getDashboardHtml(wsPort: number): string {
   .chat-md .md-gap { height: 6px; }
   .chat-md a { color: var(--accent); }
   /* ── VoleNet tab ── */
-  .vn-page { display: flex; height: calc(100vh - 210px); min-height: 320px; max-width: 1100px; margin: 0 auto; width: 100%; }
-  .vn-peers { flex: 0 0 240px; border-right: 1px solid var(--border); overflow-y: auto; padding: 12px 8px; display: flex; flex-direction: column; gap: 2px; }
-  .vn-peers-head { font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-dim); padding: 4px 10px 8px; }
+  .vn-statuscard { max-width: 1100px; margin: 12px auto 0; width: 100%; border: 1px solid var(--border); border-radius: 10px; padding: 12px 16px; background: color-mix(in srgb, var(--accent3, #d2a8ff) 9%, var(--surface)); flex-shrink: 0; }
+  .vn-sc-main { font-size: 14px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .vn-sc-stats { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 8px; font-size: 12px; color: var(--text-dim); }
+  .vn-sc-stats b { color: var(--text); font-family: var(--mono); }
+  .vn-sc-off { color: var(--text-dim); font-size: 13px; }
+  .vn-page { display: flex; flex: 1 1 auto; min-height: 300px; max-width: 1100px; margin: 12px auto 0; width: 100%; overflow: hidden; }
+  .vn-peers { flex: 0 0 240px; border-right: 1px solid var(--border); overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 2px; }
+  .vn-peers-head { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text); font-weight: 600; padding: 8px 10px; margin: -8px -8px 6px; background: color-mix(in srgb, var(--accent3, #d2a8ff) 12%, var(--surface)); border-bottom: 1px solid var(--border); position: sticky; top: -8px; }
+  @media (max-width: 680px) {
+    .vn-page { flex-direction: column; margin-top: 8px; }
+    .vn-peers { flex: 0 0 auto; max-height: 190px; border-right: none; border-bottom: 1px solid var(--border); }
+    .vn-statuscard { margin: 8px 10px 0; }
+    .vn-sc-stats { gap: 12px; }
+  }
   .vn-peer { text-align: left; padding: 8px 10px; border-radius: 6px; background: transparent; border: 1px solid transparent; color: var(--text); font-size: 13px; cursor: pointer; display: flex; align-items: center; gap: 8px; }
   .vn-peer:hover { background: var(--surface-hover); }
   .vn-peer.active { background: var(--surface); border-color: var(--border); font-weight: 600; }
@@ -793,6 +864,8 @@ export function getDashboardHtml(wsPort: number): string {
   .vn-relay-tag { font-size: 9px; color: var(--accent3, #d2a8ff); border: 1px solid var(--accent3, #d2a8ff); border-radius: 999px; padding: 0 4px; letter-spacing: 0.04em; flex: 0 0 auto; }
   .vn-relay-tag.vn-tag-wait { color: var(--text-dim); border-color: var(--border); }
   .vn-relay-tag.vn-tag-new { color: var(--accent); border-color: var(--accent); }
+  .vn-info { flex: 0 0 auto; color: var(--text-dim); cursor: pointer; font-size: 13px; padding: 0 2px; }
+  .vn-info:hover { color: var(--accent); }
   .vn-msg-relayed { font-size: 10px; color: var(--accent3, #d2a8ff); margin: 0 0 2px 2px; }
   .vn-group-req { color: var(--accent); }
   .vn-req { margin: 2px 6px 8px; padding: 8px 10px; border: 1px solid var(--accent3, #d2a8ff); border-radius: 8px; background: color-mix(in srgb, var(--accent3, #d2a8ff) 8%, transparent); }
@@ -907,7 +980,7 @@ export function getDashboardHtml(wsPort: number): string {
 
 <div class="tab-bar">
   <button class="tab-btn active" data-tab="overview" onclick="switchTab('overview')">Overview</button>
-  <button class="tab-btn" data-tab="chat" onclick="switchTab('chat')">Chat</button>
+  <button class="tab-btn" data-tab="chat" onclick="switchTab('chat')">&#129504; Chat</button>
   <button class="tab-btn" data-tab="apps" id="tab-btn-apps" onclick="switchTab('apps')" style="display:none">Apps</button>
   <button class="tab-btn" data-tab="config" onclick="switchTab('config')">Config</button>
   <button class="tab-btn" data-tab="identity" onclick="switchTab('identity')">Identity</button>
@@ -916,35 +989,31 @@ export function getDashboardHtml(wsPort: number): string {
 
 <div class="main">
   <div id="tab-overview" class="tab-content">
-    <div class="grid">
-      <div class="panel">
-        <div class="panel-header"><h2>Paws <span class="count" id="paws-count">0</span></h2></div>
-        <div class="panel-body">
-          <table id="paws-table">
-            <thead><tr><th>Name</th><th>Category</th><th>Tools</th><th>Health</th></tr></thead>
-            <tbody></tbody>
-          </table>
+    <div class="ov">
+      <div class="sum-grid">
+        <div class="sumcard paws">
+          <div class="sumcard-head" onclick="openDetail('paws')" title="View all paws"><h3>Paws</h3><span class="sc-arrow">&#8250;</span></div>
+          <div class="sumcard-body" id="sum-paws"></div>
+        </div>
+        <div class="sumcard tools">
+          <div class="sumcard-head" onclick="openDetail('tools')" title="View all tools"><h3>Tools</h3><span class="sc-arrow">&#8250;</span></div>
+          <div class="sumcard-body" id="sum-tools"></div>
+        </div>
+        <div class="sumcard skills">
+          <div class="sumcard-head" onclick="openDetail('skills')" title="View all skills"><h3>Skills</h3><span class="sc-arrow">&#8250;</span></div>
+          <div class="sumcard-body" id="sum-skills"></div>
+        </div>
+        <div class="sumcard volenet" id="sum-volenet-card" style="display:none">
+          <div class="sumcard-head" onclick="switchTab('volenet')" title="Open the VoleNet tab"><h3>VoleNet</h3><span class="sc-arrow">&#8250;</span></div>
+          <div class="sumcard-body" id="sum-volenet"></div>
+        </div>
+        <div class="sumcard sched">
+          <div class="sumcard-head" onclick="openDetail('schedules')" title="View all schedules"><h3>Schedules</h3><span class="sc-arrow">&#8250;</span></div>
+          <div class="sumcard-body" id="sum-schedules"></div>
         </div>
       </div>
-      <div class="panel">
-        <div class="panel-header"><h2>Tools <span class="count" id="tools-count">0</span></h2></div>
-        <div class="panel-body">
-          <table id="tools-table">
-            <thead><tr><th>Name</th><th>Paw</th><th>Type</th></tr></thead>
-            <tbody></tbody>
-          </table>
-        </div>
-      </div>
-      <div class="panel">
-        <div class="panel-header"><h2>Skills <span class="count" id="skills-count">0</span></h2></div>
-        <div class="panel-body">
-          <table id="skills-table">
-            <thead><tr><th>Name</th><th>Status</th><th>Missing</th></tr></thead>
-            <tbody></tbody>
-          </table>
-        </div>
-      </div>
-      <div class="panel span-2">
+
+      <div class="tasks-panel">
         <div class="panel-header"><h2>Tasks <span class="count" id="tasks-count">0</span></h2></div>
         <div class="panel-body">
           <table id="tasks-table">
@@ -953,34 +1022,21 @@ export function getDashboardHtml(wsPort: number): string {
           </table>
         </div>
       </div>
-      <div class="panel">
-        <div class="panel-header"><h2>Schedules <span class="count" id="schedules-count">0</span></h2></div>
-        <div class="panel-body">
-          <table id="schedules-table">
-            <thead><tr><th>ID</th><th>Input</th><th>Cron</th><th>Next Run</th></tr></thead>
-            <tbody></tbody>
-          </table>
-        </div>
-      </div>
-      <div class="panel" id="volenet-panel" style="display:none">
-        <div class="panel-header"><h2>VoleNet</h2></div>
-        <div class="panel-body">
-          <div id="volenet-status"></div>
-          <table id="volenet-peers-table" style="margin-top:8px">
-            <thead><tr><th>Peer</th><th>Role</th><th>Capabilities</th><th>Last Seen</th></tr></thead>
-            <tbody></tbody>
-          </table>
-        </div>
-      </div>
-    </div>
 
-    <div class="events-bar">
-      <div class="events-header">
-        <h2>Live Events</h2>
-        <button onclick="document.getElementById('event-log').innerHTML=''">Clear</button>
+      <div class="events-bar">
+        <div class="events-header">
+          <h2>Live Events</h2>
+          <button onclick="document.getElementById('event-log').innerHTML=''">Clear</button>
+        </div>
+        <div class="events-body" id="event-log"></div>
       </div>
-      <div class="events-body" id="event-log"></div>
     </div>
+  </div>
+
+  <div class="drawer-scrim" id="drawer-scrim" onclick="closeDetail()"></div>
+  <div class="drawer" id="detail-drawer" role="dialog" aria-modal="true">
+    <div class="drawer-head"><h3 id="drawer-title">Detail</h3><button class="drawer-close" onclick="closeDetail()" aria-label="Close">&times;</button></div>
+    <div class="drawer-body" id="drawer-body"></div>
   </div>
 
   <div id="tab-chat" class="tab-content" style="display:none">
@@ -1001,6 +1057,7 @@ export function getDashboardHtml(wsPort: number): string {
   </div>
 
   <div id="tab-volenet" class="tab-content" style="display:none">
+    <div class="vn-statuscard" id="vn-statuscard"></div>
     <div class="vn-page">
       <div class="vn-peers">
         <div class="vn-peers-head">Connected nodes</div>
@@ -1534,6 +1591,10 @@ var currentAgentId = null;
 var lastAgents = [];
 var lastStatePaws = [];
 var lastStateTools = [];
+var lastStateSkills = [];
+var lastStateSchedules = [];
+var lastStateVolenet = { enabled: false };
+var drawerSection = null; // which section's detail drawer is open (null = closed)
 
 /* ── View switching: agents launcher  <->  selected-agent dashboard ── */
 function showAgentsView() {
@@ -2093,7 +2154,28 @@ function initVolenetTab() {
 
 function renderVolenetTab(volenet) {
   vnPeers = (volenet && volenet.enabled && volenet.peers) ? volenet.peers : [];
+  renderVnStatus(volenet);
   renderVnPeerList();
+}
+
+function renderVnStatus(volenet) {
+  var el = document.getElementById('vn-statuscard');
+  if (!el) return;
+  if (!volenet || !volenet.enabled) {
+    el.innerHTML = '<div class="vn-sc-off">VoleNet is not enabled for this agent.</div>';
+    return;
+  }
+  var peers = volenet.peers || [];
+  var online = peers.filter(function(p) { return p.lastSeen && (Date.now() - p.lastSeen) < 30000; }).length;
+  var leader = volenet.isLeader ? '<span class="tag tag-green">leader</span>' : '<span class="tag tag-blue">follower</span>';
+  el.innerHTML = '<div class="vn-sc-main"><strong>' + esc(volenet.instanceName || 'vole') + '</strong>'
+      + '<span class="tag tag-purple">' + esc(volenet.instanceId || '') + '</span>' + leader + '</div>'
+    + '<div class="vn-sc-stats">'
+      + '<span><b>' + peers.length + '</b> peers</span>'
+      + '<span><b>' + online + '</b> online</span>'
+      + '<span><b>' + (volenet.remoteTools || 0) + '</b> remote tools</span>'
+      + (volenet.leaderState && volenet.leaderState.leaderName ? '<span>leader: <b>' + esc(volenet.leaderState.leaderName) + '</b></span>' : '')
+    + '</div>';
 }
 
 function renderVnPeerList() {
@@ -2122,6 +2204,7 @@ function renderVnPeerList() {
       + '<span class="vn-peer-name">' + esc(p.name || p.id) + '</span>'
       + tag
       + (unread ? '<span class="vn-badge">' + unread + '</span>' : '')
+      + '<span class="vn-info" onclick="event.stopPropagation(); openDetail(\\'peer:' + esc(p.id) + '\\')" title="Peer details">&#9432;</span>'
       + '</button>';
   }
   function reqRow(p) {
@@ -2292,6 +2375,9 @@ function volenetOnRelayEvent(event, data, agentId) {
 function renderState(d) {
   lastStatePaws = d.paws || [];
   lastStateTools = d.tools || [];
+  lastStateSkills = d.skills || [];
+  lastStateSchedules = d.schedules || [];
+  lastStateVolenet = d.volenet || { enabled: false };
   refreshToolNameOptions();
   renderPaws(d.paws || []);
   renderAppsNav(d.paws || []);
@@ -2302,6 +2388,7 @@ function renderState(d) {
   renderSchedules(d.schedules || []);
   renderVoleNet(d.volenet || { enabled: false });
   renderVolenetTab(d.volenet || { enabled: false });
+  if (drawerSection) renderDrawerBody(); // keep an open drawer in sync with live state
   document.getElementById('stat-paws').textContent = (d.paws || []).length;
   document.getElementById('stat-tools').textContent = (d.tools || []).length;
   document.getElementById('stat-skills').textContent = (d.skills || []).length;
@@ -3615,67 +3702,45 @@ function categoryTag(cat) {
   return '<span class="tag ' + (colors[cat] || 'tag-blue') + '">' + esc(cat || 'tool') + '</span>';
 }
 
+// ── Overview summary cards (detail lives in the drawer) ──
 function renderPaws(paws) {
-  document.getElementById('paws-count').textContent = paws.length;
-  var tbody = document.querySelector('#paws-table tbody');
-  if (paws.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="4" class="empty">No paws loaded</td></tr>';
-    return;
-  }
-
-  // Group by category, ordered: brain -> channel -> tool -> infrastructure
-  var order = ['brain', 'channel', 'tool', 'infrastructure'];
-  var grouped = {};
-  for (var i = 0; i < order.length; i++) grouped[order[i]] = [];
-  for (var j = 0; j < paws.length; j++) {
-    var cat = paws[j].category || 'tool';
-    if (!grouped[cat]) grouped[cat] = [];
-    grouped[cat].push(paws[j]);
-  }
-
-  var html = '';
-  for (var k = 0; k < order.length; k++) {
-    var catName = order[k];
-    var items = grouped[catName];
-    if (!items || items.length === 0) continue;
-    html += '<tr class="group-header"><td colspan="4">'
-      + '<strong>' + catName.charAt(0).toUpperCase() + catName.slice(1)
-      + '</strong> (' + items.length + ')</td></tr>';
-    for (var m = 0; m < items.length; m++) {
-      var p = items[m];
-      html += '<tr>'
-        + '<td title="' + esc(p.name) + '">' + esc(p.name.replace('@openvole/', '')) + '</td>'
-        + '<td>' + categoryTag(catName) + '</td>'
-        + '<td>' + (p.toolCount != null ? p.toolCount : 0) + '</td>'
-        + '<td>' + (p.healthy ? '<span class="tag tag-green">ok</span>' : '<span class="tag tag-red">down</span>') + '</td>'
-        + '</tr>';
-    }
-  }
-  tbody.innerHTML = html;
+  var el = document.getElementById('sum-paws');
+  if (!el) return;
+  var healthy = paws.filter(function(p) { return p.healthy; }).length;
+  var down = paws.length - healthy;
+  var cats = {};
+  paws.forEach(function(p) { var c = p.category || 'tool'; cats[c] = (cats[c] || 0) + 1; });
+  var chips = ['brain', 'channel', 'tool', 'infrastructure'].filter(function(c) { return cats[c]; })
+    .map(function(c) { return '<span class="sc-chip"><b>' + cats[c] + '</b> ' + c + '</span>'; }).join('');
+  el.innerHTML = '<div class="sumcard-metric">' + paws.length + '</div>'
+    + '<div class="sumcard-sub">' + (paws.length
+        ? (down ? '<span style="color:var(--red)">' + down + ' down</span> \\u00b7 ' + healthy + ' healthy' : 'all healthy')
+        : 'none loaded') + '</div>'
+    + (chips ? '<div style="margin-top:6px">' + chips + '</div>' : '');
 }
 
 function renderTools(tools) {
-  document.getElementById('tools-count').textContent = tools.length;
-  var tbody = document.querySelector('#tools-table tbody');
-  tbody.innerHTML = tools.length === 0
-    ? '<tr><td colspan="3" class="empty">No tools registered</td></tr>'
-    : tools.map(function(t) { return '<tr>'
-      + '<td title="' + esc(t.name) + '">' + esc(t.name) + '</td>'
-      + '<td title="' + esc(t.pawName) + '">' + esc(t.pawName) + '</td>'
-      + '<td><span class="tag tag-blue">' + (t.inProcess ? 'in-process' : 'subprocess') + '</span></td>'
-      + '</tr>'; }).join('');
+  var el = document.getElementById('sum-tools');
+  if (!el) return;
+  var bySrc = {};
+  tools.forEach(function(t) { var s = (t.pawName || 'core').replace('@openvole/paw-', ''); bySrc[s] = (bySrc[s] || 0) + 1; });
+  var srcs = Object.keys(bySrc).sort(function(a, b) { return bySrc[b] - bySrc[a]; });
+  var chips = srcs.slice(0, 5).map(function(s) { return '<span class="sc-chip"><b>' + bySrc[s] + '</b> ' + esc(s) + '</span>'; }).join('');
+  var more = srcs.length > 5 ? '<span class="sc-chip">+' + (srcs.length - 5) + ' more</span>' : '';
+  el.innerHTML = '<div class="sumcard-metric">' + tools.length + '</div>'
+    + '<div class="sumcard-sub">' + srcs.length + ' source' + (srcs.length === 1 ? '' : 's') + '</div>'
+    + (chips ? '<div style="margin-top:6px">' + chips + more + '</div>' : '');
 }
 
 function renderSkills(skills) {
-  document.getElementById('skills-count').textContent = skills.length;
-  var tbody = document.querySelector('#skills-table tbody');
-  tbody.innerHTML = skills.length === 0
-    ? '<tr><td colspan="3" class="empty">No skills loaded</td></tr>'
-    : skills.map(function(s) { return '<tr>'
-      + '<td title="' + esc(s.name) + '">' + esc(s.name) + '</td>'
-      + '<td>' + (s.active ? '<span class="tag tag-green">active</span>' : '<span class="tag tag-red">inactive</span>') + '</td>'
-      + '<td>' + (s.missingTools && s.missingTools.length ? esc(s.missingTools.join(', ')) : '\\u2014') + '</td>'
-      + '</tr>'; }).join('');
+  var el = document.getElementById('sum-skills');
+  if (!el) return;
+  var active = skills.filter(function(s) { return s.active; });
+  var names = active.slice(0, 4).map(function(s) { return '<span class="sc-chip">' + esc(s.name) + '</span>'; }).join('');
+  var more = active.length > 4 ? '<span class="sc-chip">+' + (active.length - 4) + '</span>' : '';
+  el.innerHTML = '<div class="sumcard-metric">' + active.length + '<small>/' + skills.length + ' active</small></div>'
+    + (active.length ? '<div style="margin-top:6px">' + names + more + '</div>'
+        : '<div class="sumcard-sub">' + (skills.length ? 'none active' : 'none loaded') + '</div>');
 }
 
 function renderTasks(tasks) {
@@ -3743,63 +3808,113 @@ function formatMs(ms) {
 }
 
 function renderSchedules(schedules) {
-  document.getElementById('schedules-count').textContent = schedules.length;
-  var tbody = document.querySelector('#schedules-table tbody');
-  tbody.innerHTML = schedules.length === 0
-    ? '<tr><td colspan="4" class="empty">No active schedules</td></tr>'
-    : schedules.map(function(s) {
-      var nextRun = s.nextRun ? new Date(s.nextRun).toLocaleString() : '\\u2014';
-      return '<tr>'
-        + '<td>' + esc(s.id) + '</td>'
-        + '<td title="' + esc(s.input) + '">' + esc((s.input || '').substring(0, 40)) + '</td>'
-        + '<td><span class="tag tag-yellow">' + esc(s.cron) + '</span></td>'
-        + '<td>' + nextRun + '</td>'
-        + '</tr>';
-    }).join('');
+  var el = document.getElementById('sum-schedules');
+  if (!el) return;
+  var next = schedules.filter(function(s) { return s.nextRun; }).sort(function(a, b) { return a.nextRun - b.nextRun; })[0];
+  el.innerHTML = '<div class="sumcard-metric">' + schedules.length + '</div>'
+    + '<div class="sumcard-sub">' + (schedules.length ? 'next: ' + esc(next ? new Date(next.nextRun).toLocaleString() : '\\u2014') : 'none active') + '</div>';
 }
 
 function renderVoleNet(data) {
-  var panel = document.getElementById('volenet-panel');
-  if (!data || !data.enabled) {
-    panel.style.display = 'none';
-    return;
-  }
-  panel.style.display = '';
-
-  var status = document.getElementById('volenet-status');
-  var leaderBadge = data.isLeader
-    ? '<span class="tag tag-green">leader</span>'
-    : '<span class="tag tag-blue">follower</span>';
-  var leaderInfo = data.leaderState && data.leaderState.leaderName
-    ? ' \\u2014 leader: ' + esc(data.leaderState.leaderName)
-    : '';
-
-  status.innerHTML = '<strong>' + esc(data.instanceName || 'vole') + '</strong> '
-    + '<span class="tag tag-purple">' + esc(data.instanceId || '') + '</span> '
-    + leaderBadge
-    + ' \\u2014 ' + (data.peers ? data.peers.length : 0) + ' peer(s), '
-    + (data.remoteTools || 0) + ' remote tool(s)'
-    + leaderInfo;
-
+  var card = document.getElementById('sum-volenet-card');
+  if (!card) return;
+  if (!data || !data.enabled) { card.style.display = 'none'; return; }
+  card.style.display = '';
+  var el = document.getElementById('sum-volenet');
   var peers = data.peers || [];
-  var tbody = document.querySelector('#volenet-peers-table tbody');
-  tbody.innerHTML = peers.length === 0
-    ? '<tr><td colspan="4" class="empty">No peers connected</td></tr>'
-    : peers.map(function(p) {
-      var roleTag = p.role === 'coordinator'
-        ? '<span class="tag tag-yellow">coordinator</span>'
-        : p.role === 'worker'
-          ? '<span class="tag tag-blue">worker</span>'
-          : '<span class="tag tag-green">peer</span>';
-      var ago = p.lastSeen ? Math.round((Date.now() - p.lastSeen) / 1000) + 's ago' : '\\u2014';
-      return '<tr>'
-        + '<td><strong>' + esc(p.name) + '</strong> <span class="tag tag-purple">' + esc(p.id) + '</span></td>'
-        + '<td>' + roleTag + '</td>'
-        + '<td>' + (p.capabilities || 0) + '</td>'
-        + '<td>' + ago + '</td>'
-        + '</tr>';
-    }).join('');
+  var online = peers.filter(function(p) { return p.lastSeen && (Date.now() - p.lastSeen) < 30000; }).length;
+  el.innerHTML = '<div class="sumcard-metric">' + peers.length + '<small> peer' + (peers.length === 1 ? '' : 's') + '</small></div>'
+    + '<div class="sumcard-sub">' + online + ' online \\u00b7 ' + (data.remoteTools || 0) + ' remote tool' + ((data.remoteTools || 0) === 1 ? '' : 's')
+      + (data.isLeader ? ' \\u00b7 <span style="color:var(--green)">leader</span>' : '') + '</div>';
 }
+
+// ── Detail drawer (full lists for the compact overview cards) ──
+var DRAWER_TITLES = { paws: 'Paws', tools: 'Tools', skills: 'Skills', schedules: 'Schedules' };
+function openDetail(section) {
+  drawerSection = section;
+  document.getElementById('drawer-title').textContent = DRAWER_TITLES[section] || 'Detail';
+  renderDrawerBody();
+  document.getElementById('detail-drawer').classList.add('open');
+  document.getElementById('drawer-scrim').classList.add('open');
+}
+function closeDetail() {
+  drawerSection = null;
+  document.getElementById('detail-drawer').classList.remove('open');
+  document.getElementById('drawer-scrim').classList.remove('open');
+}
+function renderDrawerBody() {
+  var body = document.getElementById('drawer-body');
+  if (!body || !drawerSection) return;
+  if (drawerSection === 'paws') body.innerHTML = detailPaws(lastStatePaws);
+  else if (drawerSection === 'tools') body.innerHTML = detailTools(lastStateTools);
+  else if (drawerSection === 'skills') body.innerHTML = detailSkills(lastStateSkills);
+  else if (drawerSection === 'schedules') body.innerHTML = detailSchedules(lastStateSchedules);
+  else if (drawerSection.indexOf('peer:') === 0) {
+    document.getElementById('drawer-title').textContent = 'Peer';
+    body.innerHTML = detailPeer(drawerSection.substring(5));
+  }
+}
+function detailPaws(paws) {
+  if (!paws.length) return '<div class="vn-empty">No paws loaded.</div>';
+  var order = ['brain', 'channel', 'tool', 'infrastructure'];
+  var grouped = {}; order.forEach(function(o) { grouped[o] = []; });
+  paws.forEach(function(p) { var c = p.category || 'tool'; (grouped[c] = grouped[c] || []).push(p); });
+  var rows = '';
+  order.forEach(function(cat) {
+    var items = grouped[cat]; if (!items || !items.length) return;
+    rows += '<tr class="group-header"><td colspan="4"><strong>' + cat.charAt(0).toUpperCase() + cat.slice(1) + '</strong> (' + items.length + ')</td></tr>';
+    items.forEach(function(p) {
+      rows += '<tr><td title="' + esc(p.name) + '">' + esc(p.name.replace('@openvole/', '')) + '</td>'
+        + '<td>' + categoryTag(cat) + '</td><td>' + (p.toolCount != null ? p.toolCount : 0) + '</td>'
+        + '<td>' + (p.healthy ? '<span class="tag tag-green">ok</span>' : '<span class="tag tag-red">down</span>') + '</td></tr>';
+    });
+  });
+  return '<table><thead><tr><th>Name</th><th>Category</th><th>Tools</th><th>Health</th></tr></thead><tbody>' + rows + '</tbody></table>';
+}
+function detailTools(tools) {
+  if (!tools.length) return '<div class="vn-empty">No tools registered.</div>';
+  return '<table><thead><tr><th>Name</th><th>Paw</th><th>Type</th></tr></thead><tbody>'
+    + tools.map(function(t) { return '<tr><td title="' + esc(t.name) + '">' + esc(t.name) + '</td><td title="' + esc(t.pawName) + '">' + esc(t.pawName) + '</td><td><span class="tag tag-blue">' + (t.inProcess ? 'in-process' : 'subprocess') + '</span></td></tr>'; }).join('')
+    + '</tbody></table>';
+}
+function detailSkills(skills) {
+  if (!skills.length) return '<div class="vn-empty">No skills loaded.</div>';
+  return '<table><thead><tr><th>Name</th><th>Status</th><th>Missing</th></tr></thead><tbody>'
+    + skills.map(function(s) { return '<tr><td title="' + esc(s.name) + '">' + esc(s.name) + '</td><td>' + (s.active ? '<span class="tag tag-green">active</span>' : '<span class="tag tag-red">inactive</span>') + '</td><td>' + (s.missingTools && s.missingTools.length ? esc(s.missingTools.join(', ')) : '\\u2014') + '</td></tr>'; }).join('')
+    + '</tbody></table>';
+}
+function detailSchedules(schedules) {
+  if (!schedules.length) return '<div class="vn-empty">No active schedules.</div>';
+  return '<table><thead><tr><th>ID</th><th>Input</th><th>Cron</th><th>Next Run</th></tr></thead><tbody>'
+    + schedules.map(function(s) { var nr = s.nextRun ? new Date(s.nextRun).toLocaleString() : '\\u2014'; return '<tr><td>' + esc(s.id) + '</td><td title="' + esc(s.input) + '">' + esc((s.input || '').substring(0, 60)) + '</td><td><span class="tag tag-yellow">' + esc(s.cron) + '</span></td><td>' + nr + '</td></tr>'; }).join('')
+    + '</tbody></table>';
+}
+function detailPeer(pid) {
+  // Merge the two peer views: the overview state (direct peers, rich: role/capabilities/endpoint)
+  // and the VoleNet tab roster (adds relay members + connection kind), so the drawer works from either.
+  var direct = ((lastStateVolenet && lastStateVolenet.peers) || []).filter(function(x) { return x.id === pid; })[0];
+  var vn = (typeof vnPeers !== 'undefined' ? vnPeers : []).filter(function(x) { return x.id === pid; })[0];
+  var p = direct || vn;
+  if (!p) return '<div class="vn-empty">Peer not found (may have disconnected).</div>';
+  var role = (direct && direct.role) || (vn && vn.role) || 'peer';
+  var kind = vn && vn.kind === 'relay' ? 'via relay \\u2014 ' + esc(vn.viaHubName || 'hub') : 'direct mesh';
+  var lastSeen = (direct && direct.lastSeen) || (vn && vn.lastSeen);
+  var ago = lastSeen ? Math.round((Date.now() - lastSeen) / 1000) + 's ago' : '\\u2014';
+  var rows = '<dt>Name</dt><dd>' + esc(p.name || '') + '</dd>'
+    + '<dt>ID</dt><dd><span class="tag tag-purple">' + esc(p.id || '') + '</span></dd>'
+    + '<dt>Connection</dt><dd>' + kind + '</dd>'
+    + '<dt>Role</dt><dd>' + esc(role) + '</dd>';
+  if (direct) {
+    rows += '<dt>Capabilities</dt><dd>' + (direct.capabilities || 0) + '</dd>'
+      + '<dt>Remote tools</dt><dd>' + (direct.toolCount != null ? direct.toolCount : '\\u2014') + '</dd>'
+      + '<dt>Endpoint</dt><dd>' + esc(direct.endpoint || '\\u2014') + '</dd>';
+  }
+  if (vn && vn.kind === 'relay') rows += '<dt>Accepted</dt><dd>' + (vn.accepted ? 'yes' : (vn.awaiting ? 'awaiting' : 'no')) + '</dd>';
+  rows += '<dt>Last seen</dt><dd>' + ago + '</dd>';
+  return '<dl class="kv">' + rows + '</dl>';
+}
+
+document.addEventListener('keydown', function(e) { if (e.key === 'Escape' && drawerSection) closeDetail(); });
 
 function statusClass(s) {
   if (s === 'completed') return 'tag-green';
