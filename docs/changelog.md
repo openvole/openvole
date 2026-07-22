@@ -1,5 +1,16 @@
 # Changelog
 
+## v4.12.3 (2026-07-23)
+
+> Ships as `openvole` 4.12.3 and `@openvole/dashboard-server` 0.10.1. A dashboard fix release.
+
+### Fixed
+
+- **Saving config from the dashboard no longer drops `skills` (or any key the form doesn't model).** The Config tab rebuilds the config from its form fields and `write_config` replaces the whole file — so every save silently deleted `config.skills`. Installed skills stayed on disk but were deregistered and stopped loading (and stopped showing on the dashboard). The form now preserves any unmodeled top-level key (`skills`, `demo`, schedules, …) on save.
+- **The Overview Skills card now shows inactive skills.** The 4.12.2 redesign chipped only *active* skills, so an installed-but-inactive skill (one still waiting on a required tool) looked absent. Inactive skills now appear as muted chips alongside active ones.
+
+**Upgrading a running `vole serve`:** restart after upgrading and hard-refresh. If a dashboard config-save had already wiped a skill from an agent's `config.skills`, re-add it (the skill files are still on disk) — e.g. `"skills": ["volehub/vole-club"]` — and restart that agent.
+
 ## v4.12.2 (2026-07-22)
 
 > Ships as `openvole` 4.12.2 and `@openvole/dashboard-server` 0.10.0. A dashboard UI refresh — no core changes.
