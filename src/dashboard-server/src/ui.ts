@@ -939,7 +939,7 @@ export function getDashboardHtml(wsPort: number): string {
 <body data-view="agents">
 <header>
   <div class="logo-group">
-    <a href="https://github.com/openvole/openvole" target="_blank" class="logo-link">
+    <a href="https://openvole.com" target="_blank" class="logo-link">
       <img src="/assets/vole.png" alt="OpenVole" onerror="this.style.display='none'">
       <h1><span>Open</span>Vole</h1>
     </a>
@@ -1546,13 +1546,15 @@ export function getDashboardHtml(wsPort: number): string {
   <footer>
     <a href="https://github.com/openvole/openvole" target="_blank">GitHub</a>
     <span class="footer-sep">&middot;</span>
-    <a href="https://github.com/openvole/pawhub" target="_blank">PawHub</a>
-    <span class="footer-sep">&middot;</span>
-    <a href="https://www.npmjs.com/package/openvole" target="_blank">npm</a>
-    <span class="footer-sep">&middot;</span>
     <a href="https://openvole.com/openvole/" target="_blank">Docs</a>
     <span class="footer-sep">&middot;</span>
-    <a href="https://volehub.dev" target="_blank">VoleHub</a>
+    <a href="https://paw.openvole.com" target="_blank">PawHub</a>
+    <span class="footer-sep">&middot;</span>
+    <a href="https://hub.openvole.com" target="_blank">VoleHub</a>
+    <span class="footer-sep">&middot;</span>
+    <a href="https://net.openvole.com" target="_blank">VoleNet</a>
+    <span class="footer-sep">&middot;</span>
+    <a href="https://www.npmjs.com/package/openvole" target="_blank">npm</a>
     <span class="footer-sep">&middot;</span>
     <a href="https://clawhub.ai" target="_blank">ClawHub Skills</a>
   </footer>
