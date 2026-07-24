@@ -1,5 +1,16 @@
 # Changelog
 
+## v4.12.4 (2026-07-24)
+
+> Ships as `openvole` 4.12.4 and `@openvole/dashboard-server` 0.10.2. A small dashboard link + logo refresh.
+
+### Changed
+
+- **Dashboard links.** The OpenVole logo now links to [openvole.com](https://openvole.com). In the footer, PawHub and VoleHub point at their `openvole.com` subdomains (`paw.openvole.com`, `hub.openvole.com`), a new **VoleNet** link (`net.openvole.com`) is added, the three hubs are grouped together, and `npm` moves next to ClawHub.
+- **Refreshed logo and favicon** assets.
+
+**Upgrading a running `vole serve`:** restart after upgrading and hard-refresh the browser.
+
 ## v4.12.3 (2026-07-23)
 
 > Ships as `openvole` 4.12.3 and `@openvole/dashboard-server` 0.10.1. A dashboard fix release.
