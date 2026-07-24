@@ -88,7 +88,7 @@ LLM providers that power the Think phase. [Learn more](/paws-brain)
 
 | Paw | Purpose |
 |-----|---------|
-| `paw-brain` | **Unified multi-provider brain** (Anthropic, OpenAI, Gemini, xAI, Ollama) |
+| `paw-brain` | **Unified multi-provider brain** (Anthropic, OpenAI, Gemini, xAI, Ollama, Claude Code, Antigravity) |
 | `paw-ollama` | *(deprecated)* Local LLM via Ollama |
 | `paw-claude` | *(deprecated)* Anthropic Claude models |
 | `paw-openai` | *(deprecated)* OpenAI models |

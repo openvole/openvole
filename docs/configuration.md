@@ -88,7 +88,7 @@ Which Brain Paw handles the Think phase of the agent loop.
 { "brain": "@openvole/paw-brain" }
 ```
 
-The unified `paw-brain` supports all providers — set `BRAIN_PROVIDER` env var to `ollama`, `openai`, `anthropic`, `gemini`, or `xai`. Set `BRAIN_PROVIDER=mock` for a free, network-free brain (replies via `BRAIN_MOCK_REPLY`, or scripted tool calls via `BRAIN_MOCK_SCRIPT`) — handy for testing the dashboard, VoleNet, or the agent loop.
+The unified `paw-brain` supports all providers — set `BRAIN_PROVIDER` env var to `ollama`, `openai`, `anthropic`, `gemini`, `xai`, `claude-code`, or `antigravity`. Set `BRAIN_PROVIDER=mock` for a free, network-free brain (replies via `BRAIN_MOCK_REPLY`, or scripted tool calls via `BRAIN_MOCK_SCRIPT`) — handy for testing the dashboard, VoleNet, or the agent loop.
 
 ---
 

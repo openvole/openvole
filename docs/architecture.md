@@ -100,7 +100,7 @@ There are four categories of Paws:
 
 | Category | Examples | Role |
 |----------|----------|------|
-| **Brain** | `paw-brain` (unified: Ollama, Claude, OpenAI, Gemini, xAI) | LLM reasoning via the Think phase |
+| **Brain** | `paw-brain` (unified: Ollama, Claude, OpenAI, Gemini, xAI, Claude Code, Antigravity) | LLM reasoning via the Think phase |
 | **Channel** | Telegram, Slack, Discord | Receive messages from external platforms |
 | **Tool** | Browser, Shell, MCP, Database, Email, Scraper, Image | Tools the Brain can call |
 | **Infrastructure** | Memory, Session, Compact, Dashboard | Lifecycle hooks and internal services |

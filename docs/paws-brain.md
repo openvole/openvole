@@ -20,6 +20,7 @@ Set the provider via `BRAIN_PROVIDER` env var, or let it auto-detect from availa
 | Google Gemini | `gemini` | `GEMINI_API_KEY` |
 | xAI Grok | `xai` | `XAI_API_KEY` |
 | Claude Code (local CLI) | `claude-code` | none — uses the local `claude` CLI's own auth |
+| Antigravity (local CLI) | `antigravity` | none — uses the local `agy` CLI's own auth |
 
 > Legacy single-provider paws (`paw-ollama`, `paw-claude`, `paw-openai`, `paw-gemini`, `paw-xai`) are deprecated but still available.
 
@@ -75,6 +76,17 @@ Grant `"childProcess": true` (it spawns the CLI) and add the `CLAUDE_CODE_*` var
 #### Calling OpenVole's own tools
 
 Set **`CLAUDE_CODE_EXPOSE_TOOLS=1`** and Claude Code can call the agent's own tools (memory, schedules, VoleNet, …) as `mcp__openvole__<tool>`, alongside its built-ins. paw-brain writes a `--mcp-config` pointing the CLI at the control plane's MCP endpoint (`/mcp/<agent>`); the engine injects `VOLE_DASHBOARD_URL`, `VOLE_AGENT_ID`, and the dashboard token, so it works automatically under `vole serve`. Add `CLAUDE_CODE_EXPOSE_TOOLS`, `VOLE_DASHBOARD_URL`, `VOLE_DASHBOARD_TOKEN`, and `VOLE_AGENT_ID` to `allow.env`. See [Dashboard → Tools over MCP](./dashboard.md#tools-over-mcp).
+
+### Antigravity provider (local CLI)
+
+Set `BRAIN_PROVIDER=antigravity` (aliases `agy`, `ag`) to use the local, **authenticated Antigravity CLI** (`agy`, Google's successor to the Gemini CLI) as the brain — **no API key**; it uses the CLI's own auth. Each `think()` renders the system prompt + transcript and runs `agy --print`, returning the CLI's final answer.
+
+- **Model** — `ANTIGRAVITY_MODEL` (run `agy models` to list what your account can reach — `gemini-3.x`, `claude-*`, `gpt-oss-*`).
+- **Other env** — `ANTIGRAVITY_CMD` (default `agy`), `ANTIGRAVITY_AGENT`, `ANTIGRAVITY_EFFORT` (`low`|`medium`|`high`), `ANTIGRAVITY_MODE` (`accept-edits`|`plan`), `ANTIGRAVITY_SKIP_PERMISSIONS`, `ANTIGRAVITY_SANDBOX`, `ANTIGRAVITY_ADD_DIR`, `ANTIGRAVITY_CWD`, `ANTIGRAVITY_ARGS`, `ANTIGRAVITY_TIMEOUT_MS` (default `600000`), `ANTIGRAVITY_MAX_PROMPT_BYTES`.
+
+Grant `"childProcess": true` (it spawns the CLI) and add the `ANTIGRAVITY_*` vars you use to the paw's `allow.env`.
+
+> **No OpenVole tool access.** Unlike `claude-code`, this provider does **not** expose OpenVole's own tools to the CLI: `agy` has no per-invocation `--mcp-config`, so it runs its own agent loop with its own tools and returns a final **text** answer — it makes no OpenVole tool calls. Use it as a text/chat brain, not for an agent that must drive OpenVole tools (memory, schedules, VoleNet, sub-agents). The prompt is passed as a command-line argument, so it is bounded by `ARG_MAX` (~1 MB); an oversized prompt fails fast with a clear error — lower `loop.maxContextTokens` or raise `ANTIGRAVITY_MAX_PROMPT_BYTES`.
 
 ## BRAIN.md
 
