@@ -75,6 +75,10 @@ export class VoleNetTransport {
 	/** Resolves a full peerId to its announced display name (for /volenet/info when publishNames). */
 	private nameResolver: ((peerId: string) => string | undefined) | null = null
 	private joinHandler: JoinHandler | null = null
+	/** VoleDrop data plane — handles /volenet/blob/* streamed requests. */
+	private blobHandler:
+		| ((req: http.IncomingMessage, res: http.ServerResponse, pathname: string) => boolean)
+		| null = null
 	private msgWindow = new Map<string, number[]>()
 	private wsConnSeq = 0
 	private config: TransportConfig
@@ -94,6 +98,18 @@ export class VoleNetTransport {
 	/** Register a handler for public self-join requests (HTTP POST /volenet/join). */
 	setJoinHandler(handler: JoinHandler): void {
 		this.joinHandler = handler
+	}
+
+	/**
+	 * Register the VoleDrop blob handler for /volenet/blob/* — the file-transfer data
+	 * plane. Returns true when it handled the request. Auth (per-transfer tokens), byte
+	 * budgets, and concurrency caps are the handler's responsibility: these routes carry
+	 * large streamed bodies and deliberately bypass the JSON message pipeline.
+	 */
+	setBlobHandler(
+		fn: (req: http.IncomingMessage, res: http.ServerResponse, pathname: string) => boolean,
+	): void {
+		this.blobHandler = fn
 	}
 
 	/**
@@ -283,6 +299,27 @@ export class VoleNetTransport {
 						})
 				})
 				return
+			}
+
+			// VoleDrop data plane: /volenet/blob/<id> — streamed, token-authenticated inside
+			// the handler. Matched on the parsed pathname (never raw req.url) so query strings
+			// (?from=N resume) and encoded traversal can't dodge or confuse the route.
+			if (this.blobHandler && req.url) {
+				let pathname: string
+				try {
+					pathname = new URL(req.url, 'http://localhost').pathname
+				} catch {
+					pathname = ''
+				}
+				if (pathname.startsWith('/volenet/blob/')) {
+					const ip = req.socket.remoteAddress ?? 'unknown'
+					if (!this.rateAllow(`blob:${ip}`) || !this.globalRateAllow()) {
+						res.writeHead(429)
+						res.end()
+						return
+					}
+					if (this.blobHandler(req, res, pathname)) return
+				}
 			}
 
 			res.writeHead(404)

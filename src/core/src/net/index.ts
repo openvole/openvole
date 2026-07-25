@@ -10,6 +10,7 @@ import * as path from 'node:path'
 import { createLogger } from '../core/logger.js'
 import type { ToolRegistry } from '../tool/registry.js'
 import { type DiscoveryConfig, VoleNetDiscovery } from './discovery.js'
+import { type TransferInfo, VoleNetFiles, type VoleNetFilesConfig } from './files.js'
 import {
 	type VoleKeyPair,
 	addRelayAccept,
@@ -238,6 +239,14 @@ export interface VoleNetConfig {
 	 * without the authenticated dashboard.
 	 */
 	publishNames?: boolean
+	/**
+	 * VoleDrop — E2E-encrypted file transfer (files stream over /volenet/blob/*; the per-transfer
+	 * key is sealed with the PQ-hybrid seal). `acceptFrom` mirrors relay.acceptFrom: unset means
+	 * every offer waits for an explicit accept; '*' or a name/id-prefix list auto-accepts (use for
+	 * your own fleet). Hubs with relay enabled also store ciphertext blobs for NAT'd member pairs,
+	 * bounded by relayQuotaBytes/relayTtlHours.
+	 */
+	files?: VoleNetFilesConfig
 }
 
 /** A hub-vouched mesh member, learned from a relay hub's roster broadcast. */
@@ -301,6 +310,8 @@ export class VoleNetManager {
 	private peerConnectTimer?: ReturnType<typeof setInterval>
 	/** Periodic chat-session retention prune. */
 	private chatPruneTimer?: ReturnType<typeof setInterval>
+	/** VoleDrop file transfer engine (net.files). */
+	private files: VoleNetFiles | null = null
 
 	constructor(config: VoleNetConfig, projectRoot: string) {
 		this.config = config
@@ -904,7 +915,8 @@ export class VoleNetManager {
 			if (!this.discovery?.verifyMessageFrom(message)) return // the relay must be authorized
 			const payload = message.payload as { from?: string; box?: SealedBox }
 			if (!payload?.from || !payload.box) return
-			this.deliverSealed(payload.from, payload.box, messageBus)
+			// message.from is the delivering hub — file transfers use it for relay-mode routing.
+			this.deliverSealed(payload.from, payload.box, messageBus, message.from)
 		})
 
 		// Member side: hub-vouched member directory, enables sealed addressing of members
@@ -1039,6 +1051,41 @@ export class VoleNetManager {
 			this.leader?.reelect()
 		})
 
+		// VoleDrop — file transfer engine. Constructed with closures so it can use the
+		// manager's private relay/chat plumbing without owning any of it.
+		this.files = new VoleNetFiles({
+			config: this.config.files ?? {},
+			relayEnabled: !!this.config.relay?.enabled,
+			projectRoot: this.projectRoot,
+			netDir,
+			keyPair: this.keyPair,
+			transport: this.transport,
+			instanceName: this.config.instanceName ?? 'vole',
+			advertisedEndpoint: endpoint,
+			bus: messageBus,
+			getInstances: () => this.getInstances(),
+			resolveRelayPeer: (ref) => this.resolveRelayPeer(ref),
+			getHubForMember: (peerId) => {
+				for (const [hubId, roster] of this.hubRosters) {
+					if (!roster.has(peerId)) continue
+					const hub = this.transport?.getPeers().find((x) => x.peerId === hubId && x.connected)
+					if (hub) return hubId
+				}
+				return undefined
+			},
+			sealToMemberViaRelay: (ref, type, payload) => this.sealToMemberViaRelay(ref, type, payload),
+			appendChat: (peerId, entry) => this.appendChat(peerId, entry),
+		})
+		this.transport.setBlobHandler((req, res, pathname) =>
+			this.files ? this.files.handleBlobRequest(req, res, pathname) : false,
+		)
+		// Direct file-transfer + relay-blob control messages (relayed ones arrive via deliverSealed).
+		this.transport.onMessage((message) => {
+			if (!message.type.startsWith('file:') && !message.type.startsWith('relay:blob:')) return
+			if (!this.discovery?.verifyMessageFrom(message)) return
+			this.files?.handleMessage(message, {})
+		})
+
 		// Make VoleNet accessible to core tools via globalThis
 		;(globalThis as any).__volenet__ = this
 
@@ -1078,6 +1125,8 @@ export class VoleNetManager {
 		this.chatPruneTimer = undefined
 		if (this.rosterTimer) clearTimeout(this.rosterTimer)
 		this.rosterTimer = undefined
+		this.files?.stop()
+		this.files = null
 		this.leader?.stop()
 		this.sync?.dispose()
 		this.remoteTaskMgr?.dispose()
@@ -1100,6 +1149,41 @@ export class VoleNetManager {
 	 */
 	getInstances(): VoleNetInstance[] {
 		return this.discovery?.getInstances() ?? []
+	}
+
+	// ── VoleDrop file transfer (passthroughs to the files engine) ─────────────
+
+	/** Send a file to a peer (direct or relay-rostered). Async — completion via bus events. */
+	async sendFile(
+		peerRef: string,
+		filePath: string,
+		note?: string,
+	): Promise<{ ok: boolean; transferId?: string; error?: string }> {
+		if (!this.files) return { ok: false, error: 'VoleNet not started' }
+		return this.files.sendFile(peerRef, filePath, note)
+	}
+
+	async acceptFile(transferId: string): Promise<{ ok: boolean; error?: string }> {
+		if (!this.files) return { ok: false, error: 'VoleNet not started' }
+		return this.files.acceptFile(transferId)
+	}
+
+	async rejectFile(transferId: string, reason?: string): Promise<{ ok: boolean }> {
+		if (!this.files) return { ok: false }
+		return this.files.rejectFile(transferId, reason)
+	}
+
+	async cancelFileTransfer(transferId: string): Promise<{ ok: boolean }> {
+		if (!this.files) return { ok: false }
+		return this.files.cancelTransfer(transferId)
+	}
+
+	listFileTransfers(): TransferInfo[] {
+		return this.files?.listTransfers() ?? []
+	}
+
+	getFileTransfer(transferId: string): TransferInfo | undefined {
+		return this.files?.getTransfer(transferId)
 	}
 
 	/** Session ID for a peer's human-chat transcript (persisted via paw-session). */
@@ -1438,11 +1522,12 @@ export class VoleNetManager {
 		return [...this.relayRequests.values()].sort((a, b) => b.ts - a.ts)
 	}
 
-	/** Unseal, verify, and ingest an envelope addressed to us. v1 allowlist: chat only. */
+	/** Unseal, verify, and ingest an envelope addressed to us. Allowlist: chat, consent, files. */
 	private deliverSealed(
 		fromId: string,
 		box: SealedBox,
 		bus?: import('../core/bus.js').MessageBus,
+		viaHub?: string,
 	): void {
 		if (!this.keyPair?.xPrivateKey) return
 		const plain = unseal(
@@ -1461,12 +1546,14 @@ export class VoleNetManager {
 		} catch {
 			return
 		}
-		// Relay v1 allowlist: end-to-end chat plus the consent handshake. Nothing executable rides.
+		// Relay allowlist: end-to-end chat, the consent handshake, and file-transfer control.
+		// Nothing executable rides — file bytes stream separately with their own consent gate.
 		const permitted =
 			inner.type === 'chat:message' ||
 			inner.type === 'relay:connect-request' ||
 			inner.type === 'relay:connect-accept' ||
-			inner.type === 'relay:connect-deny'
+			inner.type === 'relay:connect-deny' ||
+			inner.type.startsWith('file:')
 		if (!permitted) {
 			logger.warn(
 				`Dropped relayed '${inner.type}' from ${fromId.substring(0, 8)} — not a permitted relay message`,
@@ -1493,6 +1580,13 @@ export class VoleNetManager {
 			logger.warn(
 				`Relayed '${inner.type}' from ${fromId.substring(0, 8)} failed signature verification`,
 			)
+			return
+		}
+
+		// File-transfer control: its own consent gate (files.acceptFrom + explicit accept)
+		// lives in VoleNetFiles — the chat relay-consent below does not apply to files.
+		if (inner.type.startsWith('file:')) {
+			this.files?.handleMessage(inner, { relayed: true, viaHub })
 			return
 		}
 

@@ -47,6 +47,44 @@ export type BusEvents = {
 	'volenet:relay:accepted': { from: string; fromName: string }
 	/** A relay member denied this agent's connect-request. */
 	'volenet:relay:denied': { from: string; fromName: string }
+	/** VoleDrop: a peer offered a file (auto=true when acceptFrom auto-accepted it). */
+	'volenet:file:offer': {
+		transferId: string
+		from: string
+		fromName: string
+		name: string
+		size: number
+		note?: string
+		auto: boolean
+	}
+	/** VoleDrop: transfer progress (throttled to ~2/sec per transfer). */
+	'volenet:file:progress': {
+		transferId: string
+		dir: 'send' | 'recv'
+		bytes: number
+		totalBytes: number
+		pct: number
+	}
+	/** VoleDrop: a file landed in the inbox (sha256-verified). */
+	'volenet:file:received': {
+		transferId: string
+		from: string
+		fromName: string
+		name: string
+		path: string
+		size: number
+		sha256: string
+	}
+	/** VoleDrop: the peer verified and stored a file this agent sent. */
+	'volenet:file:sent': {
+		transferId: string
+		to: string
+		toName: string
+		name: string
+		size: number
+	}
+	'volenet:file:failed': { transferId: string; dir: 'send' | 'recv'; code: string; detail?: string }
+	'volenet:file:rejected': { transferId: string; by: string; reason: string }
 	'rate:limited': { bucket: string; source?: string }
 	'engine:restart': Record<string, never>
 }

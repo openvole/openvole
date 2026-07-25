@@ -26,6 +26,12 @@ const FORWARDED_EVENTS: Array<keyof BusEvents> = [
 	'volenet:relay:accepted',
 	'volenet:relay:denied',
 	'volenet:relay:error',
+	'volenet:file:offer',
+	'volenet:file:progress',
+	'volenet:file:received',
+	'volenet:file:sent',
+	'volenet:file:failed',
+	'volenet:file:rejected',
 ]
 
 /** Aggregate engine state for the dashboard (shape matches PawRegistry.handleQuery). */
@@ -298,6 +304,33 @@ export function installControlAdapter(engine: VoleEngine, projectRoot: string): 
 					const vn = (globalThis as any).__volenet__
 					if (vn?.isActive()) await vn.clearChat(params.peerId as string)
 					result = { ok: true }
+					break
+				}
+				case 'volenet_file_send': {
+					const vn = (globalThis as any).__volenet__
+					if (!vn?.isActive()) throw new Error('VoleNet is not active in this agent')
+					result = await vn.sendFile(
+						params.peerId as string,
+						params.path as string,
+						params.note as string | undefined,
+					)
+					break
+				}
+				case 'volenet_file_accept': {
+					const vn = (globalThis as any).__volenet__
+					if (!vn?.isActive()) throw new Error('VoleNet is not active in this agent')
+					result = await vn.acceptFile(params.transferId as string)
+					break
+				}
+				case 'volenet_file_reject': {
+					const vn = (globalThis as any).__volenet__
+					if (!vn?.isActive()) throw new Error('VoleNet is not active in this agent')
+					result = await vn.rejectFile(params.transferId as string)
+					break
+				}
+				case 'volenet_file_status': {
+					const vn = (globalThis as any).__volenet__
+					result = { ok: true, transfers: vn?.isActive() ? vn.listFileTransfers() : [] }
 					break
 				}
 				case 'tools_mcp':

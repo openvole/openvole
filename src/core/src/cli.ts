@@ -168,6 +168,7 @@ VoleNet (distributed networking):
   vole net show-key                      Display public key (share with peers)
   vole net trust <key>                   Trust a peer's public key
   vole net join <url>                    Join a public hub (register, trust, add as peer)
+  vole net send <file> --to <peer> --agent <name>   Send a file E2E-encrypted (VoleDrop; --wait to follow)
   vole net revoke <id>                   Remove trust for a peer
   vole net peers                         List trusted peers
   vole net status                        Network status overview
@@ -1343,6 +1344,105 @@ async function handleNetCommand(args: string[], projectRoot: string): Promise<vo
 			break
 		}
 
+		case 'send': {
+			// vole net send <file> --to <peer> [--note <text>] [--agent <name>] [--wait]
+			// Talks to the RUNNING agent through the control plane's MCP endpoint (the only
+			// authenticated CLI→engine tool path), so the transfer runs inside the engine.
+			const file = args[1]
+			const toIdx = args.indexOf('--to')
+			const to = toIdx >= 0 ? args[toIdx + 1] : undefined
+			if (!file || file.startsWith('--') || !to) {
+				logger.error('Usage: vole net send <file> --to <peer> [--note <text>] [--agent <name>] [--wait]')
+				process.exit(1)
+			}
+			const noteIdx = args.indexOf('--note')
+			const note = noteIdx >= 0 ? args[noteIdx + 1] : undefined
+			const agentIdx = args.indexOf('--agent')
+			const agentArg = agentIdx >= 0 ? args[agentIdx + 1] : undefined
+			const wait = args.includes('--wait')
+			const absPath = path.resolve(process.cwd(), file)
+
+			const fsp = await import('node:fs/promises')
+			const os = await import('node:os')
+			const home = process.env.VOLE_HOME ?? os.homedir()
+			const tokenFile = path.join(home, '.openvole', 'dashboard-token')
+			let token: string
+			try {
+				token = (await fsp.readFile(tokenFile, 'utf8')).trim()
+			} catch {
+				logger.error('No dashboard token — is `vole serve` running on this machine?')
+				process.exit(1)
+			}
+			const port = Number(process.env.VOLE_DASHBOARD_PORT) || 3000
+			const mcpCall = async (tool: string, argsObj: Record<string, unknown>) => {
+				const res = await fetch(`http://127.0.0.1:${port}/mcp/${encodeURIComponent(agentArg ?? '')}?token=${encodeURIComponent(token)}`, {
+					method: 'POST',
+					headers: {
+						'content-type': 'application/json',
+						accept: 'application/json, text/event-stream',
+					},
+					body: JSON.stringify({
+						jsonrpc: '2.0',
+						id: 1,
+						method: 'tools/call',
+						params: { name: tool, arguments: argsObj },
+					}),
+					signal: AbortSignal.timeout(20_000),
+				})
+				const text = await res.text()
+				if (!res.ok) throw new Error(`MCP HTTP ${res.status}: ${text.slice(0, 200)}`)
+				// Stateless MCP replies JSON (or a single SSE data: line) — parse either.
+				const jsonText = text.startsWith('event:')
+					? (text.split('\n').find((l) => l.startsWith('data:')) ?? '').slice(5)
+					: text
+				const rpc = JSON.parse(jsonText) as {
+					result?: { content?: Array<{ text?: string }> }
+					error?: { message?: string }
+				}
+				if (rpc.error) throw new Error(rpc.error.message ?? 'MCP error')
+				const body = rpc.result?.content?.[0]?.text
+				return body ? JSON.parse(body) : {}
+			}
+
+			if (!agentArg) {
+				logger.error('Pass --agent <name> (the serve agent that should send the file).')
+				process.exit(1)
+			}
+			const sent = (await mcpCall('net_send_file', { to, path: absPath, note })) as {
+				ok?: boolean
+				transferId?: string
+				error?: string
+			}
+			if (!sent.ok || !sent.transferId) {
+				logger.error(`Send failed: ${sent.error ?? 'unknown error'}`)
+				process.exit(1)
+			}
+			logger.info(`Transfer started: ${sent.transferId}`)
+			if (!wait) {
+				logger.info('Track it with: vole net send --wait, or the dashboard VoleNet tab.')
+				break
+			}
+			for (;;) {
+				await new Promise((r) => setTimeout(r, 2000))
+				const st = (await mcpCall('net_file_status', { transfer_id: sent.transferId })) as {
+					transfer?: { state: string; bytesDone: number; size: number; error?: string; savedPath?: string }
+				}
+				const t = st.transfer
+				if (!t) continue
+				process.stdout.write(`\r${t.state} — ${t.bytesDone}/${t.size} bytes        `)
+				if (['done', 'failed', 'rejected', 'cancelled', 'expired'].includes(t.state)) {
+					process.stdout.write('\n')
+					if (t.state !== 'done') {
+						logger.error(`Transfer ${t.state}${t.error ? `: ${t.error}` : ''}`)
+						process.exit(1)
+					}
+					logger.info('Delivered ✓')
+					break
+				}
+			}
+			break
+		}
+
 		case 'join': {
 			const url = args[1]
 			if (!url || url.startsWith('--')) {
@@ -1370,7 +1470,24 @@ async function handleNetCommand(args: string[], projectRoot: string): Promise<vo
 					headers: { 'Content-Type': 'application/json' },
 					body: JSON.stringify({ publicKey: keyPair.publicKeyString, name }),
 				})
-				resp = (await r.json()) as typeof resp
+				const text = await r.text()
+				// A node WITHOUT publicJoin answers this route with an empty 404 — turn the
+				// resulting JSON-parse confusion into the actual explanation.
+				if (r.status === 404 || !text.trim()) {
+					logger.error(`${base} is not a public hub (publicJoin is not enabled there).`)
+					logger.error('To connect two of your OWN nodes, use static trust instead:')
+					logger.error('  1. On each node:  vole net show-key')
+					logger.error('  2. On each node:  vole net trust "<the other node\'s key>"')
+					logger.error('  3. Add the other node\'s URL under net.peers in vole.config.json')
+					process.exit(1)
+				}
+				try {
+					resp = JSON.parse(text) as typeof resp
+				} catch {
+					logger.error(`Hub replied with non-JSON (HTTP ${r.status}): ${text.slice(0, 120)}`)
+					process.exit(1)
+					return
+				}
 				if (!r.ok) {
 					logger.error(`Join failed (${r.status}): ${resp?.error ?? 'unknown error'}`)
 					process.exit(1)

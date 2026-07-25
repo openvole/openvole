@@ -868,6 +868,10 @@ export function getDashboardHtml(wsPort: number): string {
   .vn-info { flex: 0 0 auto; color: var(--text-dim); cursor: pointer; font-size: 13px; padding: 0 2px; }
   .vn-info:hover { color: var(--accent); }
   .vn-msg-relayed { font-size: 10px; color: var(--accent3, #d2a8ff); margin: 0 0 2px 2px; }
+  .vn-file-bubble { border: 1px dashed var(--border); }
+  .vn-file-state { font-size: 11px; color: var(--text-dim); margin-top: 3px; word-break: break-all; }
+  .vn-file-actions { display: flex; gap: 6px; margin-top: 6px; }
+  .vn-file-actions button { font-size: 11px; padding: 3px 10px; }
   .vn-group-req { color: var(--accent); }
   .vn-req { margin: 2px 6px 8px; padding: 8px 10px; border: 1px solid var(--accent3, #d2a8ff); border-radius: 8px; background: color-mix(in srgb, var(--accent3, #d2a8ff) 8%, transparent); }
   .vn-req-top { display: flex; align-items: baseline; gap: 6px; }
@@ -1068,6 +1072,8 @@ export function getDashboardHtml(wsPort: number): string {
         <div class="vn-chat-head" id="vn-chat-head">Select a node to chat</div>
         <div class="chat-messages" id="vn-messages"><div class="vn-empty">Pick a node on the left to start chatting.</div></div>
         <div class="chat-composer" id="vn-composer" style="display:none">
+          <button class="btn-restart" id="vn-attach" title="Send a file (VoleDrop)" onclick="document.getElementById('vn-file').click()">&#128206;</button>
+          <input type="file" id="vn-file" style="display:none" onchange="uploadVnFile(this)">
           <input type="text" class="form-input" id="vn-input" placeholder="Message this node&hellip;" onkeydown="if(event.key==='Enter'){sendVolenetChat();}">
           <button class="btn-primary" id="vn-send" onclick="sendVolenetChat()">Send</button>
         </div>
@@ -1499,6 +1505,22 @@ export function getDashboardHtml(wsPort: number): string {
             <input type="number" class="form-input" id="cfg-net-cr-maxMessages" placeholder="1000" min="1" style="width:160px">
             <label class="form-label" style="margin-top:6px">maxAgeDays</label>
             <input type="number" class="form-input" id="cfg-net-cr-maxAgeDays" placeholder="90" min="1" style="width:160px">
+          </div>
+          <div class="form-field">
+            <label class="form-label">net.files (VoleDrop)</label>
+            <div class="form-help">E2E-encrypted file transfer. acceptFrom auto-accepts offers (blank = every offer needs an explicit accept; use * or a name/id list for your own fleet). Files land in inboxDir, sha256-verified.</div>
+            <div class="form-checkbox-row"><input type="checkbox" class="form-checkbox" id="cfg-net-files-enabled" checked><label class="form-checkbox-label" for="cfg-net-files-enabled">enabled</label></div>
+            <label class="form-label" style="margin-top:6px">inboxDir</label>
+            <input type="text" class="form-input" id="cfg-net-files-inboxDir" placeholder=".openvole/net/inbox">
+            <label class="form-label" style="margin-top:6px">acceptFrom</label>
+            <input type="text" class="form-input" id="cfg-net-files-acceptFrom" placeholder="acceptFrom (blank, * , or name,id-prefix,…)">
+            <label class="form-label" style="margin-top:6px">maxBytes</label>
+            <input type="number" class="form-input" id="cfg-net-files-maxBytes" placeholder="268435456" min="1" style="width:200px">
+            <label class="form-label" style="margin-top:6px">relayQuotaBytes (hub) / relayTtlHours (hub)</label>
+            <div style="display:flex;gap:8px">
+              <input type="number" class="form-input" id="cfg-net-files-relayQuotaBytes" placeholder="536870912" min="1" style="width:200px">
+              <input type="number" class="form-input" id="cfg-net-files-relayTtlHours" placeholder="24" min="1" style="width:120px">
+            </div>
           </div>
           <div class="form-field">
             <label class="form-label">net.routing</label>
@@ -2319,6 +2341,110 @@ function volenetOnMessage(data, agentId) {
     renderVnPeerList();
     showToast('Message from ' + (data.fromName || 'a node'), 'success');
   }
+}
+
+/* ── VoleDrop file transfer (chat attachments) ── */
+var vnTransfers = {};  // transferId -> bubble state element
+
+function humanBytes(n) {
+  if (n < 1024) return n + ' B';
+  if (n < 1048576) return (n / 1024).toFixed(1) + ' KB';
+  if (n < 1073741824) return (n / 1048576).toFixed(1) + ' MB';
+  return (n / 1073741824).toFixed(2) + ' GB';
+}
+
+// A DOM-built file bubble (textContent only for user data). t: {transferId, name, size, state, from?}
+function addVnFileBubble(dir, t) {
+  var box = document.getElementById('vn-messages');
+  if (!box) return null;
+  var empty = box.querySelector('.vn-empty');
+  if (empty) empty.remove();
+  var el = document.createElement('div');
+  el.className = 'chat-msg chat-msg-' + (dir === 'out' ? 'user' : 'brain') + ' vn-file-bubble';
+  var name = document.createElement('div');
+  name.textContent = '📎 ' + t.name + '  (' + humanBytes(t.size) + ')';
+  el.appendChild(name);
+  var state = document.createElement('div');
+  state.className = 'vn-file-state';
+  state.textContent = t.state || '';
+  el.appendChild(state);
+  if (dir === 'in' && t.pending) {
+    var row = document.createElement('div');
+    row.className = 'vn-file-actions';
+    var acc = document.createElement('button');
+    acc.className = 'btn-primary';
+    acc.textContent = 'Accept';
+    acc.onclick = function() { vnFileDecide(t.transferId, true, el); };
+    var rej = document.createElement('button');
+    rej.className = 'btn-restart';
+    rej.textContent = 'Decline';
+    rej.onclick = function() { vnFileDecide(t.transferId, false, el); };
+    row.appendChild(acc); row.appendChild(rej);
+    el.appendChild(row);
+  }
+  box.appendChild(el);
+  box.scrollTop = box.scrollHeight;
+  vnTransfers[t.transferId] = el;
+  return el;
+}
+
+function vnFileDecide(transferId, accept, el) {
+  var actions = el.querySelector('.vn-file-actions');
+  if (actions) actions.remove();
+  sendCommand(accept ? 'net_file_accept' : 'net_file_reject', { transferId: transferId }).then(function(res) {
+    if (res && res.ok === false) vnFileState(transferId, 'failed: ' + (res.error || 'unknown'));
+    else if (!accept) vnFileState(transferId, 'declined');
+    else vnFileState(transferId, 'accepted — downloading…');
+  }).catch(function(e) { vnFileState(transferId, 'failed: ' + e.message); });
+}
+
+function vnFileState(transferId, text) {
+  var el = vnTransfers[transferId];
+  if (!el) return;
+  var s = el.querySelector('.vn-file-state');
+  if (s) s.textContent = text;
+}
+
+function uploadVnFile(input) {
+  var file = input.files && input.files[0];
+  input.value = '';
+  if (!file || !vnSelectedPeer) return;
+  var token = new URLSearchParams(location.search).get('token') || '';
+  var el = addVnFileBubble('out', { transferId: 'up-' + Date.now(), name: file.name, size: file.size, state: 'uploading…' });
+  fetch('/upload/' + encodeURIComponent(currentAgentId || '') + '?token=' + encodeURIComponent(token) + '&name=' + encodeURIComponent(file.name), {
+    method: 'POST', body: file
+  }).then(function(r) { return r.json(); }).then(function(up) {
+    if (!up || !up.ok) throw new Error((up && up.error) || 'upload failed');
+    return sendCommand('net_file_send', { peerId: vnSelectedPeer, path: up.path });
+  }).then(function(res) {
+    if (!res || res.ok === false) throw new Error((res && res.error) || 'send failed');
+    // Rebind the optimistic bubble to the real transferId for event updates.
+    if (el) { vnTransfers[res.transferId] = el; }
+    vnFileState(res.transferId, 'offered — waiting for the peer…');
+  }).catch(function(e) {
+    if (el) { el.className = 'chat-msg chat-msg-error'; el.querySelector('.vn-file-state').textContent = e.message; }
+  });
+}
+
+function volenetOnFileEvent(event, data, agentId) {
+  if (!data) return;
+  if (agentId !== undefined && currentAgentId && agentId !== currentAgentId) return;
+  if (event === 'volenet:file:offer') {
+    var show = data.from === vnSelectedPeer && currentTab === 'volenet';
+    if (show) {
+      addVnFileBubble('in', { transferId: data.transferId, name: data.name, size: data.size, state: data.auto ? 'receiving…' : 'offer — accept?', pending: !data.auto });
+    } else {
+      vnUnread[data.from] = (vnUnread[data.from] || 0) + 1;
+      renderVnPeerList();
+      showToast('📎 File offer from ' + (data.fromName || 'a node') + (data.auto ? '' : ' — open VoleNet to accept'), 'success');
+    }
+    return;
+  }
+  if (event === 'volenet:file:progress') { vnFileState(data.transferId, (data.dir === 'send' ? 'sending' : 'receiving') + ' ' + data.pct + '%'); return; }
+  if (event === 'volenet:file:received') { vnFileState(data.transferId, 'received ✓ → ' + data.path); return; }
+  if (event === 'volenet:file:sent') { vnFileState(data.transferId, 'delivered ✓'); return; }
+  if (event === 'volenet:file:failed') { vnFileState(data.transferId, 'failed: ' + data.code); return; }
+  if (event === 'volenet:file:rejected') { vnFileState(data.transferId, 'declined by peer'); return; }
 }
 
 /* ── Relay consent handshake ── */
@@ -3323,6 +3449,14 @@ function populateNet(net) {
   var cr = n.chatRetention || {};
   document.getElementById('cfg-net-cr-maxMessages').value = cr.maxMessages != null ? cr.maxMessages : '';
   document.getElementById('cfg-net-cr-maxAgeDays').value = cr.maxAgeDays != null ? cr.maxAgeDays : '';
+  var nf = n.files || {};
+  document.getElementById('cfg-net-files-enabled').checked = nf.enabled !== false;
+  document.getElementById('cfg-net-files-inboxDir').value = nf.inboxDir || '';
+  document.getElementById('cfg-net-files-acceptFrom').value =
+    nf.acceptFrom === '*' ? '*' : (Array.isArray(nf.acceptFrom) ? nf.acceptFrom.join(', ') : '');
+  document.getElementById('cfg-net-files-maxBytes').value = nf.maxBytes != null ? nf.maxBytes : '';
+  document.getElementById('cfg-net-files-relayQuotaBytes').value = nf.relayQuotaBytes != null ? nf.relayQuotaBytes : '';
+  document.getElementById('cfg-net-files-relayTtlHours').value = nf.relayTtlHours != null ? nf.relayTtlHours : '';
   document.getElementById('net-peers').innerHTML = '';
   (n.peers || []).forEach(function(p) { addNetPeer(p); });
   document.getElementById('net-routing').innerHTML = '';
@@ -3466,6 +3600,21 @@ function readNetFromForm() {
   if (!isNaN(crAge)) cr.maxAgeDays = crAge;
   if (Object.keys(cr).length > 0) net.chatRetention = cr;
 
+  var nf = {};
+  if (!document.getElementById('cfg-net-files-enabled').checked) nf.enabled = false;
+  var nfInbox = document.getElementById('cfg-net-files-inboxDir').value.trim();
+  if (nfInbox) nf.inboxDir = nfInbox;
+  var nfAccept = document.getElementById('cfg-net-files-acceptFrom').value.trim();
+  if (nfAccept === '*') nf.acceptFrom = '*';
+  else if (nfAccept) nf.acceptFrom = nfAccept.split(',').map(function(s) { return s.trim(); }).filter(Boolean);
+  var nfMax = parseInt(document.getElementById('cfg-net-files-maxBytes').value, 10);
+  if (!isNaN(nfMax)) nf.maxBytes = nfMax;
+  var nfQuota = parseInt(document.getElementById('cfg-net-files-relayQuotaBytes').value, 10);
+  if (!isNaN(nfQuota)) nf.relayQuotaBytes = nfQuota;
+  var nfTtl = parseInt(document.getElementById('cfg-net-files-relayTtlHours').value, 10);
+  if (!isNaN(nfTtl)) nf.relayTtlHours = nfTtl;
+  if (Object.keys(nf).length > 0) net.files = nf;
+
   var routing = {};
   var rrows = document.querySelectorAll('#net-routing .net-route');
   for (var r = 0; r < rrows.length; r++) {
@@ -3475,8 +3624,18 @@ function readNetFromForm() {
   }
   if (Object.keys(routing).length > 0) net.routing = routing;
 
+  // Carry nested share keys the form does not model (the checkboxes rebuild share from
+  // scratch, which silently dropped share.toolAllow on every save).
+  if (loadedNet.share && loadedNet.share.toolAllow) {
+    net.share = net.share || {};
+    net.share.toolAllow = loadedNet.share.toolAllow;
+  }
+
   // Forward-compat: preserve any keys we don't manage so saving never drops them.
-  var managed = { enabled: 1, instanceName: 1, role: 1, port: 1, hostname: 1, publicUrl: 1, keyPath: 1, peers: 1, share: 1, brainSource: 1, discovery: 1, leader: 1, heartbeatMode: 1, brainMode: 1, taskOverflow: 1, maxQueuedTasks: 1, tls: 1, routing: 1, maxConnections: 1, authTimeoutMs: 1, maxMessagesPerSecond: 1, publicJoin: 1, relay: 1, chatRetention: 1 };
+  // encrypt/publishNames/files ARE managed by the form — leaving them out of this map let
+  // the preserve loop overwrite the checkboxes with stale on-disk values (both toggles
+  // were silently non-functional from the dashboard).
+  var managed = { enabled: 1, instanceName: 1, role: 1, port: 1, hostname: 1, publicUrl: 1, keyPath: 1, peers: 1, share: 1, brainSource: 1, discovery: 1, leader: 1, heartbeatMode: 1, brainMode: 1, taskOverflow: 1, maxQueuedTasks: 1, tls: 1, routing: 1, maxConnections: 1, authTimeoutMs: 1, maxMessagesPerSecond: 1, publicJoin: 1, relay: 1, chatRetention: 1, encrypt: 1, publishNames: 1, files: 1 };
   for (var mk in loadedNet) if (!managed[mk]) net[mk] = loadedNet[mk];
   return net;
 }
@@ -3703,6 +3862,11 @@ ws.onmessage = function(evt) {
     if (msg.event === 'volenet:relay:request' || msg.event === 'volenet:relay:accepted'
         || msg.event === 'volenet:relay:denied') {
       volenetOnRelayEvent(msg.event, msg.data, msg.agentId);
+    }
+    if (msg.event && msg.event.indexOf('volenet:file:') === 0) {
+      volenetOnFileEvent(msg.event, msg.data, msg.agentId);
+      // Progress events would flood the Live Events feed — surface the rest only.
+      if (msg.event === 'volenet:file:progress') return;
     }
     if (!currentAgentId || msg.agentId === undefined || msg.agentId === currentAgentId) {
       addEvent(msg.event, msg.data);

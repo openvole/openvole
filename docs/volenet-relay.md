@@ -146,6 +146,16 @@ sequenceDiagram
 - Enforcement is recipient-side, which keeps the hub blind. An unaccepted sender's chat is held (not
   bounced), surfacing as a request; a directly-trusted peer skips the handshake entirely.
 
+## 2.6 — Relay blobs (shipped 4.13.0)
+
+File transfer between two NAT'd members rides the same blindness contract: the sender uploads
+**pre-encrypted chunk frames** to the hub (`relay:blob:create` → grant → streamed POST), the
+receiver fetches and decrypts them, and the hub deletes the blob on the receiver's confirmation.
+The per-transfer key travels sealed end-to-end (PQ-hybrid) inside the members' `file:offer`
+envelope — the hub allocates and serves storage it can never read, bounded by a per-pair quota
+(`files.relayQuotaBytes`, default 512 MiB) and a TTL sweep (`files.relayTtlHours`, default 24h).
+See [VoleNet → File Transfer](/volenet#file-transfer-voledrop).
+
 ## 3 — Direct upgrade
 
 Discovery already exchanges endpoints. Pairs periodically retry the direct path; on the first

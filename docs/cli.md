@@ -265,6 +265,16 @@ Join a public mesh hub: registers with the hub over HTTP, trusts its key, and ad
 vole net join https://hub.example.com:9700 --name my-laptop
 ```
 
+### `vole net send`
+
+Send a file to a peer, end-to-end encrypted ([VoleDrop](/volenet#file-transfer-voledrop)). Requires a running `vole serve` on this machine — the transfer executes inside the named agent's engine, so it keeps running after the CLI exits.
+
+```bash
+vole net send recording.mkv --to video-editor --agent gaming-pc [--note "ep 12"] [--wait]
+```
+
+`--wait` polls until the transfer reaches a terminal state. The receiver must consent (its `net.files.acceptFrom`, or an explicit accept in its dashboard/tools).
+
 ### `vole net revoke`
 
 Remove trust for a peer by instance ID or key.

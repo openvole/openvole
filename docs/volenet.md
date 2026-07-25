@@ -409,6 +409,22 @@ The peer receives it framed as a peer message and runs it through its own Brain 
 
 [`vole serve`](/dashboard)'s **VoleNet tab** lists connected peers and lets a **human** chat with another node directly. The message lands in that node's VoleNet tab for a person to answer — the Brain is never invoked, so there's **no LLM cost**. Transcripts persist via paw-session (per-peer `volenet:<peerId>` sessions), capped and pruned by [`net.chatRetention`](/configuration#chat-retention) (default: last 1000/peer, cleared after 90 days idle). Useful for operators of different nodes to talk, or to exercise the mesh for free with the [mock brain](/paws-brain#mock-provider-testing).
 
+## File Transfer (VoleDrop)
+
+Send a file from one vole to another — machine-independently, end-to-end encrypted, with the receiver being an *agent inbox* rather than a Downloads folder. Two surfaces over one primitive:
+
+- **Agent:** `net_send_file({ to, path, note? })` → returns a `transferId` immediately; completion arrives as `volenet:file:*` events (check `net_file_status`). Pending offers are accepted/declined with `net_accept_file` / `net_reject_file`.
+- **Human:** the 📎 button in the dashboard VoleNet chat — attach, the peer sees the offer as a chat bubble with Accept/Decline, progress updates live.
+- **CLI:** `vole net send <file> --to <peer> --agent <name> [--wait]` (through a running `vole serve`).
+
+**How it moves.** Control messages ride the ordinary signed channel; the bulk bytes stream over `/volenet/blob/*` as chunked chacha20-poly1305 frames. The per-transfer key is sealed with the **PQ-hybrid seal** (X25519 + ML-KEM-768), so file confidentiality never depends on `net.encrypt` or TLS. Integrity is double-checked: a per-chunk AEAD tag plus a whole-file sha256 verified before the file lands. Interrupted transfers resume from the last complete chunk.
+
+**Direction is negotiated automatically**: the receiver pulls from the sender when the sender's endpoint is reachable; the sender pushes when only the receiver is reachable; and two NAT'd members of a relay hub exchange through the hub — which stores **ciphertext only** (per-pair quota `files.relayQuotaBytes`, TTL `files.relayTtlHours`), exactly as blind as relayed chat.
+
+**Consent.** `net.files.acceptFrom` mirrors `relay.acceptFrom`: unset (default) means every offer waits for an explicit accept; `"*"` or a name/id-prefix list auto-accepts — use that for your own fleet. Offers are only possible from authorized peers in the first place (every control message is signature-verified). Received files land in `net.files.inboxDir` (default `.openvole/net/inbox`) with sanitized names, size-capped by `net.files.maxBytes` (default 256 MiB), and are never executed.
+
+> Reverse-proxied hubs (the [`/mesh` pattern](#behind-a-reverse-proxy-hiding-the-volenet-port)): raise nginx's `client_max_body_size` for the `/mesh/volenet/blob/` path, or relay uploads will be rejected at the proxy.
+
 ## Memory Sync
 
 When `share.memory` is enabled:

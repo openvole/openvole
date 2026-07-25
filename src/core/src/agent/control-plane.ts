@@ -1,4 +1,5 @@
 import type { ChildProcess } from 'node:child_process'
+import * as path from 'node:path'
 import {
 	type AgentSummary,
 	type DashboardServer,
@@ -102,6 +103,19 @@ export class ControlPlane {
 					this.callAgent(id, 'volenet_relay_approve', { peerId }),
 				volenetRelayDeny: (peerId, id) => this.callAgent(id, 'volenet_relay_deny', { peerId }),
 				volenetRelayRevoke: (peerId, id) => this.callAgent(id, 'volenet_relay_revoke', { peerId }),
+				volenetFileSend: (peerId, filePath, note, id) =>
+					this.callAgent(id, 'volenet_file_send', { peerId, path: filePath, note }),
+				volenetFileAccept: (transferId, id) =>
+					this.callAgent(id, 'volenet_file_accept', { transferId }),
+				volenetFileReject: (transferId, id) =>
+					this.callAgent(id, 'volenet_file_reject', { transferId }),
+				volenetFileStatus: (id) => this.callAgent(id, 'volenet_file_status'),
+				resolveUploadDir: async (agentId) => {
+					const reg = await this.manager.readRegistry()
+					const entry = reg.agents.find((s) => s.id === agentId || s.name === agentId)
+					if (!entry) throw new Error(`Unknown agent: ${agentId}`)
+					return path.join(entry.path, '.openvole', 'net', 'files', 'outbox')
+				},
 				getPanelHtml: (agentId, paw) => this.callAgent(agentId, 'panel_html', { paw }),
 				listMcpTools: (agentId) => this.callAgent(agentId, 'tools_mcp'),
 				callPawTool: (agentId, name, params) => this.callAgent(agentId, 'tool', { name, params }),

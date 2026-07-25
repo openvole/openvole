@@ -55,6 +55,18 @@ export interface DashboardCallbacks {
 	volenetRelayApprove?: (peerId: string, agentId?: string) => Promise<unknown>
 	volenetRelayDeny?: (peerId: string, agentId?: string) => Promise<unknown>
 	volenetRelayRevoke?: (peerId: string, agentId?: string) => Promise<unknown>
+	/** VoleDrop file transfer. */
+	volenetFileSend?: (
+		peerId: string,
+		filePath: string,
+		note: string | undefined,
+		agentId?: string,
+	) => Promise<unknown>
+	volenetFileAccept?: (transferId: string, agentId?: string) => Promise<unknown>
+	volenetFileReject?: (transferId: string, agentId?: string) => Promise<unknown>
+	volenetFileStatus?: (agentId?: string) => Promise<unknown>
+	/** Where browser uploads spool before net_file_send (the agent's files outbox). */
+	resolveUploadDir?: (agentId: string) => Promise<string>
 	getPanelHtml?: (agentId: string, paw: string) => Promise<unknown>
 	/** Tools with real JSON-schema parameters for the MCP bridge (falls back to fetchState). */
 	listMcpTools?: (agentId?: string) => Promise<unknown>
@@ -265,6 +277,60 @@ export function createDashboardServer(
 			return
 		}
 
+		// VoleDrop: browser → agent-outbox upload spool. The file streams to disk (never
+		// buffered), then the UI issues net_file_send with the returned path. Token AND
+		// same-origin gated — this endpoint writes to the filesystem.
+		if (req.method === 'POST' && req.url?.startsWith('/upload/')) {
+			if (!tokenOk(req) || !sameOrigin(req) || !callbacks.resolveUploadDir) {
+				res.writeHead(callbacks.resolveUploadDir ? 401 : 404)
+				res.end()
+				return
+			}
+			void (async () => {
+				try {
+					const u = new URL(req.url as string, 'http://localhost')
+					const agentId = decodeURIComponent(u.pathname.split('/')[2] ?? '')
+					const rawName = u.searchParams.get('name') ?? 'file'
+					// biome-ignore lint/suspicious/noControlCharactersInRegex: stripping control chars
+					const base = path.basename(rawName).replace(/[\x00-\x1f/\\]/g, '') || 'file'
+					const dir = await callbacks.resolveUploadDir?.(agentId)
+					if (!dir) throw new Error('no upload dir')
+					fs.mkdirSync(dir, { recursive: true })
+					const dest = path.join(dir, `${Date.now().toString(36)}-${base}`)
+					const MAX_UPLOAD_BYTES = 512 * 1024 * 1024
+					const { pipeline } = await import('node:stream/promises')
+					const { Transform } = await import('node:stream')
+					// Budget enforced INSIDE the pipeline — a bare req.on('data') counter would
+					// start the stream flowing and drop bytes across the awaits above.
+					let received = 0
+					const budget = new Transform({
+						transform(chunk: Buffer, _enc, cb) {
+							received += chunk.length
+							if (received > MAX_UPLOAD_BYTES) cb(new Error('upload too large'))
+							else cb(null, chunk)
+						},
+					})
+					try {
+						await pipeline(req, budget, fs.createWriteStream(dest))
+					} catch (err) {
+						fs.rmSync(dest, { force: true })
+						throw err
+					}
+					res.writeHead(200, { 'Content-Type': 'application/json' })
+					res.end(JSON.stringify({ ok: true, path: dest, name: base, size: received }))
+				} catch (err) {
+					if (!res.headersSent) res.writeHead(400, { 'Content-Type': 'application/json' })
+					res.end(
+						JSON.stringify({
+							ok: false,
+							error: err instanceof Error ? err.message : 'upload failed',
+						}),
+					)
+				}
+			})()
+			return
+		}
+
 		// Embedded paw panels: /panel/<agent>/<encodedPaw>/  and  .../tool/<name>
 		if (req.url?.startsWith('/panel/')) {
 			const isTool = req.url.includes('/tool/')
@@ -408,6 +474,24 @@ export function createDashboardServer(
 					respond(await callbacks.volenetRelayRevoke?.(p?.peerId, sel()))
 					break
 				}
+				case 'net_file_send': {
+					const p = cmd.params as { peerId: string; path: string; note?: string }
+					respond(await callbacks.volenetFileSend?.(p?.peerId, p?.path, p?.note, sel()))
+					break
+				}
+				case 'net_file_accept': {
+					const p = cmd.params as { transferId: string }
+					respond(await callbacks.volenetFileAccept?.(p?.transferId, sel()))
+					break
+				}
+				case 'net_file_reject': {
+					const p = cmd.params as { transferId: string }
+					respond(await callbacks.volenetFileReject?.(p?.transferId, sel()))
+					break
+				}
+				case 'net_file_status':
+					respond(await callbacks.volenetFileStatus?.(sel()))
+					break
 				case 'select_agent': {
 					const p = cmd.params as { agentId?: string }
 					selected.set(ws, p?.agentId)

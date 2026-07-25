@@ -50,6 +50,22 @@ export type VoleNetMessageType =
 	| 'relay:connect-request'
 	| 'relay:connect-accept'
 	| 'relay:connect-deny'
+	// VoleDrop file transfer — control plane. Peer↔peer; the bulk bytes never ride
+	// messages (they stream over /volenet/blob/*). Auto-sealed when net.encrypt is on.
+	| 'file:offer'
+	| 'file:accept'
+	| 'file:reject'
+	| 'file:relay-ready'
+	| 'file:done'
+	| 'file:error'
+	| 'file:cancel'
+	// Relay-blob control — member↔hub direct messages (never relayed inner payloads):
+	// the hub allocates/serves ciphertext blob storage for NAT'd member pairs.
+	| 'relay:blob:create'
+	| 'relay:blob:grant'
+	| 'relay:blob:deny'
+	| 'relay:blob:fetch'
+	| 'relay:blob:done'
 
 export interface VoleNetMessage {
 	version: number

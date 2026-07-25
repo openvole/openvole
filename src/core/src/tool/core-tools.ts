@@ -880,6 +880,68 @@ export function createCoreTools(
 			},
 		},
 		{
+			name: 'net_send_file',
+			description:
+				'Send a file to another VoleNet node, end-to-end encrypted (VoleDrop). Async: returns a transferId immediately; completion/failure arrives as volenet:file:* events — check with net_file_status. The receiver must consent (their net.files.acceptFrom, or an explicit accept on their side).',
+			parameters: z.object({
+				to: z.string().describe('Target instance name or ID (see list_instances)'),
+				path: z.string().describe('Absolute path of the file to send'),
+				note: z.string().optional().describe('Short note shown with the offer'),
+			}),
+			async execute(params) {
+				const { to, path: filePath, note } = params as { to: string; path: string; note?: string }
+				const voleNet = (globalThis as any).__volenet__
+				if (!voleNet?.isActive()) return { ok: false, error: 'VoleNet is not enabled' }
+				return voleNet.sendFile(to, filePath, note)
+			},
+		},
+		{
+			name: 'net_file_status',
+			description:
+				'Status of VoleDrop file transfers — one by transferId, or all (both directions, newest first).',
+			parameters: z.object({
+				transfer_id: z.string().optional().describe('A specific transferId (omit for all)'),
+			}),
+			async execute(params) {
+				const { transfer_id } = params as { transfer_id?: string }
+				const voleNet = (globalThis as any).__volenet__
+				if (!voleNet?.isActive()) return { ok: false, error: 'VoleNet is not enabled' }
+				if (transfer_id) {
+					const t = voleNet.getFileTransfer(transfer_id)
+					return t ? { ok: true, transfer: t } : { ok: false, error: 'unknown transfer' }
+				}
+				return { ok: true, transfers: voleNet.listFileTransfers() }
+			},
+		},
+		{
+			name: 'net_accept_file',
+			description:
+				'Accept a pending VoleDrop file offer (from volenet:file:offer with auto=false). The file downloads to net.files.inboxDir and is sha256-verified before landing.',
+			parameters: z.object({
+				transfer_id: z.string().describe('The pending transferId to accept'),
+			}),
+			async execute(params) {
+				const { transfer_id } = params as { transfer_id: string }
+				const voleNet = (globalThis as any).__volenet__
+				if (!voleNet?.isActive()) return { ok: false, error: 'VoleNet is not enabled' }
+				return voleNet.acceptFile(transfer_id)
+			},
+		},
+		{
+			name: 'net_reject_file',
+			description: 'Reject a pending VoleDrop file offer.',
+			parameters: z.object({
+				transfer_id: z.string().describe('The pending transferId to reject'),
+				reason: z.string().optional().describe('Optional reason reported to the sender'),
+			}),
+			async execute(params) {
+				const { transfer_id, reason } = params as { transfer_id: string; reason?: string }
+				const voleNet = (globalThis as any).__volenet__
+				if (!voleNet?.isActive()) return { ok: false, error: 'VoleNet is not enabled' }
+				return voleNet.rejectFile(transfer_id, reason)
+			},
+		},
+		{
 			name: 'get_remote_result',
 			description: 'Check the status of a remote VoleNet task.',
 			parameters: z.object({

@@ -156,3 +156,9 @@ The **VoleNet** tab is for talking to the *humans* behind your connected peer no
 - **Per-peer chat** — pick a peer and chat with the person operating that node. Replies are answered by a **human**, not the brain, so there is **no LLM cost**. Each conversation is persisted in its own `volenet:<peerId>` [paw-session](/paws-infrastructure#paw-session) (with an in-memory fallback), so transcripts survive restarts.
 
 This is the human-to-human messaging mode. Cross-node chat where the peer's *brain* replies automatically is a separate, brain-callable tool — the `net_message` tool — described under [VoleNet](/volenet).
+
+### File attachments (VoleDrop)
+
+The 📎 button in the chat composer sends a file to the selected peer, end-to-end encrypted ([details](/volenet#file-transfer-voledrop)). The browser streams the file to the serve host, which offers it to the peer over the mesh; the peer's operator sees a file bubble with **Accept / Decline** (unless their `net.files.acceptFrom` auto-accepts you). Progress, delivery, and failure states update live in the bubble; accepted files land sha256-verified in the peer's `net.files.inboxDir`.
+
+> Config-tab note: the `net.encrypt` and `net.publishNames` toggles and `net.share.toolAllow` previously did not survive a dashboard config save (silently reverted/dropped) — fixed in 4.13.0.
