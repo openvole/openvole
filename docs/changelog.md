@@ -1,5 +1,32 @@
 # Changelog
 
+## v4.13.0 (2026-07-25)
+
+> Ships as `openvole` 4.13.0 and `@openvole/dashboard-server` 0.11.0. Theme: **VoleDrop** — E2E-encrypted file transfer over VoleNet.
+
+### VoleDrop — file transfer (`net.files`)
+
+Send a file from one vole to another, machine-independently, end-to-end encrypted — where the receiver is an *agent inbox*, so a transfer can carry intent (drop a recording into an agent's watch folder from another machine). One primitive, three surfaces:
+
+- **Agent tools**: `net_send_file`, `net_file_status`, `net_accept_file`, `net_reject_file` (async — progress/completion via `volenet:file:*` events).
+- **Dashboard**: 📎 attachments in the VoleNet peer chat — staged in the composer and sent with **Send**, with the typed message riding as the offer's note; Accept/Decline bubbles with live progress that also **reappear when the chat is reopened** while an offer is pending.
+- **CLI**: `vole net send <file> --to <peer> --agent <name> [--wait]`.
+- **Unread badges**: chat/file notifications now persist as per-peer, per-agent unread counts — on the peer row, the VoleNet tab button, and each agent card (messages to a non-selected agent light up its card) — surviving agent switches and reloads.
+
+How it works: control messages ride the signed channel; bulk bytes stream over new `/volenet/blob/*` routes as chunked chacha20-poly1305 frames. The per-transfer key is sealed with the **PQ-hybrid seal** (X25519 + ML-KEM-768) — file confidentiality never depends on `net.encrypt` or TLS. Per-chunk AEAD tags plus a whole-file sha256 verify before anything lands; interrupted transfers resume from the last complete chunk. Direction negotiates automatically (receiver-pull / sender-push / **relay blobs** for two NAT'd hub members — the hub stores ciphertext only, quota'd and TTL-swept). Consent mirrors relay: `net.files.acceptFrom` auto-accepts (your fleet); everything else waits for an explicit accept, expiring after `net.files.offerTtlMinutes` (default 60). Covered by six new e2e suites (pull, push+consent, relay+corruption+quota, interrupt-resume, crypto framing, pairing).
+
+### `vole net pair` — consent-based peer pairing
+
+Connecting two of your own nodes used to be a four-step manual key exchange. Now: `vole net pair <url>` fetches the peer's key from `/volenet/info`, shows its **fingerprint** for confirmation, trusts it and adds the `net.peers` entry — then files a pair request that the **other side's operator must accept** (dashboard VoleNet tab → Pair requests, or `vole net pair list|accept|deny`). Nothing is trusted remotely until the accept, which takes effect live. The dashboard's peer list also gains a **+ Connect** button that drives the same pair flow (probe → fingerprint → confirm) and the public-hub **join** flow entirely from the browser — fully live, no restarts. `vole net join` against a non-hub now explains itself instead of dying with a JSON parse error.
+
+### Fixed
+
+- **Dashboard NET form: `net.encrypt` and `net.publishNames` toggles were silently non-functional** — the save path's preserve loop overwrote both checkboxes with the stale on-disk values. They now persist.
+- **Dashboard NET form dropped `net.share.toolAllow` on every save** — the share checkboxes rebuilt the object from scratch. The curated tool list now survives saves.
+- **Dependency security**: `pnpm audit` is clean — transitive vulnerabilities (fast-uri, postcss, protobufjs, @hono/node-server) resolved via overrides.
+
+**Upgrading a running `vole serve`:** restart after upgrading and hard-refresh the browser. File transfer needs 4.13.0 on both ends (older peers silently ignore offers, which then expire). Reverse-proxied hubs: raise nginx `client_max_body_size` on the `/mesh` location for relay blobs.
+
 ## v4.12.5 (2026-07-25)
 
 > Ships as `openvole` 4.12.5 (dashboard-server unchanged at 0.10.2). A VoleNet remote-tools fix.
