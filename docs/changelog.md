@@ -1,5 +1,15 @@
 # Changelog
 
+## v4.13.1 (2026-07-25)
+
+> Ships as `openvole` 4.13.1 (`@openvole/dashboard-server` unchanged at 0.11.0). A prompt fix.
+
+### Fixed
+
+- **Agents didn't know where to put files.** The system prompt described identity, skills, tools, memory and peers — but never the agent's own scratch space, so an agent using shell wrote relative paths into its process cwd: the agent root, next to `vole.config.json` and `.openvole/`. (The `workspace_*` tools were always confined correctly; the convention only lived in their tool descriptions and a README *inside* the workspace.) A new **Files & Workspace** section now states the absolute `.openvole/workspace` path, notes that shell commands start in the agent root and need an absolute path or a `cd`, and rules the agent root and `.openvole/` off-limits. No per-agent `AGENT.md` instructions needed.
+
+**Upgrading a running `vole serve`:** restart after upgrading so agents pick up the new prompt.
+
 ## v4.13.0 (2026-07-25)
 
 > Ships as `openvole` 4.13.0 and `@openvole/dashboard-server` 0.11.0. Theme: **VoleDrop** — E2E-encrypted file transfer over VoleNet.
