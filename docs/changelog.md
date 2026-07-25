@@ -1,5 +1,15 @@
 # Changelog
 
+## v4.12.5 (2026-07-25)
+
+> Ships as `openvole` 4.12.5 (dashboard-server unchanged at 0.10.2). A VoleNet remote-tools fix.
+
+### Fixed
+
+- **Remote tools re-registered on every discovery cycle.** When two peers share a tool name (every agent runs paw-memory, so `memory_*` collides on any mesh), each 15-second discovery cycle re-entered conflict resolution and re-registered the peers' tools: `tool:registered` events flooded the dashboard's Live Events, the registry minted mangled duplicate names (`__volenet:x___x/tool`), and — worst — the plain tool's owner record was lost after the first rename, so later cycles could relabel a tool to the **wrong peer**. Now: a re-announcement of an already-registered remote tool is a silent no-op, the plain name is renamed once using only the recorded owner, and a paw re-registering its own tool replaces it in place without a conflict. Covered by a three-node regression test driving repeated announce cycles.
+
+**Upgrading a running `vole serve`:** restart after upgrading.
+
 ## v4.12.4 (2026-07-24)
 
 > Ships as `openvole` 4.12.4 and `@openvole/dashboard-server` 0.10.2. A small dashboard link + logo refresh.
