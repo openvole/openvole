@@ -15,6 +15,8 @@ const MAX_TOTAL_CHARS = 50_000
 export interface SystemPromptContent {
 	brainPrompt: string
 	identityContext: string
+	/** Absolute path of this agent's scratch/project area (.openvole/workspace). */
+	workspaceDir?: string
 }
 
 /**
@@ -88,6 +90,7 @@ export async function loadSystemPromptContent(
 	return {
 		brainPrompt,
 		identityContext: identityParts.join('\n\n'),
+		workspaceDir: path.resolve(openvoleDir, 'workspace'),
 	}
 }
 
@@ -123,6 +126,24 @@ export function buildSystemPrompt(
 		parts.push(
 			"## Orchestrator Authority\nThis agent holds orchestrator authority over the sibling agents of this vole server — granted by a human in the server registry, revocable at any time, and re-verified on every agent_* call. Read the vole-orchestrate skill (skill_read) before orchestrating; never weaken any agent's security config.",
 		)
+	}
+
+	// Static: where files belong. Without this an agent using shell writes relative paths
+	// into its process cwd — the agent root, next to vole.config.json and .openvole — which
+	// is nobody's intent. The workspace_* tools already confine themselves here; this tells
+	// the agent so it also holds for shell commands and any absolute-path tool.
+	if (content.workspaceDir) {
+		parts.push('')
+		parts.push(`## Files & Workspace
+Your working directory is \`${content.workspaceDir}\` — put every file you create there
+(notes, drafts, state, downloads, generated output), in subfolders when it helps.
+
+- The \`workspace_*\` tools are already confined to it: their paths are relative to that directory.
+- Other tools (shell included) do **not** default there — shell commands start in the agent root,
+  so use an absolute path under the workspace, or \`cd\` into it first.
+- Never write into the agent root or \`.openvole/\` itself: those hold config, identity, memory,
+  and paw data that the engine manages.
+- Secrets belong in the vault, not in files.`)
 	}
 
 	// Semi-static: Skills list
