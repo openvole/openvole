@@ -618,9 +618,14 @@ agent produces or fetches that isn't memory, config, or a paw's own data:
 
 The core `workspace_read`, `workspace_write`, `workspace_list`, and
 `workspace_delete` tools operate on this directory and confine every path to it —
-they run in-core, so the agent can use them without any sandbox grant. Encourage
-your agent (via `AGENT.md` or a task prompt) to treat the workspace as its working
-directory for multi-step projects.
+they run in-core, so the agent can use them without any sandbox grant.
+
+Since 4.13.1 the **system prompt tells the agent about the workspace by absolute path**,
+so it treats it as the working directory without any `AGENT.md` instruction. The prompt
+also spells out the one trap: **shell commands start in the agent root**, not the
+workspace, so they need an absolute path (or a `cd`) — otherwise a relative
+`> notes.txt` lands next to `vole.config.json`. The agent root and `.openvole/` itself
+are declared off-limits (config, identity, memory, and paw data live there).
 
 - **Gitignored by default** (the scaffolded `.gitignore` ignores `.openvole/`), so
   it's safe for large or throwaway files. Version anything you want to keep elsewhere.

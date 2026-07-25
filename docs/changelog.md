@@ -1,5 +1,19 @@
 # Changelog
 
+## v4.13.2 (2026-07-26)
+
+> Ships as `openvole` 4.13.2 and `@openvole/dashboard-server` 0.11.1. Chat continuity: nothing lost while you're away.
+
+### Added
+
+- **Brain-chat replies now count as unread — including ones that land while the browser is closed.** A reply you weren't looking at raises a badge on the **Chat tab** and on that **agent's card** (which sums brain-chat and VoleNet unreads), plus a toast naming the agent and session. Counts are per agent *and* per session and clear when you open that chat. Rather than relying only on live events (which need an open page), the dashboard keeps a per-chat **read watermark** and recounts from the agent's task list on reconnect — so a reply that arrived overnight is waiting for you. Watermarks use engine-side timestamps, not the browser clock, so a remote dashboard on a skewed clock stays correct; a chat seen for the first time on a browser adopts its history as read instead of badging everything. Heartbeat and schedule runs are excluded — only sessioned chat work counts. (Recount covers the selected agent's last 50 completed tasks; other agents count live while the page is open.)
+
+### Fixed
+
+- **Leaving and reopening the chat lost an in-flight response.** Reloading the chat wipes its DOM, which orphaned the pending entry for a running task: the "thinking…" animation disappeared *and* — worse — the eventual answer was written into a detached element, so it never showed up in the reopened chat (only after another reload). The chat now re-attaches to any task still running in that session: the animated placeholder returns and the answer lands in it. Tasks carry `sessionId` into the dashboard state so the chat can tell its own work from heartbeat, schedule, and other sessions' tasks.
+
+**Upgrading a running `vole serve`:** restart after upgrading and hard-refresh.
+
 ## v4.13.1 (2026-07-25)
 
 > Ships as `openvole` 4.13.1 (`@openvole/dashboard-server` unchanged at 0.11.0). A prompt fix.
