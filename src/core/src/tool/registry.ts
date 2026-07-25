@@ -182,6 +182,21 @@ export class ToolRegistry {
 			let toolName = tool.name
 			if (this.tools.has(toolName)) {
 				const existing = this.tools.get(toolName)!
+				if (existing.pawName === pawName) {
+					// Same paw re-registering the same name (re-announce, restart) — replace the
+					// definition in place. Not a conflict, and no bus event: nothing new became
+					// available, and re-emitting spams every listener (dashboard events, skill
+					// resolver) on every VoleNet discovery cycle.
+					this.tools.set(toolName, {
+						name: toolName,
+						description: tool.description,
+						parameters: tool.parameters,
+						pawName,
+						inProcess,
+						execute: tool.execute,
+					})
+					continue
+				}
 				// Auto-prefix with paw name to resolve conflict
 				const prefix = pawName.replace(/^@openvole\//, '').replace(/-/g, '_')
 				toolName = `${prefix}_${tool.name}`

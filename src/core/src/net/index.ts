@@ -605,11 +605,19 @@ export class VoleNetManager {
 					if (existingTool) {
 						// Another peer already registered this tool name — we have a conflict.
 						// Route by IDENTITY: the recorded owner of the plain-name registration,
-						// never a name lookup, and never a fall-back to the announcing peer.
-						const existingOwnerId = this.remoteToolOwners.get(t.name) ?? otherProviders[0]
+						// never a name lookup. No fall-back to "some other provider": once the
+						// plain name has been converted to a load-balanced alias its owner entry
+						// is gone, and guessing an owner here re-renamed the alias to whichever
+						// peer announced LAST — mislabeled cross-peer tools on every cycle.
+						const existingOwnerId = this.remoteToolOwners.get(t.name)
 
-						// Only rename existing if it hasn't been renamed yet (still plain name)
-						if (!existingTool.name.includes('/') && existingOwnerId) {
+						// Only rename existing if it hasn't been renamed yet (still plain name),
+						// and never on the owner's own re-announcement.
+						if (
+							!existingTool.name.includes('/') &&
+							existingOwnerId &&
+							existingOwnerId !== sourceInstanceId
+						) {
 							const existingInst = discovery.getInstances().find((i) => i.id === existingOwnerId)
 							const existingName = existingInst?.name ?? existingOwnerId.substring(0, 8)
 							const existingDup =
@@ -641,6 +649,15 @@ export class VoleNetManager {
 								(discovery.getInstances().find((i) => i.id === existingOwnerId)?.name ?? '') ===
 									peerName)
 						const prefixedName = `${peerPrefix(peerName, sourceInstanceId, newDup)}/${t.name}`
+						// Idempotence: this peer's prefixed tool is already registered — a plain
+						// re-announcement (every discovery cycle) must not re-register it, or the
+						// registry emits tool:registered spam and mangles duplicate names.
+						if (
+							this.toolRegistry!.get(prefixedName) &&
+							this.remoteToolOwners.get(prefixedName) === sourceInstanceId
+						) {
+							continue
+						}
 						this.remoteToolOwners.set(prefixedName, sourceInstanceId)
 						remoteToolDefs.push({
 							name: prefixedName,
