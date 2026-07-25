@@ -32,6 +32,7 @@ const FORWARDED_EVENTS: Array<keyof BusEvents> = [
 	'volenet:file:sent',
 	'volenet:file:failed',
 	'volenet:file:rejected',
+	'volenet:pair:request',
 ]
 
 /** Aggregate engine state for the dashboard (shape matches PawRegistry.handleQuery). */
@@ -331,6 +332,45 @@ export function installControlAdapter(engine: VoleEngine, projectRoot: string): 
 				case 'volenet_file_status': {
 					const vn = (globalThis as any).__volenet__
 					result = { ok: true, transfers: vn?.isActive() ? vn.listFileTransfers() : [] }
+					break
+				}
+				case 'volenet_pair_requests': {
+					const vn = (globalThis as any).__volenet__
+					result = { ok: true, requests: vn?.isActive() ? vn.listPairRequests() : [] }
+					break
+				}
+				case 'volenet_pair_accept': {
+					const vn = (globalThis as any).__volenet__
+					if (!vn?.isActive()) throw new Error('VoleNet is not active in this agent')
+					result = await vn.acceptPair(params.ref as string)
+					break
+				}
+				case 'volenet_pair_deny': {
+					const vn = (globalThis as any).__volenet__
+					if (!vn?.isActive()) throw new Error('VoleNet is not active in this agent')
+					result = await vn.denyPair(params.ref as string)
+					break
+				}
+				case 'volenet_pair_probe': {
+					const vn = (globalThis as any).__volenet__
+					if (!vn?.isActive()) throw new Error('VoleNet is not active in this agent')
+					result = await vn.probePair(params.url as string)
+					break
+				}
+				case 'volenet_pair_initiate': {
+					const vn = (globalThis as any).__volenet__
+					if (!vn?.isActive()) throw new Error('VoleNet is not active in this agent')
+					result = await vn.initiatePair(
+						params.url as string,
+						params.publicKey as string,
+						params.note as string | undefined,
+					)
+					break
+				}
+				case 'volenet_join_hub': {
+					const vn = (globalThis as any).__volenet__
+					if (!vn?.isActive()) throw new Error('VoleNet is not active in this agent')
+					result = await vn.initiateJoin(params.url as string)
 					break
 				}
 				case 'tools_mcp':

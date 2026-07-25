@@ -868,7 +868,19 @@ export function getDashboardHtml(wsPort: number): string {
   .vn-info { flex: 0 0 auto; color: var(--text-dim); cursor: pointer; font-size: 13px; padding: 0 2px; }
   .vn-info:hover { color: var(--accent); }
   .vn-msg-relayed { font-size: 10px; color: var(--accent3, #d2a8ff); margin: 0 0 2px 2px; }
+  .vn-connect-toggle { float: right; font-size: 10px; padding: 1px 8px; border-radius: 6px; border: 1px solid var(--accent); background: none; color: var(--accent); cursor: pointer; }
+  .vn-connect-toggle:hover { background: var(--accent); color: #fff; }
+  #vn-connect-panel { border: 1px solid var(--border); border-radius: 8px; padding: 10px; margin-bottom: 10px; display: flex; flex-direction: column; gap: 6px; font-size: 12px; }
+  .vn-connect-row { display: flex; gap: 12px; color: var(--text-dim); font-size: 11px; }
+  .vn-connect-row label { display: flex; align-items: center; gap: 4px; cursor: pointer; }
+  .vn-connect-actions { display: flex; gap: 6px; }
+  #vn-connect-result { font-size: 11px; color: var(--text-dim); word-break: break-all; }
+  .vn-fingerprint { font-family: monospace; color: var(--accent3, #d2a8ff); margin: 2px 0; }
   .vn-file-bubble { border: 1px dashed var(--border); }
+  .vn-file-note { font-size: 12px; margin-top: 4px; }
+  .vn-attach-chip { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--text-dim); border: 1px dashed var(--border); border-radius: 8px; padding: 4px 10px; margin: 0 0 6px; }
+  .vn-attach-chip button { border: none; background: none; color: var(--text-dim); cursor: pointer; font-size: 14px; line-height: 1; }
+  .vn-attach-chip button:hover { color: var(--red, #f85149); }
   .vn-file-state { font-size: 11px; color: var(--text-dim); margin-top: 3px; word-break: break-all; }
   .vn-file-actions { display: flex; gap: 6px; margin-top: 6px; }
   .vn-file-actions button { font-size: 11px; padding: 3px 10px; }
@@ -888,6 +900,7 @@ export function getDashboardHtml(wsPort: number): string {
   .vn-connect-btn { margin-top: 14px; font-size: 13px; padding: 8px 18px; border-radius: 8px; border: 1px solid var(--accent); background: var(--accent); color: #fff; cursor: pointer; }
   .vn-connect-btn:hover { filter: brightness(1.08); }
   .vn-badge { background: var(--accent); color: #fff; font-size: 10px; border-radius: 9px; padding: 1px 6px; min-width: 16px; text-align: center; }
+  .tab-btn .vn-badge, .agent-card-name .vn-badge { margin-left: 6px; display: inline-block; }
   .vn-chat { flex: 1; min-width: 0; display: flex; flex-direction: column; padding: 12px 16px; }
   .vn-chat-head { font-size: 13px; font-weight: 600; color: var(--text); padding-bottom: 8px; border-bottom: 1px solid var(--border); margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
   .vn-empty { color: var(--text-dim); text-align: center; margin-top: 60px; font-size: 13px; }
@@ -1065,7 +1078,20 @@ export function getDashboardHtml(wsPort: number): string {
     <div class="vn-statuscard" id="vn-statuscard"></div>
     <div class="vn-page">
       <div class="vn-peers">
-        <div class="vn-peers-head">Connected nodes</div>
+        <div class="vn-peers-head">Connected nodes <button class="vn-connect-toggle" onclick="vnToggleConnect()" title="Pair with a node or join a public hub">+ Connect</button></div>
+        <div id="vn-connect-panel" style="display:none">
+          <input type="text" class="form-input" id="vn-connect-url" placeholder="http://host:9700 or hub URL">
+          <div class="vn-connect-row">
+            <label><input type="radio" name="vn-connect-mode" value="pair" checked> Pair (a node you operate)</label>
+            <label><input type="radio" name="vn-connect-mode" value="join"> Join (public hub)</label>
+          </div>
+          <input type="text" class="form-input" id="vn-connect-note" placeholder="note for the other operator (optional)">
+          <div id="vn-connect-result"></div>
+          <div class="vn-connect-actions">
+            <button class="btn-primary" id="vn-connect-go" onclick="vnConnectGo()">Check</button>
+            <button class="btn-restart" onclick="vnToggleConnect()">Cancel</button>
+          </div>
+        </div>
         <div id="vn-peer-list"></div>
       </div>
       <div class="vn-chat">
@@ -1649,12 +1675,13 @@ function renderAgents(agents) {
     }
   }
   if (currentAgentId) updateAgentHeader();
+  updateVnBadges();
 }
 function agentCardHtml(s) {
   var running = s.state === 'running';
   return '<div class="agent-card">'
     + '<div class="agent-card-head">'
-    + '<span class="agent-card-name">' + esc(s.name) + (s.orchestrator ? ' <span class="agent-orch-badge">orchestrator</span>' : '') + '</span>'
+    + '<span class="agent-card-name">' + esc(s.name) + (s.orchestrator ? ' <span class="agent-orch-badge">orchestrator</span>' : '') + ' <span class="vn-badge" data-vn-unread="' + esc(s.id) + '" style="display:none" title="Unread VoleNet messages"></span></span>'
     + '<span class="agent-status agent-status-' + (running ? 'running' : 'stopped') + '">' + (running ? 'running' : 'stopped') + '</span>'
     + '</div>'
     + '<div class="agent-card-meta">' + esc(s.id) + (s.pid ? ' &middot; pid ' + s.pid : '') + '</div>'
@@ -1837,6 +1864,7 @@ function selectAgent(id) {
   if (!id) { currentAgentId = null; clearPanels(); return; }
   var changed = currentAgentId !== id;
   currentAgentId = id;
+  updateVnBadges();
   if (changed) {
     resetChat();
     resetVolenet();
@@ -2116,12 +2144,64 @@ function chatOnTaskEvent(event, data, agentId) {
 /* ── VoleNet tab (human-capable peer chat) ── */
 var vnPeers = [];
 var vnSelectedPeer = null;
-var vnUnread = {};
+
+/* Unread chat/file counts, kept PER AGENT so switching agents (or reloading) doesn't
+   lose them — events for a non-selected agent still count toward its badges. */
+var vnUnreadStore = {};
+try { vnUnreadStore = JSON.parse(localStorage.getItem('vnUnread') || '{}') || {}; } catch (e) { vnUnreadStore = {}; }
+function vnUnreadFor(agentId) {
+  var key = agentId || 'default';
+  if (!vnUnreadStore[key]) vnUnreadStore[key] = {};
+  return vnUnreadStore[key];
+}
+function vnAgentUnreadSum(agentId) {
+  var m = vnUnreadFor(agentId), sum = 0;
+  for (var k in m) sum += m[k] || 0;
+  return sum;
+}
+function vnBumpUnread(agentId, peerId) {
+  if (!peerId) return;
+  var m = vnUnreadFor(agentId);
+  m[peerId] = (m[peerId] || 0) + 1;
+  vnSaveUnread();
+}
+function vnClearUnread(agentId, peerId) {
+  var m = vnUnreadFor(agentId);
+  if (m[peerId]) { delete m[peerId]; vnSaveUnread(); }
+}
+function vnSaveUnread() {
+  try { localStorage.setItem('vnUnread', JSON.stringify(vnUnreadStore)); } catch (e) {}
+  updateVnBadges();
+}
+/* Aggregate badges: the VoleNet tab button (current agent) + each agent card. */
+function updateVnBadges() {
+  var tabBtn = document.querySelector('.tab-btn[data-tab="volenet"]');
+  if (tabBtn) {
+    var badge = tabBtn.querySelector('.vn-badge');
+    var sum = vnAgentUnreadSum(currentAgentId);
+    if (sum && !badge) {
+      badge = document.createElement('span');
+      badge.className = 'vn-badge';
+      tabBtn.appendChild(badge);
+    }
+    if (badge) {
+      badge.textContent = sum;
+      badge.style.display = sum ? '' : 'none';
+    }
+  }
+  var cardBadges = document.querySelectorAll('[data-vn-unread]');
+  for (var i = 0; i < cardBadges.length; i++) {
+    var el = cardBadges[i];
+    var n = vnAgentUnreadSum(el.getAttribute('data-vn-unread'));
+    el.textContent = n || '';
+    el.style.display = n ? '' : 'none';
+  }
+}
 
 function resetVolenet() {
   vnPeers = [];
   vnSelectedPeer = null;
-  vnUnread = {};
+  if (typeof vnClearStagedFile === 'function') vnClearStagedFile();
   var box = document.getElementById('vn-messages');
   if (box) box.innerHTML = '<div class="vn-empty">Pick a node on the left to start chatting.</div>';
   var head = document.getElementById('vn-chat-head');
@@ -2131,16 +2211,19 @@ function resetVolenet() {
   renderVnPeerList();
 }
 
+var vnPairRequests = [];
 function refreshVnPeers() {
   if (!currentAgentId) { renderVnPeerList(); return; }
   Promise.all([
     sendCommand('volenet_instances').catch(function() { return []; }),
     sendCommand('volenet_relay_members').catch(function() { return []; }),
-    sendCommand('volenet_relay_requests').catch(function() { return []; })
+    sendCommand('volenet_relay_requests').catch(function() { return []; }),
+    sendCommand('net_pair_requests').catch(function() { return null; })
   ]).then(function(res) {
     var direct = Array.isArray(res[0]) ? res[0] : [];
     var relay = Array.isArray(res[1]) ? res[1] : [];
     var requests = Array.isArray(res[2]) ? res[2] : [];
+    vnPairRequests = (res[3] && Array.isArray(res[3].requests)) ? res[3].requests : [];
     var reqById = {};
     requests.forEach(function(r) { reqById[r.id] = r; });
     var peers = direct.map(function(i) {
@@ -2203,17 +2286,104 @@ function renderVnStatus(volenet) {
     + '</div>';
 }
 
+/* ── Outbound connect (dashboard vole net pair / join) ── */
+var vnProbed = null; // { url, publicKey, fingerprint, name } after a successful probe
+function vnToggleConnect() {
+  var panel = document.getElementById('vn-connect-panel');
+  var open = panel.style.display !== 'none';
+  panel.style.display = open ? 'none' : '';
+  if (open) { vnProbed = null; document.getElementById('vn-connect-result').innerHTML = ''; document.getElementById('vn-connect-go').textContent = 'Check'; }
+}
+function vnConnectMode() {
+  var r = document.querySelector('input[name="vn-connect-mode"]:checked');
+  return r ? r.value : 'pair';
+}
+function vnConnectGo() {
+  var url = document.getElementById('vn-connect-url').value.trim();
+  var result = document.getElementById('vn-connect-result');
+  var go = document.getElementById('vn-connect-go');
+  if (!url) { result.textContent = 'Enter a URL first.'; return; }
+  var mode = vnConnectMode();
+  if (mode === 'join') {
+    go.disabled = true; result.textContent = 'Joining…';
+    sendCommand('net_join_hub', { url: url }, 20000).then(function(res) {
+      go.disabled = false;
+      if (!res || res.ok === false) { result.textContent = 'Join failed: ' + ((res && res.error) || 'unknown'); return; }
+      result.textContent = res.pending ? 'Join queued — the hub requires manual approval.' : ('Joined ' + (res.hubName || 'hub') + ' ✓');
+      showToast('Hub joined', 'success');
+      refreshVnPeers();
+    }).catch(function(e) { go.disabled = false; result.textContent = 'Join failed: ' + e.message; });
+    return;
+  }
+  // Pair: two steps — probe (show fingerprint) then confirm (trust + request).
+  if (!vnProbed || vnProbed.url !== url) {
+    go.disabled = true; result.textContent = 'Fetching identity…';
+    sendCommand('net_pair_probe', { url: url }, 15000).then(function(res) {
+      go.disabled = false;
+      if (!res || res.ok === false) { result.textContent = 'Probe failed: ' + ((res && res.error) || 'unknown'); return; }
+      vnProbed = { url: url, publicKey: res.publicKey, fingerprint: res.fingerprint, name: res.name };
+      var div = document.createElement('div');
+      var strong = document.createElement('div');
+      strong.textContent = (res.name ? res.name : '(name not published)') + (res.alreadyTrusted ? ' — already trusted' : '');
+      var fp = document.createElement('div');
+      fp.className = 'vn-fingerprint';
+      fp.textContent = 'fingerprint: ' + res.fingerprint;
+      div.appendChild(strong); div.appendChild(fp);
+      var warn = document.createElement('div');
+      warn.textContent = 'Verify this fingerprint on the other node before confirming.';
+      div.appendChild(warn);
+      result.innerHTML = '';
+      result.appendChild(div);
+      go.textContent = 'Trust & send pair request';
+    }).catch(function(e) { go.disabled = false; result.textContent = 'Probe failed: ' + e.message; });
+    return;
+  }
+  go.disabled = true;
+  sendCommand('net_pair_initiate', { url: vnProbed.url, publicKey: vnProbed.publicKey, note: document.getElementById('vn-connect-note').value.trim() || undefined }, 20000).then(function(res) {
+    go.disabled = false;
+    if (!res || res.ok === false) { document.getElementById('vn-connect-result').textContent = 'Pair failed: ' + ((res && res.error) || 'unknown'); return; }
+    document.getElementById('vn-connect-result').textContent = res.alreadyTrusted
+      ? 'Already paired ✓ — connecting…'
+      : 'Pair request sent — waiting for the other operator to accept.';
+    showToast('Pair request sent', 'success');
+    go.textContent = 'Check'; vnProbed = null;
+    refreshVnPeers();
+  }).catch(function(e) { go.disabled = false; document.getElementById('vn-connect-result').textContent = 'Pair failed: ' + e.message; });
+}
+
+function pairReqRow(r) {
+  return '<div class="vn-req">'
+    + '<div class="vn-req-top"><span class="vn-peer-name">' + esc(r.name || r.id) + '</span>'
+    + '<span class="vn-req-via">wants to pair</span></div>'
+    + (r.note ? '<div class="vn-req-note">' + esc(r.note) + '</div>' : '')
+    + '<div class="vn-req-note">' + esc((r.id || '').substring(0, 16)) + '&hellip;</div>'
+    + '<div class="vn-req-actions">'
+    + '<button class="vn-req-ok" onclick="vnPairAccept(\\'' + esc(r.id) + '\\')">Accept</button>'
+    + '<button class="vn-req-no" onclick="vnPairDeny(\\'' + esc(r.id) + '\\')">Deny</button>'
+    + '</div></div>';
+}
+function vnPairAccept(ref) {
+  sendCommand('net_pair_accept', { ref: ref }).then(function(res) {
+    if (res && res.ok === false) { showToast('Pair accept failed: ' + (res.error || 'unknown'), 'error'); return; }
+    showToast('Paired — the node is now trusted', 'success');
+    refreshVnPeers();
+  }).catch(function(e) { showToast('Pair accept failed: ' + e.message, 'error'); });
+}
+function vnPairDeny(ref) {
+  sendCommand('net_pair_deny', { ref: ref }).then(function() { refreshVnPeers(); });
+}
+
 function renderVnPeerList() {
   var list = document.getElementById('vn-peer-list');
   if (!list) return;
-  if (!vnPeers.length) {
+  if (!vnPeers.length && !vnPairRequests.length) {
     list.innerHTML = '<div class="vn-empty" style="margin-top:20px;font-size:12px">No connected nodes.</div>';
     return;
   }
   function peerBtn(p) {
     // A relay member's "online" is the hub's word; a direct peer's is its own heartbeat.
     var online = p.lastSeen && (Date.now() - p.lastSeen) < 30000;
-    var unread = vnUnread[p.id] || 0;
+    var unread = vnUnreadFor(currentAgentId)[p.id] || 0;
     var active = p.id === vnSelectedPeer ? ' active' : '';
     var relay = p.kind === 'relay';
     // Relay state → tag: accepted (chattable) shows "relay"; requested shows "awaiting";
@@ -2246,6 +2416,7 @@ function renderVnPeerList() {
   var directs = vnPeers.filter(function(p) { return p.kind !== 'relay'; });
   var relays = vnPeers.filter(function(p) { return p.kind === 'relay' && !(p.incoming && !p.accepted); });
   var html = '';
+  if (vnPairRequests.length) html += '<div class="vn-group-head vn-group-req">Pair requests</div>' + vnPairRequests.map(pairReqRow).join('');
   if (incoming.length) html += '<div class="vn-group-head vn-group-req">Connection requests</div>' + incoming.map(reqRow).join('');
   if (directs.length) html += '<div class="vn-group-head">Direct mesh</div>' + directs.map(peerBtn).join('');
   if (relays.length) html += '<div class="vn-group-head">\\uD83D\\uDD12 Via relay</div>' + relays.map(peerBtn).join('');
@@ -2253,8 +2424,9 @@ function renderVnPeerList() {
 }
 
 function selectVnPeer(peerId) {
+  if (vnSelectedPeer !== peerId) vnClearStagedFile();
   vnSelectedPeer = peerId;
-  vnUnread[peerId] = 0;
+  vnClearUnread(currentAgentId, peerId);
   var peer = vnPeers.filter(function(p) { return p.id === peerId; })[0];
   document.getElementById('vn-chat-head').textContent = peer ? (peer.name || peerId) : peerId;
   renderVnPeerList();
@@ -2283,9 +2455,27 @@ function selectVnPeer(peerId) {
   sendCommand('volenet_chat_history', { peerId: peerId }).then(function(res) {
     box.innerHTML = '';
     var h = (res && res.history) ? res.history : [];
-    if (!h.length) { box.innerHTML = '<div class="vn-empty">No messages yet — say hi.</div>'; return; }
-    for (var i = 0; i < h.length; i++) addVnBubble(h[i].dir, h[i].text, h[i].relayed);
-    box.scrollTop = box.scrollHeight;
+    if (h.length) {
+      for (var i = 0; i < h.length; i++) addVnBubble(h[i].dir, h[i].text, h[i].relayed);
+    }
+    // Restore live file-transfer state: history only carries 📎 marker text, so a
+    // pending offer's Accept/Decline (or an in-flight transfer's progress) would be
+    // lost if this chat wasn't open when the offer arrived.
+    return sendCommand('net_file_status').catch(function() { return null; }).then(function(fs) {
+      var transfers = (fs && fs.transfers) ? fs.transfers : [];
+      var live = { pending: 1, offered: 1, accepted: 1, transferring: 1, verifying: 1 };
+      for (var j = 0; j < transfers.length; j++) {
+        var t = transfers[j];
+        if (t.peerId !== peerId || !live[t.state]) continue;
+        addVnFileBubble(t.dir === 'recv' ? 'in' : 'out', {
+          transferId: t.transferId, name: t.name, size: t.size, note: t.note,
+          state: t.state === 'pending' ? 'offer — accept?' : t.state,
+          pending: t.dir === 'recv' && (t.state === 'pending')
+        });
+      }
+      if (!box.children.length) box.innerHTML = '<div class="vn-empty">No messages yet — say hi.</div>';
+      box.scrollTop = box.scrollHeight;
+    });
   }).catch(function() {
     box.innerHTML = '<div class="vn-empty">Could not load history.</div>';
   });
@@ -2312,7 +2502,15 @@ function addVnBubble(dir, text, relayed) {
 function sendVolenetChat() {
   var input = document.getElementById('vn-input');
   var text = input.value.trim();
-  if (!text || !vnSelectedPeer) return;
+  if (!vnSelectedPeer) return;
+  // A staged attachment ships on Send, with the typed text riding as the offer's note.
+  if (vnPendingFile) {
+    input.value = '';
+    input.placeholder = 'Message this node…';
+    vnSendStagedFile(text || undefined);
+    return;
+  }
+  if (!text) return;
   input.value = '';
   // Selected peer is a relay member? Badge the sent bubble too.
   var sel = vnPeers.filter(function(p) { return p.id === vnSelectedPeer; })[0];
@@ -2333,13 +2531,21 @@ function sendVolenetChat() {
 
 function volenetOnMessage(data, agentId) {
   if (!data) return;
-  if (agentId !== undefined && currentAgentId && agentId !== currentAgentId) return;
-  if (data.from === vnSelectedPeer && currentTab === 'volenet') {
+  var targetAgent = agentId !== undefined ? agentId : currentAgentId;
+  var isCurrent = !currentAgentId || agentId === undefined || agentId === currentAgentId;
+  if (isCurrent && data.from === vnSelectedPeer && currentTab === 'volenet') {
     addVnBubble('in', data.text, data.relayed);
-  } else {
-    vnUnread[data.from] = (vnUnread[data.from] || 0) + 1;
+    return;
+  }
+  // Count for whichever agent it belongs to — a message to a non-selected agent must
+  // still light its badges (agent card + its VoleNet tab when opened).
+  vnBumpUnread(targetAgent, data.from);
+  if (isCurrent) {
     renderVnPeerList();
     showToast('Message from ' + (data.fromName || 'a node'), 'success');
+  } else {
+    var ag = (typeof lastAgents !== 'undefined' ? lastAgents : []).filter(function(a) { return a.id === targetAgent; })[0];
+    showToast('Message for ' + ((ag && ag.name) || 'another agent') + ' from ' + (data.fromName || 'a node'), 'success');
   }
 }
 
@@ -2364,6 +2570,12 @@ function addVnFileBubble(dir, t) {
   var name = document.createElement('div');
   name.textContent = '📎 ' + t.name + '  (' + humanBytes(t.size) + ')';
   el.appendChild(name);
+  if (t.note) {
+    var noteEl = document.createElement('div');
+    noteEl.className = 'vn-file-note';
+    noteEl.textContent = t.note;
+    el.appendChild(noteEl);
+  }
   var state = document.createElement('div');
   state.className = 'vn-file-state';
   state.textContent = t.state || '';
@@ -2405,17 +2617,50 @@ function vnFileState(transferId, text) {
   if (s) s.textContent = text;
 }
 
+// A picked file is STAGED, not sent — Send ships it, with the typed text as the note.
+var vnPendingFile = null;
 function uploadVnFile(input) {
   var file = input.files && input.files[0];
   input.value = '';
   if (!file || !vnSelectedPeer) return;
+  vnPendingFile = file;
+  renderVnAttachChip();
+  var msgInput = document.getElementById('vn-input');
+  if (msgInput) { msgInput.placeholder = 'Add a message to send with the file…'; msgInput.focus(); }
+}
+function vnClearStagedFile() {
+  vnPendingFile = null;
+  renderVnAttachChip();
+  var msgInput = document.getElementById('vn-input');
+  if (msgInput) msgInput.placeholder = 'Message this node…';
+}
+function renderVnAttachChip() {
+  var old = document.getElementById('vn-attach-chip');
+  if (old) old.remove();
+  if (!vnPendingFile) return;
+  var comp = document.getElementById('vn-composer');
+  var chip = document.createElement('div');
+  chip.id = 'vn-attach-chip';
+  chip.className = 'vn-attach-chip';
+  var label = document.createElement('span');
+  label.textContent = '📎 ' + vnPendingFile.name + ' (' + humanBytes(vnPendingFile.size) + ')';
+  var x = document.createElement('button');
+  x.textContent = '×';
+  x.title = 'Remove attachment';
+  x.onclick = vnClearStagedFile;
+  chip.appendChild(label); chip.appendChild(x);
+  comp.parentNode.insertBefore(chip, comp);
+}
+function vnSendStagedFile(note) {
+  var file = vnPendingFile;
+  vnClearStagedFile();
   var token = new URLSearchParams(location.search).get('token') || '';
-  var el = addVnFileBubble('out', { transferId: 'up-' + Date.now(), name: file.name, size: file.size, state: 'uploading…' });
+  var el = addVnFileBubble('out', { transferId: 'up-' + Date.now(), name: file.name, size: file.size, state: 'uploading…', note: note });
   fetch('/upload/' + encodeURIComponent(currentAgentId || '') + '?token=' + encodeURIComponent(token) + '&name=' + encodeURIComponent(file.name), {
     method: 'POST', body: file
   }).then(function(r) { return r.json(); }).then(function(up) {
     if (!up || !up.ok) throw new Error((up && up.error) || 'upload failed');
-    return sendCommand('net_file_send', { peerId: vnSelectedPeer, path: up.path });
+    return sendCommand('net_file_send', { peerId: vnSelectedPeer, path: up.path, note: note });
   }).then(function(res) {
     if (!res || res.ok === false) throw new Error((res && res.error) || 'send failed');
     // Rebind the optimistic bubble to the real transferId for event updates.
@@ -2428,18 +2673,20 @@ function uploadVnFile(input) {
 
 function volenetOnFileEvent(event, data, agentId) {
   if (!data) return;
-  if (agentId !== undefined && currentAgentId && agentId !== currentAgentId) return;
+  var isCurrent = !currentAgentId || agentId === undefined || agentId === currentAgentId;
   if (event === 'volenet:file:offer') {
-    var show = data.from === vnSelectedPeer && currentTab === 'volenet';
+    var targetAgent = agentId !== undefined ? agentId : currentAgentId;
+    var show = isCurrent && data.from === vnSelectedPeer && currentTab === 'volenet';
     if (show) {
-      addVnFileBubble('in', { transferId: data.transferId, name: data.name, size: data.size, state: data.auto ? 'receiving…' : 'offer — accept?', pending: !data.auto });
+      addVnFileBubble('in', { transferId: data.transferId, name: data.name, size: data.size, note: data.note, state: data.auto ? 'receiving…' : 'offer — accept?', pending: !data.auto });
     } else {
-      vnUnread[data.from] = (vnUnread[data.from] || 0) + 1;
-      renderVnPeerList();
+      vnBumpUnread(targetAgent, data.from);
+      if (isCurrent) renderVnPeerList();
       showToast('📎 File offer from ' + (data.fromName || 'a node') + (data.auto ? '' : ' — open VoleNet to accept'), 'success');
     }
     return;
   }
+  if (!isCurrent) return; // transfer-state updates only apply to visible bubbles
   if (event === 'volenet:file:progress') { vnFileState(data.transferId, (data.dir === 'send' ? 'sending' : 'receiving') + ' ' + data.pct + '%'); return; }
   if (event === 'volenet:file:received') { vnFileState(data.transferId, 'received ✓ → ' + data.path); return; }
   if (event === 'volenet:file:sent') { vnFileState(data.transferId, 'delivered ✓'); return; }
@@ -3867,6 +4114,12 @@ ws.onmessage = function(evt) {
       volenetOnFileEvent(msg.event, msg.data, msg.agentId);
       // Progress events would flood the Live Events feed — surface the rest only.
       if (msg.event === 'volenet:file:progress') return;
+    }
+    if (msg.event === 'volenet:pair:request') {
+      if (!currentAgentId || msg.agentId === undefined || msg.agentId === currentAgentId) {
+        showToast('🤝 Pair request from ' + ((msg.data && msg.data.fromName) || 'a node') + ' — open VoleNet to accept', 'success');
+        if (currentTab === 'volenet') refreshVnPeers();
+      }
     }
     if (!currentAgentId || msg.agentId === undefined || msg.agentId === currentAgentId) {
       addEvent(msg.event, msg.data);

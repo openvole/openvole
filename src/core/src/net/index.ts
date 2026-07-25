@@ -312,6 +312,13 @@ export class VoleNetManager {
 	private chatPruneTimer?: ReturnType<typeof setInterval>
 	/** VoleDrop file transfer engine (net.files). */
 	private files: VoleNetFiles | null = null
+	/** Consent-based pairing: inbound requests awaiting the operator (persisted to pair_requests.json). */
+	private pairRequests = new Map<
+		string,
+		{ id: string; name: string; publicKey: string; endpoint?: string; note?: string; ts: number }
+	>()
+	/** Per-IP pair-request timestamps (rate limiting, same shape as publicJoin's). */
+	private pairTimestamps = new Map<string, number[]>()
 
 	constructor(config: VoleNetConfig, projectRoot: string) {
 		this.config = config
@@ -409,6 +416,15 @@ export class VoleNetManager {
 				`Public join enabled — guests get '${this.config.publicJoin.trustLevel ?? 'tool'}' trust, allowBrain=${this.config.publicJoin.allowBrain ?? false}`,
 			)
 		}
+
+		// Consent-based pairing: always on (nothing is trusted without the operator's accept).
+		// The initiator fetches our public key from /volenet/info to fingerprint us first.
+		this.transport.setIdentityProvider(() => ({
+			publicKey: this.keyPair?.publicKeyString ?? '',
+			...(this.config.publishNames ? { name: this.config.instanceName ?? 'vole' } : {}),
+		}))
+		this.transport.setPairHandler((body, ip) => this.handlePairRequest(body, ip, messageBus))
+		await this.loadPairRequests()
 
 		// Handle tool:list requests — respond with our local tools
 		this.transport.onMessage((message) => {
@@ -1951,6 +1967,264 @@ export class VoleNetManager {
 		}
 	}
 
+	// ── Consent-based pairing (vole net pair) ─────────────────────────────────
+
+	private pairRequestsPath(): string {
+		return path.join(this.getNetDir(), 'pair_requests.json')
+	}
+
+	private async loadPairRequests(): Promise<void> {
+		try {
+			const raw = JSON.parse(await fs.readFile(this.pairRequestsPath(), 'utf-8')) as Array<{
+				id: string
+				name: string
+				publicKey: string
+				endpoint?: string
+				note?: string
+				ts: number
+			}>
+			for (const r of raw) if (r?.id && r.publicKey) this.pairRequests.set(r.id, r)
+		} catch {
+			/* none yet */
+		}
+	}
+
+	private async persistPairRequests(): Promise<void> {
+		try {
+			await fs.writeFile(
+				this.pairRequestsPath(),
+				JSON.stringify([...this.pairRequests.values()], null, 2),
+			)
+		} catch (err) {
+			logger.warn(`Could not persist pair requests: ${err instanceof Error ? err.message : err}`)
+		}
+	}
+
+	/** Handle POST /volenet/pair — queue the introduction; trust NOTHING until acceptPair. */
+	async handlePairRequest(
+		body: unknown,
+		ip: string,
+		bus?: import('../core/bus.js').MessageBus,
+	): Promise<{ status: number; json: unknown }> {
+		const { publicKey, name, note, endpoint } = (body ?? {}) as {
+			publicKey?: string
+			name?: string
+			note?: string
+			endpoint?: string
+		}
+		if (!publicKey || !parsePublicKey(publicKey)) {
+			return { status: 400, json: { error: 'invalid public key' } }
+		}
+		// Rate limit per IP (same policy shape as publicJoin: 5/min).
+		const now = Date.now()
+		if (this.pairTimestamps.size > 4096) {
+			for (const [k, ts] of this.pairTimestamps) {
+				if (ts.length === 0 || now - ts[ts.length - 1] > 60_000) this.pairTimestamps.delete(k)
+			}
+		}
+		const window = (this.pairTimestamps.get(ip) ?? []).filter((t) => now - t < 60_000)
+		if (window.length >= 5) return { status: 429, json: { error: 'rate limited' } }
+		window.push(now)
+		this.pairTimestamps.set(ip, window)
+
+		const parsed = parsePublicKey(publicKey)!
+		const already = await loadAuthorizedVoles(this.getNetDir())
+		if (already.has(parsed.instanceId)) {
+			return { status: 200, json: { ok: true, alreadyTrusted: true } }
+		}
+		if (this.pairRequests.size >= 32 && !this.pairRequests.has(parsed.instanceId)) {
+			return { status: 503, json: { error: 'too many pending pair requests' } }
+		}
+		const safeName = (typeof name === 'string' ? name : '').slice(0, 64) || parsed.instanceId.substring(0, 8)
+		this.pairRequests.set(parsed.instanceId, {
+			id: parsed.instanceId,
+			name: safeName,
+			publicKey,
+			endpoint: typeof endpoint === 'string' ? endpoint.slice(0, 200) : undefined,
+			note: typeof note === 'string' ? note.slice(0, 200) : undefined,
+			ts: now,
+		})
+		await this.persistPairRequests()
+		bus?.emit('volenet:pair:request', {
+			from: parsed.instanceId,
+			fromName: safeName,
+			note: typeof note === 'string' ? note.slice(0, 200) : undefined,
+		})
+		logger.info(`Pair request from "${safeName}" (${parsed.instanceId.substring(0, 8)}) via ${ip}`)
+		return {
+			status: 200,
+			json: { ok: true, pending: true, message: 'Pair request received — awaiting operator approval.' },
+		}
+	}
+
+	listPairRequests(): Array<{ id: string; name: string; endpoint?: string; note?: string; ts: number }> {
+		return [...this.pairRequests.values()].map(({ publicKey: _pk, ...rest }) => rest)
+	}
+
+	/** Operator consent: trust the requester's pinned key, live-reload, dial back if possible. */
+	async acceptPair(ref: string): Promise<{ ok: boolean; name?: string; error?: string }> {
+		const req = [...this.pairRequests.values()].find(
+			(r) => r.id === ref || r.name === ref || r.id.startsWith(ref),
+		)
+		if (!req) return { ok: false, error: `no pending pair request matching "${ref}"` }
+		await trustPeer(this.getNetDir(), req.publicKey)
+		await this.discovery?.reloadAuthorized()
+		this.pairRequests.delete(req.id)
+		await this.persistPairRequests()
+		if (req.endpoint) void this.discovery?.connectToPeer(req.endpoint).catch(() => {})
+		logger.info(`Pair accepted: "${req.name}" (${req.id.substring(0, 8)}) is now trusted`)
+		return { ok: true, name: req.name }
+	}
+
+	async denyPair(ref: string): Promise<{ ok: boolean }> {
+		const req = [...this.pairRequests.values()].find(
+			(r) => r.id === ref || r.name === ref || r.id.startsWith(ref),
+		)
+		if (!req) return { ok: false }
+		this.pairRequests.delete(req.id)
+		await this.persistPairRequests()
+		return { ok: true }
+	}
+
+	/** Fetch a remote node's identity for the operator to fingerprint before pairing. */
+	async probePair(url: string): Promise<{
+		ok: boolean
+		name?: string
+		fingerprint?: string
+		publicKey?: string
+		alreadyTrusted?: boolean
+		error?: string
+	}> {
+		const base = url.replace(/\/$/, '')
+		let info: { publicKey?: string; name?: string }
+		try {
+			const r = await fetch(`${base}/volenet/info`, { signal: AbortSignal.timeout(8000) })
+			info = (await r.json()) as typeof info
+		} catch (err) {
+			return { ok: false, error: `could not reach ${base}: ${err instanceof Error ? err.message : err}` }
+		}
+		const parsed = info.publicKey ? parsePublicKey(info.publicKey) : null
+		if (!parsed) return { ok: false, error: 'peer offered no public key (openvole < 4.13?)' }
+		const trusted = await loadAuthorizedVoles(this.getNetDir())
+		return {
+			ok: true,
+			name: info.name,
+			fingerprint: parsed.instanceId,
+			publicKey: info.publicKey,
+			alreadyTrusted: trusted.has(parsed.instanceId),
+		}
+	}
+
+	/** Add a peer URL to vole.config.json AND the live config, then dial it. */
+	private async addPeerEntry(url: string): Promise<void> {
+		const base = url.replace(/\/$/, '')
+		this.config.peers = this.config.peers ?? []
+		if (!this.config.peers.some((p) => p.url === base)) {
+			this.config.peers.push({ url: base, trust: 'full' })
+		}
+		try {
+			const { readConfigFile, writeConfigFile } = await import('../config/index.js')
+			const cfg = (await readConfigFile(this.projectRoot)) as {
+				net?: { peers?: Array<{ url?: string }> }
+			}
+			cfg.net = cfg.net ?? {}
+			cfg.net.peers = cfg.net.peers ?? []
+			if (!cfg.net.peers.some((p) => p?.url === base)) {
+				cfg.net.peers.push({ url: base, trust: 'full' } as { url: string })
+				await writeConfigFile(this.projectRoot, cfg as Record<string, unknown>)
+			}
+		} catch (err) {
+			logger.warn(`Could not persist peer entry: ${err instanceof Error ? err.message : err}`)
+		}
+		void this.discovery?.connectToPeer(base).catch(() => {})
+	}
+
+	/**
+	 * Dashboard-initiated pairing: trust the probed key (the operator confirmed the
+	 * fingerprint client-side), persist + dial the peer, and file the pair request for
+	 * the other operator. Fully live — no restart needed on this side.
+	 */
+	async initiatePair(
+		url: string,
+		publicKey: string,
+		note?: string,
+	): Promise<{ ok: boolean; pending?: boolean; alreadyTrusted?: boolean; error?: string }> {
+		if (!this.keyPair) return { ok: false, error: 'VoleNet not started' }
+		const base = url.replace(/\/$/, '')
+		if (!parsePublicKey(publicKey)) return { ok: false, error: 'invalid public key' }
+		await trustPeer(this.getNetDir(), publicKey)
+		await this.discovery?.reloadAuthorized()
+		await this.addPeerEntry(base)
+		try {
+			const r = await fetch(`${base}/volenet/pair`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					publicKey: this.keyPair.publicKeyString,
+					name: this.config.instanceName ?? 'vole',
+					note,
+					endpoint: this.transport ? buildAdvertisedEndpoint({
+						publicUrl: this.config.publicUrl ?? process.env.VOLE_NET_PUBLIC_URL,
+						tls: !!this.config.tls,
+						hostname: this.getHostname(),
+						port: this.config.port ?? 9700,
+					}) : undefined,
+				}),
+				signal: AbortSignal.timeout(8000),
+			})
+			const resp = (await r.json()) as {
+				ok?: boolean
+				pending?: boolean
+				alreadyTrusted?: boolean
+				error?: string
+			}
+			if (!resp.ok) return { ok: false, error: resp.error ?? `pair request failed (${r.status})` }
+			return { ok: true, pending: resp.pending, alreadyTrusted: resp.alreadyTrusted }
+		} catch (err) {
+			return { ok: false, error: err instanceof Error ? err.message : String(err) }
+		}
+	}
+
+	/** Dashboard-initiated public-hub join (the vole net join flow, in-process and live). */
+	async initiateJoin(
+		url: string,
+	): Promise<{ ok: boolean; pending?: boolean; hubName?: string; error?: string }> {
+		if (!this.keyPair) return { ok: false, error: 'VoleNet not started' }
+		const base = url.replace(/\/$/, '')
+		try {
+			const r = await fetch(`${base}/volenet/join`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					publicKey: this.keyPair.publicKeyString,
+					name: this.config.instanceName ?? 'vole',
+				}),
+				signal: AbortSignal.timeout(10000),
+			})
+			const text = await r.text()
+			if (r.status === 404 || !text.trim()) {
+				return { ok: false, error: 'not a public hub (publicJoin is not enabled there) — use pair instead' }
+			}
+			const resp = JSON.parse(text) as {
+				ok?: boolean
+				pending?: boolean
+				hubPublicKey?: string
+				instanceName?: string
+				error?: string
+			}
+			if (!r.ok || !resp.ok) return { ok: false, error: resp.error ?? `join failed (${r.status})` }
+			if (resp.pending) return { ok: true, pending: true, hubName: resp.instanceName }
+			if (resp.hubPublicKey && parsePublicKey(resp.hubPublicKey)) {
+				await trustPeer(this.getNetDir(), resp.hubPublicKey)
+				await this.discovery?.reloadAuthorized()
+			}
+			await this.addPeerEntry(base)
+			return { ok: true, hubName: resp.instanceName }
+		} catch (err) {
+			return { ok: false, error: err instanceof Error ? err.message : String(err) }
+		}
+	}
+
 	/**
 	 * Check if a specific peer is allowed to use our brain.
 	 */
@@ -2121,6 +2395,7 @@ export {
 	loadRelayAccepts,
 	addRelayAccept,
 	removeRelayAccept,
+	parsePublicKey,
 } from './keys.js'
 export type { VoleKeyPair } from './keys.js'
 export type { VoleNetInstance, RemoteToolInfo } from './protocol.js'

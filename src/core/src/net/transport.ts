@@ -75,6 +75,8 @@ export class VoleNetTransport {
 	/** Resolves a full peerId to its announced display name (for /volenet/info when publishNames). */
 	private nameResolver: ((peerId: string) => string | undefined) | null = null
 	private joinHandler: JoinHandler | null = null
+	private pairHandler: JoinHandler | null = null
+	private identityProvider: (() => { publicKey: string; name?: string }) | null = null
 	/** VoleDrop data plane — handles /volenet/blob/* streamed requests. */
 	private blobHandler:
 		| ((req: http.IncomingMessage, res: http.ServerResponse, pathname: string) => boolean)
@@ -98,6 +100,20 @@ export class VoleNetTransport {
 	/** Register a handler for public self-join requests (HTTP POST /volenet/join). */
 	setJoinHandler(handler: JoinHandler): void {
 		this.joinHandler = handler
+	}
+
+	/** Register a handler for consent-based pairing requests (HTTP POST /volenet/pair). */
+	setPairHandler(handler: JoinHandler): void {
+		this.pairHandler = handler
+	}
+
+	/**
+	 * Provide this node's own public identity for /volenet/info — the key `vole net pair`
+	 * fetches (and fingerprints) before asking the operator here for consent. Public keys
+	 * are announced to every peer anyway; exposing one here is not an enumeration surface.
+	 */
+	setIdentityProvider(fn: () => { publicKey: string; name?: string }): void {
+		this.identityProvider = fn
 	}
 
 	/**
@@ -247,11 +263,16 @@ export class VoleNetTransport {
 				// operator sets net.publishNames (e.g. a public hub whose members are meant to be seen).
 				const withNames = this.config.publishNames && this.nameResolver
 				res.writeHead(200, { 'Content-Type': 'application/json' })
+				const identity = this.identityProvider?.()
 				res.end(
 					JSON.stringify({
 						ok: true,
 						protocol: 'volenet',
 						version: 1,
+						// Own public key (always safe — it's announced to every peer) + name when
+						// publishNames allows it. `vole net pair` fingerprints this before trusting.
+						...(identity?.publicKey ? { publicKey: identity.publicKey } : {}),
+						...(identity?.name ? { name: identity.name } : {}),
 						peers: peerList.map((p) => ({
 							id: p.peerId.substring(0, 8),
 							...(withNames ? { name: this.nameResolver?.(p.peerId) } : {}),
@@ -296,6 +317,43 @@ export class VoleNetTransport {
 						.catch((e) => {
 							res.writeHead(500, { 'Content-Type': 'application/json' })
 							res.end(JSON.stringify({ error: e instanceof Error ? e.message : 'join failed' }))
+						})
+				})
+				return
+			}
+
+			// Consent-based pairing: an unknown node introduces itself with its public key.
+			// Nothing is trusted here — the request is queued for the OPERATOR to accept
+			// (vole net pair / dashboard). Same shape and caps as /volenet/join.
+			if (req.url === '/volenet/pair' && req.method === 'POST') {
+				let body = ''
+				req.on('data', (chunk: Buffer) => {
+					body += chunk
+					if (body.length > 8192) req.destroy()
+				})
+				req.on('end', () => {
+					if (!this.pairHandler) {
+						res.writeHead(404)
+						res.end()
+						return
+					}
+					let parsed: unknown
+					try {
+						parsed = JSON.parse(body)
+					} catch {
+						res.writeHead(400, { 'Content-Type': 'application/json' })
+						res.end(JSON.stringify({ error: 'invalid json' }))
+						return
+					}
+					const ip = req.socket.remoteAddress ?? 'unknown'
+					this.pairHandler(parsed, ip)
+						.then(({ status, json }) => {
+							res.writeHead(status, { 'Content-Type': 'application/json' })
+							res.end(JSON.stringify(json))
+						})
+						.catch((e) => {
+							res.writeHead(500, { 'Content-Type': 'application/json' })
+							res.end(JSON.stringify({ error: e instanceof Error ? e.message : 'pair failed' }))
 						})
 				})
 				return

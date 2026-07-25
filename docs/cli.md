@@ -265,6 +265,17 @@ Join a public mesh hub: registers with the hub over HTTP, trusts its key, and ad
 vole net join https://hub.example.com:9700 --name my-laptop
 ```
 
+### `vole net pair`
+
+Connect two nodes you (or two cooperating operators) run — the easy alternative to the manual `show-key`/`trust` exchange, **with consent on both ends**:
+
+```bash
+# On node A (the initiator):
+vole net pair http://192.168.1.20:9700 --name gaming-pc [--note "same fleet"] [--yes]
+```
+
+The initiator fetches the peer's public key from `/volenet/info`, shows its **fingerprint** for confirmation, trusts it, adds a `net.peers` entry — then files a pair request that the *other side's operator* must accept (dashboard VoleNet tab → **Pair requests**, or `vole net pair accept <name>`; `vole net pair list` / `deny` also exist). Nothing is trusted on the remote side until they accept; acceptance takes effect live (no restart on the acceptor). Restart the *initiating* agent if it was running so it picks up the new peer entry.
+
 ### `vole net send`
 
 Send a file to a peer, end-to-end encrypted ([VoleDrop](/volenet#file-transfer-voledrop)). Requires a running `vole serve` on this machine — the transfer executes inside the named agent's engine, so it keeps running after the CLI exits.

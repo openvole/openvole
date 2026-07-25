@@ -110,6 +110,13 @@ export class ControlPlane {
 				volenetFileReject: (transferId, id) =>
 					this.callAgent(id, 'volenet_file_reject', { transferId }),
 				volenetFileStatus: (id) => this.callAgent(id, 'volenet_file_status'),
+				volenetPairRequests: (id) => this.callAgent(id, 'volenet_pair_requests'),
+				volenetPairAccept: (ref, id) => this.callAgent(id, 'volenet_pair_accept', { ref }),
+				volenetPairDeny: (ref, id) => this.callAgent(id, 'volenet_pair_deny', { ref }),
+				volenetPairProbe: (url, id) => this.callAgent(id, 'volenet_pair_probe', { url }),
+				volenetPairInitiate: (url, publicKey, note, id) =>
+					this.callAgent(id, 'volenet_pair_initiate', { url, publicKey, note }),
+				volenetJoinHub: (url, id) => this.callAgent(id, 'volenet_join_hub', { url }),
 				resolveUploadDir: async (agentId) => {
 					const reg = await this.manager.readRegistry()
 					const entry = reg.agents.find((s) => s.id === agentId || s.name === agentId)

@@ -157,8 +157,17 @@ The **VoleNet** tab is for talking to the *humans* behind your connected peer no
 
 This is the human-to-human messaging mode. Cross-node chat where the peer's *brain* replies automatically is a separate, brain-callable tool — the `net_message` tool — described under [VoleNet](/volenet).
 
+### Connecting nodes from the dashboard
+
+The peer list's **+ Connect** button initiates connections without touching a terminal:
+
+- **Pair** (a node you operate): enter its URL → the dashboard fetches and shows its **fingerprint** → confirm → the node is trusted, added to `net.peers`, and a pair request is filed for the *other side's operator* to accept (their VoleNet tab shows it under **Pair requests**). Everything takes effect live — no restarts.
+- **Join** (public hub): the `vole net join` flow in-process — registers with the hub, trusts its key, adds the peer entry, connects.
+
 ### File attachments (VoleDrop)
 
-The 📎 button in the chat composer sends a file to the selected peer, end-to-end encrypted ([details](/volenet#file-transfer-voledrop)). The browser streams the file to the serve host, which offers it to the peer over the mesh; the peer's operator sees a file bubble with **Accept / Decline** (unless their `net.files.acceptFrom` auto-accepts you). Progress, delivery, and failure states update live in the bubble; accepted files land sha256-verified in the peer's `net.files.inboxDir`.
+The 📎 button in the chat composer **stages** a file (shown as a removable chip); **Send** ships it, with any typed text riding along as the offer's note — so a file and its message travel together. The browser streams the file to the serve host, which offers it to the peer over the mesh, end-to-end encrypted ([details](/volenet#file-transfer-voledrop)); the peer's operator sees a file bubble (name, size, note) with **Accept / Decline** (unless their `net.files.acceptFrom` auto-accepts you). Progress, delivery, and failure states update live in the bubble — and pending offers reappear with their buttons when the chat is reopened later (until `net.files.offerTtlMinutes` expires them). Accepted files land sha256-verified in the peer's `net.files.inboxDir`.
+
+**Unread badges.** Unread chat messages and file offers are counted per peer (badge on the peer row), per agent (badge on the **VoleNet tab** button and on each **agent card** — so a message to a non-selected agent still lights up), and survive agent switches and page reloads. Opening a peer's chat clears its count.
 
 > Config-tab note: the `net.encrypt` and `net.publishNames` toggles and `net.share.toolAllow` previously did not survive a dashboard config save (silently reverted/dropped) — fixed in 4.13.0.

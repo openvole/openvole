@@ -47,6 +47,8 @@ export type BusEvents = {
 	'volenet:relay:accepted': { from: string; fromName: string }
 	/** A relay member denied this agent's connect-request. */
 	'volenet:relay:denied': { from: string; fromName: string }
+	/** An unknown node asked to pair (vole net pair) — awaiting this operator's accept. */
+	'volenet:pair:request': { from: string; fromName: string; note?: string }
 	/** VoleDrop: a peer offered a file (auto=true when acceptFrom auto-accepted it). */
 	'volenet:file:offer': {
 		transferId: string

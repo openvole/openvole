@@ -65,6 +65,18 @@ export interface DashboardCallbacks {
 	volenetFileAccept?: (transferId: string, agentId?: string) => Promise<unknown>
 	volenetFileReject?: (transferId: string, agentId?: string) => Promise<unknown>
 	volenetFileStatus?: (agentId?: string) => Promise<unknown>
+	/** Consent-based pairing (vole net pair). */
+	volenetPairRequests?: (agentId?: string) => Promise<unknown>
+	volenetPairAccept?: (ref: string, agentId?: string) => Promise<unknown>
+	volenetPairDeny?: (ref: string, agentId?: string) => Promise<unknown>
+	volenetPairProbe?: (url: string, agentId?: string) => Promise<unknown>
+	volenetPairInitiate?: (
+		url: string,
+		publicKey: string,
+		note: string | undefined,
+		agentId?: string,
+	) => Promise<unknown>
+	volenetJoinHub?: (url: string, agentId?: string) => Promise<unknown>
 	/** Where browser uploads spool before net_file_send (the agent's files outbox). */
 	resolveUploadDir?: (agentId: string) => Promise<string>
 	getPanelHtml?: (agentId: string, paw: string) => Promise<unknown>
@@ -492,6 +504,34 @@ export function createDashboardServer(
 				case 'net_file_status':
 					respond(await callbacks.volenetFileStatus?.(sel()))
 					break
+				case 'net_pair_requests':
+					respond(await callbacks.volenetPairRequests?.(sel()))
+					break
+				case 'net_pair_accept': {
+					const p = cmd.params as { ref: string }
+					respond(await callbacks.volenetPairAccept?.(p?.ref, sel()))
+					break
+				}
+				case 'net_pair_deny': {
+					const p = cmd.params as { ref: string }
+					respond(await callbacks.volenetPairDeny?.(p?.ref, sel()))
+					break
+				}
+				case 'net_pair_probe': {
+					const p = cmd.params as { url: string }
+					respond(await callbacks.volenetPairProbe?.(p?.url, sel()))
+					break
+				}
+				case 'net_pair_initiate': {
+					const p = cmd.params as { url: string; publicKey: string; note?: string }
+					respond(await callbacks.volenetPairInitiate?.(p?.url, p?.publicKey, p?.note, sel()))
+					break
+				}
+				case 'net_join_hub': {
+					const p = cmd.params as { url: string }
+					respond(await callbacks.volenetJoinHub?.(p?.url, sel()))
+					break
+				}
 				case 'select_agent': {
 					const p = cmd.params as { agentId?: string }
 					selected.set(ws, p?.agentId)

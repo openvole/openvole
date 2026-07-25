@@ -468,7 +468,7 @@ export class VoleNetFiles {
 		}
 		void this.opts.appendChat(peer.id, {
 			dir: 'out',
-			text: `\u{1F4CE} ${t.name} (${humanSize(t.size)})`,
+			text: `\u{1F4CE} ${t.name} (${humanSize(t.size)})${t.note ? ` \u2014 ${t.note}` : ''}`,
 			fromName: this.opts.instanceName,
 			timestamp: Date.now(),
 			messageId: transferId,
@@ -609,7 +609,7 @@ export class VoleNetFiles {
 		this.transfers.set(t.transferId, t)
 		void this.opts.appendChat(msg.from, {
 			dir: 'in',
-			text: `\u{1F4CE} ${t.name} (${humanSize(t.size)})`,
+			text: `\u{1F4CE} ${t.name} (${humanSize(t.size)})${t.note ? ` \u2014 ${t.note}` : ''}`,
 			fromName,
 			timestamp: msg.timestamp,
 			messageId: t.transferId,

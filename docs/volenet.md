@@ -25,7 +25,7 @@ graph TB
 ```
 
 1. Each instance generates an Ed25519 keypair (`vole net init`)
-2. Instances exchange public keys to establish trust (`vole net trust`)
+2. Instances exchange public keys to establish trust (`vole net trust` — or [`vole net pair <url>`](/cli#vole-net-pair), which automates the exchange with a fingerprint check on the initiating side and an explicit operator accept on the other)
 3. On startup, peers connect via WebSocket and discover each other's tools
 4. Remote tools appear in the coordinator's tool registry — the Brain calls them like local tools
 5. All messages are signed with Ed25519 and include replay protection (60s window)

@@ -168,6 +168,8 @@ VoleNet (distributed networking):
   vole net show-key                      Display public key (share with peers)
   vole net trust <key>                   Trust a peer's public key
   vole net join <url>                    Join a public hub (register, trust, add as peer)
+  vole net pair <url>                    Pair with a node you operate (fingerprint + their consent)
+  vole net pair list|accept|deny [ref]   Respond to inbound pair requests
   vole net send <file> --to <peer> --agent <name>   Send a file E2E-encrypted (VoleDrop; --wait to follow)
   vole net revoke <id>                   Remove trust for a peer
   vole net peers                         List trusted peers
@@ -1341,6 +1343,144 @@ async function handleNetCommand(args: string[], projectRoot: string): Promise<vo
 				process.exit(1)
 			}
 			logger.info(keyPair.publicKeyString)
+			break
+		}
+
+		case 'pair': {
+			// Consent-based pairing between two nodes you (or two people) operate:
+			//   vole net pair <url> [--name <n>] [--note <text>] [--yes]   initiate
+			//   vole net pair list | accept <ref> | deny <ref>             respond
+			const sub = args[1]
+			const fsp = await import('node:fs/promises')
+			if (sub === 'list' || sub === 'accept' || sub === 'deny') {
+				const reqPath = path.join(netDir, 'pair_requests.json')
+				let requests: Array<{ id: string; name: string; publicKey: string; note?: string; ts: number }> = []
+				try {
+					requests = JSON.parse(await fsp.readFile(reqPath, 'utf-8'))
+				} catch {
+					/* none */
+				}
+				if (sub === 'list') {
+					if (requests.length === 0) {
+						logger.info('No pending pair requests.')
+						break
+					}
+					for (const r of requests) {
+						logger.info(`${r.name}  (${r.id.substring(0, 8)})  ${new Date(r.ts).toLocaleString()}${r.note ? `  — ${r.note}` : ''}`)
+					}
+					break
+				}
+				const ref = args[2]
+				if (!ref) {
+					logger.error(`Usage: vole net pair ${sub} <name-or-id>`)
+					process.exit(1)
+				}
+				const idx = requests.findIndex((r) => r.id === ref || r.name === ref || r.id.startsWith(ref))
+				if (idx < 0) {
+					logger.error(`No pending pair request matching "${ref}"`)
+					process.exit(1)
+				}
+				const req = requests[idx]
+				requests.splice(idx, 1)
+				await fsp.writeFile(reqPath, JSON.stringify(requests, null, 2))
+				if (sub === 'accept') {
+					const { trustPeer } = await import('./net/index.js')
+					await trustPeer(netDir, req.publicKey)
+					logger.info(`Trusted "${req.name}" (${req.id.substring(0, 8)}).`)
+					logger.info('If this agent is currently running, restart it (or accept from its')
+					logger.info('dashboard instead) so the running engine picks up the new trust.')
+				} else {
+					logger.info(`Denied pair request from "${req.name}".`)
+				}
+				break
+			}
+
+			const url = args[1]
+			if (!url || url.startsWith('--')) {
+				logger.error('Usage: vole net pair <url> [--name <name>] [--note <text>] [--yes]')
+				logger.error('       vole net pair list | accept <ref> | deny <ref>')
+				process.exit(1)
+			}
+			const base = url.replace(/\/$/, '')
+			const nameIdx = args.indexOf('--name')
+			const myName = nameIdx >= 0 ? args[nameIdx + 1] : path.basename(projectRoot) || 'vole'
+			const noteIdx = args.indexOf('--note')
+			const note = noteIdx >= 0 ? args[noteIdx + 1] : undefined
+			const { loadKeyPair, generateKeyPair, trustPeer, parsePublicKey } = await import(
+				'./net/index.js'
+			)
+			let keyPair = await loadKeyPair(netDir)
+			if (!keyPair) keyPair = await generateKeyPair(netDir, myName)
+
+			// 1. Fetch and fingerprint the peer's identity.
+			let info: { publicKey?: string; name?: string }
+			try {
+				const r = await fetch(`${base}/volenet/info`, { signal: AbortSignal.timeout(8000) })
+				info = (await r.json()) as typeof info
+			} catch (err) {
+				logger.error(`Could not reach ${base}: ${err instanceof Error ? err.message : String(err)}`)
+				process.exit(1)
+				return
+			}
+			if (!info.publicKey || !parsePublicKey(info.publicKey)) {
+				logger.error(`${base} did not offer a public key — it may run openvole < 4.13.`)
+				process.exit(1)
+				return
+			}
+			const parsed = parsePublicKey(info.publicKey)!
+			logger.info(`Peer identity: ${info.name ?? '(name not published)'}`)
+			logger.info(`Fingerprint:   ${parsed.instanceId}`)
+			if (!args.includes('--yes')) {
+				const readline = await import('node:readline/promises')
+				const rl = readline.createInterface({ input: process.stdin, output: process.stdout })
+				const answer = (await rl.question('Trust this node and send a pair request? [y/N] ')).trim()
+				rl.close()
+				if (answer.toLowerCase() !== 'y' && answer.toLowerCase() !== 'yes') {
+					logger.info('Aborted — nothing was trusted.')
+					break
+				}
+			}
+
+			// 2. Trust their pinned key locally + add a peers entry so we keep dialing them.
+			await trustPeer(netDir, info.publicKey)
+			try {
+				const cfgPath = path.join(projectRoot, 'vole.config.json')
+				const cfg = JSON.parse(await fsp.readFile(cfgPath, 'utf-8'))
+				cfg.net = cfg.net ?? {}
+				cfg.net.peers = cfg.net.peers ?? []
+				if (!cfg.net.peers.some((p: { url?: string }) => p?.url === base)) {
+					cfg.net.peers.push({ url: base, trust: 'full' })
+					await fsp.writeFile(cfgPath, `${JSON.stringify(cfg, null, 2)}\n`)
+					logger.info(`Added ${base} to net.peers (trust: full).`)
+				}
+			} catch {
+				logger.warn('Could not update vole.config.json — add the peers entry manually.')
+			}
+
+			// 3. File the pair request for THEIR operator to accept.
+			try {
+				const r = await fetch(`${base}/volenet/pair`, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ publicKey: keyPair.publicKeyString, name: myName, note }),
+					signal: AbortSignal.timeout(8000),
+				})
+				const resp = (await r.json()) as { ok?: boolean; pending?: boolean; alreadyTrusted?: boolean; error?: string }
+				if (resp.alreadyTrusted) {
+					logger.info('The peer already trusts this node — pairing is complete.')
+				} else if (resp.pending) {
+					logger.info('Pair request sent. Ask the other operator to accept it')
+					logger.info('(dashboard VoleNet tab, or `vole net pair accept ' + myName + '`).')
+					logger.info('The connection completes automatically once accepted — restart this')
+					logger.info('agent if it is running so it picks up the new peer entry.')
+				} else {
+					logger.error(`Pair request failed: ${resp.error ?? 'unknown error'}`)
+					process.exit(1)
+				}
+			} catch (err) {
+				logger.error(`Pair request failed: ${err instanceof Error ? err.message : String(err)}`)
+				process.exit(1)
+			}
 			break
 		}
 
