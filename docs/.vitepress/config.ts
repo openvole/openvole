@@ -10,6 +10,7 @@ export default withMermaid(
 		logo: '/vole.png',
 		nav: [
 			{ text: 'Guide', link: '/getting-started' },
+			{ text: 'Use Cases', link: '/use-cases' },
 			{ text: 'Dashboard', link: '/dashboard' },
 			{ text: 'Paws', link: '/paws' },
 			{ text: 'API', link: '/configuration' },
@@ -22,6 +23,7 @@ export default withMermaid(
 				items: [
 					{ text: 'What is OpenVole?', link: '/' },
 					{ text: 'Getting Started', link: '/getting-started' },
+					{ text: 'Use Cases', link: '/use-cases' },
 					{ text: 'Dashboard', link: '/dashboard' },
 					{ text: 'Configuration', link: '/configuration' },
 				],
