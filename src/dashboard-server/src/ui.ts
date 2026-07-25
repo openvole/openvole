@@ -1641,6 +1641,7 @@ function sendCommand(type, params, timeoutMs) {
 var currentAgentId = null;
 var lastAgents = [];
 var lastStatePaws = [];
+var lastStateTasks = [];
 var lastStateTools = [];
 var lastStateSkills = [];
 var lastStateSchedules = [];
@@ -1675,7 +1676,7 @@ function renderAgents(agents) {
     }
   }
   if (currentAgentId) updateAgentHeader();
-  updateVnBadges();
+  updateUnreadBadges();
 }
 function agentCardHtml(s) {
   var running = s.state === 'running';
@@ -1864,7 +1865,7 @@ function selectAgent(id) {
   if (!id) { currentAgentId = null; clearPanels(); return; }
   var changed = currentAgentId !== id;
   currentAgentId = id;
-  updateVnBadges();
+  updateUnreadBadges();
   if (changed) {
     resetChat();
     resetVolenet();
@@ -1939,6 +1940,9 @@ function resetChat() {
 }
 function initChatTab() {
   if (!currentAgentId) return;
+  // Opening the chat is "reading" it — clear before the early return below, or an
+  // already-loaded chat would keep its badge forever.
+  chatClearUnread(currentAgentId, chatSessionId);
   var key = currentAgentId + ':' + chatSessionId;
   if (chatLoadedKey === key) return;
   loadChatSessions();
@@ -1997,6 +2001,7 @@ function clearChatSession() {
 }
 function onChatSessionChange() {
   chatSessionId = document.getElementById('chat-session').value || 'dashboard';
+  chatClearUnread(currentAgentId, chatSessionId);
   chatLoadedKey = null;
   document.getElementById('chat-messages').innerHTML = '';
   var note = document.getElementById('chat-note');
@@ -2035,11 +2040,46 @@ function loadChatHistory() {
       }
     }
     if (!added) box.innerHTML = '<div class="chat-empty">No messages yet — say hi to the brain.</div>';
+    restorePendingChat();
     box.scrollTop = box.scrollHeight;
   }).catch(function() {
     chatLoadedKey = key;
     box.innerHTML = '<div class="chat-empty">No history available (paw-session not loaded). Messages still work.</div>';
+    restorePendingChat();
   });
+}
+
+/**
+ * Re-attach the "thinking…" bubble for a task that is still running in this session.
+ * Reloading the chat wipes the DOM, which orphaned any pendingChats entry: the animation
+ * vanished AND the eventual answer was written into a detached node, so it never appeared.
+ * The task list already knows — this rebuilds the bubble and rebinds the pending entry.
+ */
+function restorePendingChat() {
+  var box = document.getElementById('chat-messages');
+  if (!box) return;
+  var live = (lastStateTasks || []).filter(function(t) {
+    return (t.status === 'running' || t.status === 'queued')
+      && (t.sessionId || 'dashboard') === chatSessionId
+      && t.source !== 'heartbeat' && t.source !== 'schedule';
+  });
+  if (!live.length) return;
+  live.sort(function(a, b) { return (a.createdAt || 0) - (b.createdAt || 0); });
+  for (var i = 0; i < live.length; i++) {
+    var t = live[i];
+    // The user's own message is already in history; only add it if history missed it
+    // (paw-session writes it as the task starts, so a queued task may not be there yet).
+    var empty = box.querySelector('.chat-empty');
+    if (empty) empty.remove();
+    if (t.input && box.textContent.indexOf(t.input.slice(0, 40)) === -1) {
+      addChatBubble('user', t.input);
+    }
+    var el = addChatBubble('brain', '', 'chat-msg-pending');
+    var timer = startChatWait(el);
+    var prev = pendingChats[t.id];
+    if (prev && prev.timer) clearInterval(prev.timer);
+    pendingChats[t.id] = { el: el, agentId: currentAgentId, timer: timer };
+  }
 }
 /* ── Minimal safe markdown renderer for brain bubbles (escape first, then transform) ── */
 function mdEscape(s) {
@@ -2118,6 +2158,26 @@ function sendChat() {
   });
 }
 function chatOnTaskEvent(event, data, agentId) {
+  // Unread accounting FIRST: a reply can land while you're on another tab or agent, and
+  // there may be no pending bubble at all (page reloaded, or a different agent). Only
+  // sessioned tasks are chat — heartbeat and schedule runs carry no sessionId.
+  if ((event === 'task:completed' || event === 'task:failed') && data && data.sessionId) {
+    var target = agentId !== undefined ? agentId : currentAgentId;
+    var viewing = currentTab === 'chat' && target === currentAgentId && data.sessionId === chatSessionId;
+    if (viewing) {
+      // Seen live — move the watermark so a later recount doesn't resurrect it.
+      chatMarkRead(target, data.sessionId);
+      chatSaveUnread();
+    } else {
+      chatBumpUnread(target, data.sessionId);
+      var ag = (lastAgents || []).filter(function(a) { return a.id === target; })[0];
+      var who = (ag && ag.name) || 'The agent';
+      showToast('\\uD83E\\uDDE0 ' + who + ' replied'
+        + (data.sessionId !== 'dashboard' ? ' in ' + data.sessionId : ''),
+        event === 'task:failed' ? 'error' : 'success');
+    }
+  }
+
   var p = data && data.taskId ? pendingChats[data.taskId] : null;
   if (!p) return;
   if (agentId !== undefined && p.agentId !== agentId) return;
@@ -2171,28 +2231,121 @@ function vnClearUnread(agentId, peerId) {
 }
 function vnSaveUnread() {
   try { localStorage.setItem('vnUnread', JSON.stringify(vnUnreadStore)); } catch (e) {}
-  updateVnBadges();
+  updateUnreadBadges();
 }
-/* Aggregate badges: the VoleNet tab button (current agent) + each agent card. */
-function updateVnBadges() {
-  var tabBtn = document.querySelector('.tab-btn[data-tab="volenet"]');
-  if (tabBtn) {
-    var badge = tabBtn.querySelector('.vn-badge');
-    var sum = vnAgentUnreadSum(currentAgentId);
-    if (sum && !badge) {
-      badge = document.createElement('span');
-      badge.className = 'vn-badge';
-      tabBtn.appendChild(badge);
-    }
-    if (badge) {
-      badge.textContent = sum;
-      badge.style.display = sum ? '' : 'none';
+/* Brain-chat unread counts — same shape as the VoleNet ones, keyed by session, because
+   the brain can answer long after you've moved to another tab or agent. */
+var chatUnreadStore = {};
+try { chatUnreadStore = JSON.parse(localStorage.getItem('chatUnread') || '{}') || {}; } catch (e) { chatUnreadStore = {}; }
+function chatUnreadFor(agentId) {
+  var key = agentId || 'default';
+  if (!chatUnreadStore[key]) chatUnreadStore[key] = {};
+  return chatUnreadStore[key];
+}
+function chatAgentUnreadSum(agentId) {
+  var m = chatUnreadFor(agentId), sum = 0;
+  for (var k in m) sum += m[k] || 0;
+  return sum;
+}
+function chatBumpUnread(agentId, sessionId) {
+  if (!sessionId) return;
+  var m = chatUnreadFor(agentId);
+  m[sessionId] = (m[sessionId] || 0) + 1;
+  chatSaveUnread();
+}
+function chatClearUnread(agentId, sessionId) {
+  chatMarkRead(agentId, sessionId);
+  var m = chatUnreadFor(agentId);
+  if (m[sessionId]) { delete m[sessionId]; }
+  chatSaveUnread();
+}
+function chatSaveUnread() {
+  try { localStorage.setItem('chatUnread', JSON.stringify(chatUnreadStore)); } catch (e) {}
+  try { localStorage.setItem('chatReadAt', JSON.stringify(chatReadAt)); } catch (e) {}
+  updateUnreadBadges();
+}
+
+/* Read watermarks: when you last LOOKED at a given chat. Live events only fire while the
+   page is open, so replies that land with the browser closed would otherwise go unnoticed.
+   On reconnect we recount from the agent's task list against these marks. */
+var chatReadAt = {};
+try { chatReadAt = JSON.parse(localStorage.getItem('chatReadAt') || '{}') || {}; } catch (e) { chatReadAt = {}; }
+function chatMarkRead(agentId, sessionId) {
+  var key = agentId || 'default';
+  if (!chatReadAt[key]) chatReadAt[key] = {};
+  // Mark with the newest ENGINE-side completion we know of for this session, never the
+  // browser clock: the dashboard often runs on a different machine, and a skewed clock
+  // would either resurrect read replies or silently swallow new ones.
+  var newest = chatReadAt[key][sessionId] || 0;
+  for (var i = 0; i < (lastStateTasks || []).length; i++) {
+    var t = lastStateTasks[i];
+    if (t.sessionId === sessionId && typeof t.completedAt === 'number' && t.completedAt > newest) {
+      newest = t.completedAt;
     }
   }
+  chatReadAt[key][sessionId] = newest;
+}
+
+/**
+ * Recount the CURRENT agent's unread chats from its task list (state carries sessionId +
+ * completedAt). Authoritative for that agent, so it also corrects counts after a reload or
+ * a closed browser. Other agents keep their event-driven counts — state only covers the
+ * selected agent. Engine keeps its last 50 completed tasks, so a long-idle browser can
+ * still miss older replies; opening the chat shows them regardless.
+ */
+function recomputeChatUnread() {
+  if (!currentAgentId) return;
+  if (!chatReadAt[currentAgentId]) chatReadAt[currentAgentId] = {};
+  var marks = chatReadAt[currentAgentId];
+  var counts = {};
+  var firstSight = {};
+  for (var i = 0; i < (lastStateTasks || []).length; i++) {
+    var t = lastStateTasks[i];
+    if (!t.sessionId || (t.status !== 'completed' && t.status !== 'failed')) continue;
+    var doneAt = typeof t.completedAt === 'number' ? t.completedAt : 0;
+    if (!doneAt) continue;
+    if (marks[t.sessionId] === undefined) {
+      // Never seen this session on this browser — adopt its history as already read.
+      // Without this, a fresh browser would badge every reply still in the task list.
+      firstSight[t.sessionId] = Math.max(firstSight[t.sessionId] || 0, doneAt);
+      continue;
+    }
+    if (doneAt > marks[t.sessionId]) counts[t.sessionId] = (counts[t.sessionId] || 0) + 1;
+  }
+  for (var s in firstSight) marks[s] = firstSight[s];
+  // Whatever you're looking at right now is read by definition.
+  if (currentTab === 'chat' && counts[chatSessionId]) {
+    delete counts[chatSessionId];
+    chatMarkRead(currentAgentId, chatSessionId);
+  }
+  chatUnreadStore[currentAgentId] = counts;
+  chatSaveUnread();
+}
+
+/* Aggregate badges: the Chat and VoleNet tab buttons (current agent) + each agent card,
+   whose badge sums BOTH kinds so a card lights up for either. */
+function tabBadge(tab, count) {
+  var btn = document.querySelector('.tab-btn[data-tab="' + tab + '"]');
+  if (!btn) return;
+  var badge = btn.querySelector('.vn-badge');
+  if (count && !badge) {
+    badge = document.createElement('span');
+    badge.className = 'vn-badge';
+    btn.appendChild(badge);
+  }
+  if (badge) {
+    badge.textContent = count;
+    badge.style.display = count ? '' : 'none';
+  }
+}
+function updateUnreadBadges() {
+  tabBadge('volenet', vnAgentUnreadSum(currentAgentId));
+  tabBadge('chat', chatAgentUnreadSum(currentAgentId));
   var cardBadges = document.querySelectorAll('[data-vn-unread]');
   for (var i = 0; i < cardBadges.length; i++) {
     var el = cardBadges[i];
-    var n = vnAgentUnreadSum(el.getAttribute('data-vn-unread'));
+    var id = el.getAttribute('data-vn-unread');
+    var n = vnAgentUnreadSum(id) + chatAgentUnreadSum(id);
     el.textContent = n || '';
     el.style.display = n ? '' : 'none';
   }
@@ -2760,7 +2913,9 @@ function renderState(d) {
   refreshBrainOptions();
   renderTools(d.tools || []);
   renderSkills(d.skills || []);
-  renderTasks(d.tasks || []);
+  lastStateTasks = d.tasks || [];
+  renderTasks(lastStateTasks);
+  recomputeChatUnread();
   renderSchedules(d.schedules || []);
   renderVoleNet(d.volenet || { enabled: false });
   renderVolenetTab(d.volenet || { enabled: false });

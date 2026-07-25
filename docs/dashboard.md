@@ -170,4 +170,6 @@ The 📎 button in the chat composer **stages** a file (shown as a removable chi
 
 **Unread badges.** Unread chat messages and file offers are counted per peer (badge on the peer row), per agent (badge on the **VoleNet tab** button and on each **agent card** — so a message to a non-selected agent still lights up), and survive agent switches and page reloads. Opening a peer's chat clears its count.
 
+**Unread badges.** A brain reply that lands while you're on another tab or agent raises a badge on the **Chat tab** and on that agent's card, with a toast naming the agent (and session). Counts are per session and clear when you open that chat. They also survive the browser being **closed**: the dashboard remembers where you left each chat and recounts from the agent's task list when it reconnects, so an answer that arrived overnight is waiting for you. (The recount covers the selected agent's recent tasks; other agents accumulate while the page is open.)
+
 > Config-tab note: the `net.encrypt` and `net.publishNames` toggles and `net.share.toolAllow` previously did not survive a dashboard config save (silently reverted/dropped) — fixed in 4.13.0.

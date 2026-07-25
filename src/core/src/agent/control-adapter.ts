@@ -77,6 +77,9 @@ function gatherState(engine: VoleEngine): Record<string, unknown> {
 				startedAt: task.startedAt,
 				completedAt: task.completedAt,
 				priority: task.priority,
+				// Lets the dashboard re-attach a chat's "thinking…" bubble to an in-flight
+				// task after the user navigates away and back.
+				sessionId: task.sessionId,
 				metadata: task.metadata
 					? { cost: (task.metadata as Record<string, unknown>).cost }
 					: undefined,
