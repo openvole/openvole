@@ -662,7 +662,7 @@ Global environment variables that affect OpenVole core:
 | `VOLE_DASHBOARD_PORT` | Control-plane dashboard (`vole serve`) HTTP port. Default: `3000`. |
 | `VOLE_HOME` | Explicit OpenVole root for `vole serve` (overrides current-directory resolution). |
 | `VOLE_DEBUG` | Enable debug mode (`true`/`false`). |
-| `VOLE_IPC_TIMEOUT_MS` | IPC timeout for paw communication in ms. Default: `300000`. |
+| `VOLE_IPC_TIMEOUT_MS` | IPC timeout for paw communication in ms. Default: `300000`. Applies to tool calls and lifecycle hooks — **not** to the brain's `think`, which is deliberately unbounded (see [Timeouts](/paws-brain#timeouts-how-long-a-brain-may-think)). |
 | `VOLE_COMPACT_MODEL` | Explicit model for LLM compaction (if unset, uses simple compaction). |
 
 Provider-specific env vars are passed to paws via the `allow.env` config — they are **not** globally available to all paws.

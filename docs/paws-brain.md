@@ -69,7 +69,7 @@ To pass the sandbox, add any mock env vars you use to the paw's `allow.env`, e.g
 Set `BRAIN_PROVIDER=claude-code` (aliases `claudecode`, `cc`) to use the local, **authenticated Claude Code CLI** as the brain — **no API key**; it uses the CLI's own auth. Each `think()` renders the system prompt + transcript and runs `claude -p --output-format json`, returning Claude Code's final answer.
 
 - **Auth profile** — point at a config dir with `CLAUDE_CODE_CONFIG_DIR` (e.g. `~/.claude-ep`); it maps to the CLI's `CLAUDE_CONFIG_DIR`.
-- **Other env** — `CLAUDE_CODE_CMD` (default `claude`), `CLAUDE_CODE_MODEL`, `CLAUDE_CODE_PERMISSION_MODE` (e.g. `bypassPermissions`, to let Claude Code use its own tools without an interactive prompt), `CLAUDE_CODE_ARGS` (extra CLI flags), `CLAUDE_CODE_TIMEOUT_MS` (default `600000`).
+- **Other env** — `CLAUDE_CODE_CMD` (default `claude`), `CLAUDE_CODE_MODEL`, `CLAUDE_CODE_PERMISSION_MODE` (e.g. `bypassPermissions`, to let Claude Code use its own tools without an interactive prompt), `CLAUDE_CODE_ARGS` (extra CLI flags), `CLAUDE_CODE_TIMEOUT_MS` (default `1800000` — 30 min; see [Timeouts](#timeouts-how-long-a-brain-may-think)).
 
 Grant `"childProcess": true` (it spawns the CLI) and add the `CLAUDE_CODE_*` vars you use to the paw's `allow.env`.
 
@@ -82,11 +82,36 @@ Set **`CLAUDE_CODE_EXPOSE_TOOLS=1`** and Claude Code can call the agent's own to
 Set `BRAIN_PROVIDER=antigravity` (aliases `agy`, `ag`) to use the local, **authenticated Antigravity CLI** (`agy`, Google's successor to the Gemini CLI) as the brain — **no API key**; it uses the CLI's own auth. Each `think()` renders the system prompt + transcript and runs `agy --print`, returning the CLI's final answer.
 
 - **Model** — `ANTIGRAVITY_MODEL` (run `agy models` to list what your account can reach — `gemini-3.x`, `claude-*`, `gpt-oss-*`).
-- **Other env** — `ANTIGRAVITY_CMD` (default `agy`), `ANTIGRAVITY_AGENT`, `ANTIGRAVITY_EFFORT` (`low`|`medium`|`high`), `ANTIGRAVITY_MODE` (`accept-edits`|`plan`), `ANTIGRAVITY_SKIP_PERMISSIONS`, `ANTIGRAVITY_SANDBOX`, `ANTIGRAVITY_ADD_DIR`, `ANTIGRAVITY_CWD`, `ANTIGRAVITY_ARGS`, `ANTIGRAVITY_TIMEOUT_MS` (default `600000`), `ANTIGRAVITY_MAX_PROMPT_BYTES`.
+- **Other env** — `ANTIGRAVITY_CMD` (default `agy`), `ANTIGRAVITY_AGENT`, `ANTIGRAVITY_EFFORT` (`low`|`medium`|`high`), `ANTIGRAVITY_MODE` (`accept-edits`|`plan`), `ANTIGRAVITY_SKIP_PERMISSIONS`, `ANTIGRAVITY_SANDBOX`, `ANTIGRAVITY_ADD_DIR`, `ANTIGRAVITY_CWD`, `ANTIGRAVITY_ARGS`, `ANTIGRAVITY_TIMEOUT_MS` (default `1800000` — 30 min; see [Timeouts](#timeouts-how-long-a-brain-may-think)), `ANTIGRAVITY_MAX_PROMPT_BYTES`.
 
 Grant `"childProcess": true` (it spawns the CLI) and add the `ANTIGRAVITY_*` vars you use to the paw's `allow.env`.
 
 > **No OpenVole tool access.** Unlike `claude-code`, this provider does **not** expose OpenVole's own tools to the CLI: `agy` has no per-invocation `--mcp-config`, so it runs its own agent loop with its own tools and returns a final **text** answer — it makes no OpenVole tool calls. Use it as a text/chat brain, not for an agent that must drive OpenVole tools (memory, schedules, VoleNet, sub-agents). The prompt is passed as a command-line argument, so it is bounded by `ARG_MAX` (~1 MB); an oversized prompt fails fast with a clear error — lower `loop.maxContextTokens` or raise `ANTIGRAVITY_MAX_PROMPT_BYTES`.
+
+## Timeouts — how long a brain may think
+
+A long agentic run is normal, so it's worth knowing exactly which clocks apply.
+
+**The core does not time out thinking.** The engine calls the brain paw over IPC, and `think` is explicitly exempt from [`VOLE_IPC_TIMEOUT_MS`](/configuration#environment-variables) — that 5-minute ceiling governs *tool calls and lifecycle hooks*, never inference. Nothing in the loop, the dashboard (whose 10s command timeout only covers submitting the task), or the control plane caps a response either.
+
+So the only limit is the one the **provider** imposes:
+
+| Provider | Limit | Configurable |
+|----------|-------|--------------|
+| `claude-code` | **30 min** (paw-brain ≥ 2.5.1; was 10 min) | `CLAUDE_CODE_TIMEOUT_MS` |
+| `antigravity` | **30 min** (was 10 min) | `ANTIGRAVITY_TIMEOUT_MS` |
+| `anthropic` | 10 min — the SDK's own default | not exposed by OpenVole |
+| `openai`, `gemini`, `xai`, `ollama` | whatever their SDK/host defaults to | not exposed by OpenVole |
+
+For a CLI brain the timeout covers the **whole agentic run** — Claude Code does its own tool-calling inside that single `think`, so its turns, edits, and searches all live under one clock. Raise it per agent when your work is long:
+
+```env
+CLAUDE_CODE_TIMEOUT_MS=3600000   # 1 hour
+```
+
+(The var must also be listed in that paw's `allow.env` — the onboarding default already includes it.)
+
+When the limit is hit the CLI is killed and the task **fails with a clear timeout error**. Older versions (paw-brain < 2.5.1) could instead surface the CLI's raw JSON error envelope as if it were the agent's reply — a silent, expensive failure. Upgrade if you see JSON in a chat bubble.
 
 ## BRAIN.md
 
