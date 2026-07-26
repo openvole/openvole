@@ -109,6 +109,35 @@ server {
 
 Requires openvole ≥ 4.8.1 — earlier versions hardcoded an insecure `ws://` URL that browsers block on an HTTPS page.
 
+## Live Events — and the daily log
+
+The Overview tab's **Live Events** feed shows every bus event as it happens, one line each. Two things to know:
+
+- **Click a line to expand it.** The collapsed row is a preview; expanding shows the whole payload, pretty-printed and selectable. Nothing is dropped on the way to the UI, so a task result or an error is readable in full.
+- **Everything is also written to disk.** The control plane appends every event to `<root>/.openvole/logs/events-YYYY-MM-DD.jsonl` — one JSON object per line, payloads whole, a new file each local day. The in-page feed holds the last 500 lines; the file holds the day.
+
+Pick a day from the dropdown next to the header to read it back (newest first, bounded to the newest 2000 entries — the note tells you when older ones exist), and hit **raw** for the untouched file:
+
+```
+GET /events.jsonl?day=2026-07-26&token=<token>
+```
+
+Each line looks like:
+
+```json
+{"ts":1785079309840,"time":"2026-07-26 18:24:31.425","agentId":"nart-sagas","event":"task:completed","data":{"taskId":"262194d2…","sessionId":"dashboard"}}
+```
+
+so it greps and pipes: `jq -r 'select(.event=="task:failed") | .data.error' events-2026-07-26.jsonl`.
+
+Logs older than **30 days** are pruned when the file rotates. Set `VOLE_EVENT_LOG_DAYS` to change that, or `0` to keep everything.
+
+## Chat — including messages the agent starts
+
+The Chat tab is a channel, not just a reply box. The agent can [message you first](/paws-channel#the-dashboard-chat-channel-built-in) with the built-in `chat_send` tool — a question from a heartbeat run, a blocker from an overnight job — and it lands in the chat with an unread badge on the tab and on the agent's card, plus a toast.
+
+Unread counts survive a reload and a closed browser: the dashboard keeps a per-chat read watermark and recounts from the agent's session transcripts on reconnect, so a message sent at 3am is still marked unread when you open the page.
+
 ## Config Tab
 
 The Config tab is a fully **structured form** — no raw-JSON textareas. Edit every section of `vole.config.json` with typed fields:

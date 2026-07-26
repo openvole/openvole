@@ -97,7 +97,7 @@ LLM providers that power the Think phase. [Learn more](/paws-brain)
 
 ### Channel (6)
 
-Receive messages from external platforms. [Learn more](/paws-channel)
+Carry messages between the agent and a person — inbound as tasks, outbound when the agent has something to say on its own initiative. The dashboard chat is a built-in channel (`chat_send`, no paw needed). [Learn more](/paws-channel)
 
 | Paw | Purpose |
 |-----|---------|
