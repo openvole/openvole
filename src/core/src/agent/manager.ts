@@ -22,6 +22,11 @@ export class AgentManager {
 		this.registryPath = path.join(this.home, 'agents.json')
 	}
 
+	/** The resolved vole home — where the registry, templates, and server-wide logs live. */
+	get homeDir(): string {
+		return this.home
+	}
+
 	// --- registry I/O ---
 
 	async readRegistry(): Promise<AgentRegistry> {

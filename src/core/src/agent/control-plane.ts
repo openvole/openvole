@@ -7,6 +7,7 @@ import {
 } from '@openvole/dashboard-server'
 import { execa } from 'execa'
 import { createLogger } from '../core/logger.js'
+import { EventLog } from './event-log.js'
 import { AgentManager } from './manager.js'
 
 const logger = createLogger('control-plane')
@@ -51,6 +52,7 @@ export class ControlPlane {
 	private readonly manager: AgentManager
 	private readonly children = new Map<string, AgentChild>()
 	private readonly refreshTimers = new Map<string, ReturnType<typeof setTimeout>>()
+	private readonly eventLog: EventLog
 	private readonly cliPath: string
 	private readonly port: number
 	private readonly host?: string
@@ -66,6 +68,9 @@ export class ControlPlane {
 		this.host = opts.host
 		this.token = opts.token
 		this.manager = new AgentManager(opts.home ? { home: opts.home } : undefined)
+		// Server-wide, next to the registry: one feed covering every agent, which is how the
+		// dashboard shows it.
+		this.eventLog = new EventLog(path.join(this.manager.homeDir, '.openvole', 'logs'))
 	}
 
 	start(): void {
@@ -123,6 +128,9 @@ export class ControlPlane {
 					if (!entry) throw new Error(`Unknown agent: ${agentId}`)
 					return path.join(entry.path, '.openvole', 'net', 'files', 'outbox')
 				},
+				eventLogDays: () => this.eventLog.listDays(),
+				eventLogRead: (day, tail) => this.eventLog.read(day, tail),
+				eventLogPath: (day) => this.eventLog.fileFor(day),
 				getPanelHtml: (agentId, paw) => this.callAgent(agentId, 'panel_html', { paw }),
 				listMcpTools: (agentId) => this.callAgent(agentId, 'tools_mcp'),
 				callPawTool: (agentId, name, params) => this.callAgent(agentId, 'tool', { name, params }),
@@ -352,7 +360,16 @@ export class ControlPlane {
 						'Missing "input" — the task brief to send to the agent, e.g. {"target":"video-editor","input":"Summarize your last project"}',
 					)
 				}
-				return this.callAgent(entry.id, 'submit', { input, sessionId: params.sessionId })
+				// `source: 'agent'` — an orchestrator brief is machine-to-machine work, not a person
+				// typing in the chat. Without it these arrived as `user` tasks, indistinguishable
+				// from your own messages: they raised unread chat badges you could never clear
+				// (the session is one you never open), and they bypassed any `toolProfiles.agent`
+				// restrictions meant for exactly this traffic.
+				return this.callAgent(entry.id, 'submit', {
+					input,
+					sessionId: params.sessionId,
+					source: 'agent',
+				})
 			}
 			case 'read_config':
 				return this.callAgent(entry.id, 'read_config')
@@ -449,6 +466,7 @@ export class ControlPlane {
 			return
 		}
 		if (m.event) {
+			this.eventLog.append(m.event, m.data, agentId)
 			this.server?.broadcast('event', m.data, m.event, agentId)
 			this.scheduleStateRefresh(agentId)
 		}
@@ -490,6 +508,7 @@ export class ControlPlane {
 			child.proc.kill('SIGTERM')
 		}
 		this.children.clear()
+		await this.eventLog.close()
 		await this.server?.close()
 	}
 }
