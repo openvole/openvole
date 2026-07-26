@@ -168,7 +168,14 @@ describe('ControlPlane orchestrate reverse-RPC', () => {
 			{ id: 8, method: 'submit', params: { target: 'worker', input: 'go', sessionId: 'p1' } },
 			reply,
 		)
-		expect(callAgent).toHaveBeenCalledWith('worker', 'submit', { input: 'go', sessionId: 'p1' })
+		// source 'agent': an orchestrator's brief is sibling-to-sibling work, not a person typing
+		// in the chat. As a 'user' task it raised unread chat badges nobody could clear and
+		// escaped any toolProfiles.agent restriction written for exactly this traffic.
+		expect(callAgent).toHaveBeenCalledWith('worker', 'submit', {
+			input: 'go',
+			sessionId: 'p1',
+			source: 'agent',
+		})
 		await cp.handleOrchestrateRequest(
 			'boss',
 			{

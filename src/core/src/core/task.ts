@@ -246,6 +246,7 @@ export class TaskQueue {
 				taskId: task.id,
 				result: task.result,
 				sessionId: task.sessionId,
+				source: task.source,
 			})
 			// Notify parent if this was a sub-agent task
 			if (task.parentTaskId) {
@@ -269,6 +270,7 @@ export class TaskQueue {
 				error: err,
 				result: task.result,
 				sessionId: task.sessionId,
+				source: task.source,
 			})
 			if (task.parentTaskId) {
 				this.bus.emit('agent:completed', {

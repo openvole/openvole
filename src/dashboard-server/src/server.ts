@@ -79,6 +79,14 @@ export interface DashboardCallbacks {
 	volenetJoinHub?: (url: string, agentId?: string) => Promise<unknown>
 	/** Where browser uploads spool before net_file_send (the agent's files outbox). */
 	resolveUploadDir?: (agentId: string) => Promise<string>
+	/** Daily event log (control plane only) — history for the Live Events feed. */
+	eventLogDays?: () => Promise<string[]>
+	eventLogRead?: (
+		day: string,
+		tail?: number,
+	) => Promise<{ day: string; entries: unknown[]; total: number; dropped: number }>
+	/** Absolute path of a day's log file, for the raw download route. */
+	eventLogPath?: (day: string) => string
 	getPanelHtml?: (agentId: string, paw: string) => Promise<unknown>
 	/** Tools with real JSON-schema parameters for the MCP bridge (falls back to fetchState). */
 	listMcpTools?: (agentId?: string) => Promise<unknown>
@@ -343,6 +351,40 @@ export function createDashboardServer(
 			return
 		}
 
+		// Raw daily event log: /events.jsonl?day=YYYY-MM-DD — the whole file, streamed, nothing
+		// clipped. This is the escape hatch from the UI's bounded view: grep it, diff it, keep it.
+		if (req.method === 'GET' && req.url?.startsWith('/events.jsonl')) {
+			if (!tokenOk(req) || !callbacks.eventLogPath) {
+				res.writeHead(callbacks.eventLogPath ? 401 : 404)
+				res.end()
+				return
+			}
+			const u = new URL(req.url, 'http://localhost')
+			const day = u.searchParams.get('day') ?? ''
+			// Day is pasted straight into a filename — allow nothing but the shape we generate.
+			if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) {
+				res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' })
+				res.end('day must be YYYY-MM-DD')
+				return
+			}
+			const file = callbacks.eventLogPath(day)
+			if (!fs.existsSync(file)) {
+				res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' })
+				res.end(`No event log for ${day}`)
+				return
+			}
+			res.writeHead(200, {
+				'Content-Type': 'application/x-ndjson; charset=utf-8',
+				'Content-Disposition': `inline; filename="events-${day}.jsonl"`,
+				'X-Content-Type-Options': 'nosniff',
+			})
+			const stream = fs.createReadStream(file)
+			stream.on('error', () => res.end())
+			res.on('close', () => stream.destroy())
+			stream.pipe(res)
+			return
+		}
+
 		// Embedded paw panels: /panel/<agent>/<encodedPaw>/  and  .../tool/<name>
 		if (req.url?.startsWith('/panel/')) {
 			const isTool = req.url.includes('/tool/')
@@ -398,7 +440,16 @@ export function createDashboardServer(
 		}
 
 		try {
-			const sel = (): string | undefined => selected.get(ws)
+			// Which agent this command is about.
+			//
+			// An explicit `agentId` in the params always wins over the connection's current
+			// selection, and the browser attaches one to every agent-scoped command. The
+			// selection alone is racy: a command sent *before* `select_agent` lands is answered
+			// for the previously selected agent — which is how the chat came to show the
+			// previous agent's history after switching. Naming the target removes the race
+			// instead of relying on message ordering.
+			const sel = (): string | undefined =>
+				(cmd.params as { agentId?: string } | undefined)?.agentId ?? selected.get(ws)
 			switch (cmd.type) {
 				case 'list_agents':
 					respond((await callbacks.listAgents?.()) ?? [])
@@ -424,6 +475,20 @@ export function createDashboardServer(
 				case 'chat_sessions':
 					respond(await callbacks.chatSessions?.(sel()))
 					break
+				case 'event_log_days':
+					respond({ ok: true, days: (await callbacks.eventLogDays?.()) ?? [] })
+					break
+				case 'event_log_read': {
+					const p = cmd.params as { day?: string; tail?: number }
+					if (!callbacks.eventLogRead) {
+						respond({ ok: false, error: 'event log not available in this mode' })
+						break
+					}
+					const tail = typeof p?.tail === 'number' ? Math.min(Math.max(p.tail, 1), 20_000) : 2000
+					const out = await callbacks.eventLogRead(p?.day ?? '', tail)
+					respond({ ok: true, ...out })
+					break
+				}
 				case 'call_paw_tool': {
 					// Sandboxed panels proxy tool calls here over the authenticated WS, scoped to the
 					// agent the parent passes — the panel itself never holds the token.

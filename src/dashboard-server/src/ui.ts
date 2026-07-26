@@ -352,9 +352,37 @@ export function getDashboardHtml(wsPort: number): string {
   }
   .event-line .time { color: #444; flex-shrink: 0; }
   .event-line .name { color: var(--accent); flex-shrink: 0; }
-  .event-line .data { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .event-line .data { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+  /* Expanded: the whole payload, wrapped and selectable. The one-line form is a preview, not
+     the record — nothing is dropped, so a click always shows everything the event carried. */
+  .event-line.expanded { display: block; }
+  .event-line.expanded .data {
+    display: block;
+    white-space: pre-wrap;
+    word-break: break-word;
+    overflow: visible;
+    text-overflow: clip;
+    color: var(--text);
+    background: #0d0d13;
+    border-left: 2px solid var(--accent);
+    padding: 6px 8px;
+    margin-top: 4px;
+    max-height: 40vh;
+    overflow-y: auto;
+    cursor: text;
+    user-select: text;
+  }
   .event-line.rate-limited .name { color: var(--orange); }
   .event-line.task-failed .name { color: var(--red); }
+  .events-day {
+    background: var(--bg); color: var(--text-dim); border: 1px solid var(--border);
+    border-radius: 4px; font-family: var(--mono); font-size: 10px; padding: 1px 4px;
+    max-width: 130px;
+  }
+  .events-raw { color: var(--accent); font-family: var(--mono); font-size: 10px; text-decoration: none; }
+  .events-raw:hover { text-decoration: underline; }
+  .events-raw.off { color: #444; pointer-events: none; }
+  .events-note { color: var(--text-dim); font-family: var(--mono); font-size: 10px; padding: 2px 0 4px; }
   .empty { color: var(--text-dim); font-style: italic; font-size: 12px; padding: 8px 0; }
   footer {
     background: var(--surface);
@@ -1044,8 +1072,11 @@ export function getDashboardHtml(wsPort: number): string {
       <div class="events-bar">
         <div class="events-header">
           <h2>Live Events</h2>
-          <button onclick="document.getElementById('event-log').innerHTML=''">Clear</button>
+          <select class="events-day" id="events-day" onchange="eventsDayChange()" title="Live feed, or a day from the saved log"></select>
+          <a class="events-raw" id="events-raw" href="#" target="_blank" rel="noopener" title="Open the raw JSONL log for this day">raw</a>
+          <button onclick="eventsClear()">Clear</button>
         </div>
+        <div class="events-note" id="events-note"></div>
         <div class="events-body" id="event-log"></div>
       </div>
     </div>
@@ -1064,6 +1095,7 @@ export function getDashboardHtml(wsPort: number): string {
         <select class="form-select" id="chat-session" onchange="onChatSessionChange()" style="width:auto"></select>
         <button class="btn-restart" type="button" onclick="newChatSession()" title="Start a fresh conversation">+ New session</button>
         <button class="btn-restart" type="button" id="btn-chat-clear" onclick="clearChatSession()" title="Delete this session's transcript">Clear</button>
+        <button class="btn-restart" type="button" id="btn-chat-read-all" style="display:none" onclick="chatMarkAllRead()" title="Clear unread on every session of this agent">Mark all read</button>
         <span id="chat-note" style="color:var(--text-dim);font-size:11px"></span>
       </div>
       <div class="chat-messages" id="chat-messages"></div>
@@ -1628,14 +1660,34 @@ let cmdIdCounter = 0;
 function sendCommand(type, params, timeoutMs) {
   return new Promise(function(resolve, reject) {
     const id = 'cmd-' + (++cmdIdCounter) + '-' + Math.random().toString(36).substring(2, 8);
+    // Every command names its own target. The server otherwise falls back to the connection's
+    // selected agent, which is only correct if select_agent always lands first — it doesn't,
+    // and that race answered chat_history/read_config for the PREVIOUS agent. Callers that
+    // deliberately address another agent (start/stop/select) pass agentId themselves and win.
+    var p = params || {};
+    if (p.agentId === undefined && currentAgentId) {
+      p = Object.assign({}, p, { agentId: currentAgentId });
+    }
     const timeout = setTimeout(function() {
       pendingCommands.delete(id);
       reject(new Error('Command timed out: ' + type));
     }, timeoutMs || 10000);
     pendingCommands.set(id, { resolve: resolve, reject: reject, timeout: timeout });
-    ws.send(JSON.stringify({ type: type, id: id, params: params || {} }));
+    ws.send(JSON.stringify({ type: type, id: id, params: p }));
   });
 }
+
+/**
+ * View generation — bumped every time the selected agent changes.
+ *
+ * An in-flight response belongs to the agent that was selected when it was requested. Painting
+ * it afterwards writes one agent's data into another's view: that is how the chat showed the
+ * previous agent's history, and how the config form once offered to save the wrong agent's
+ * settings. Any async load that renders agent-scoped data captures the epoch first and calls
+ * viewChanged() before touching the DOM.
+ */
+var viewEpoch = 0;
+function viewChanged(epoch) { return epoch !== viewEpoch; }
 
 /* ── Agents (control-plane mode) ── */
 var currentAgentId = null;
@@ -1865,10 +1917,16 @@ function selectAgent(id) {
   if (!id) { currentAgentId = null; clearPanels(); return; }
   var changed = currentAgentId !== id;
   currentAgentId = id;
+  // Invalidate anything already in flight for the previous agent before its response can land.
+  if (changed) viewEpoch++;
   updateUnreadBadges();
   if (changed) {
     resetChat();
     resetVolenet();
+    // The feed only accepts events for the selected agent, so leftover lines from the previous
+    // one would be read as this agent's activity. (A saved day being reviewed is server-wide
+    // and covers every agent — leave that alone.)
+    if (eventsMode === 'live' && eventLog) eventLog.innerHTML = '';
     // Config and Identity tabs load lazily and cache per (former) agent. Without resetting
     // here, switching agents leaves the previous agent's config/identity in the form — and
     // saving would write THOSE values to the newly-selected agent. Reset so the next view
@@ -1883,6 +1941,11 @@ function selectAgent(id) {
   sendCommand('select_agent', { agentId: id })
     .then(function(state) {
       renderState(state || {});
+      // Chat, like config and identity, reloads only AFTER the server has recorded the new
+      // selection. resetChat() used to reload inline, which put chat_history on the wire ahead
+      // of select_agent — the server answered it for the old agent and the new agent's chat
+      // showed the previous one's conversation (and cached it, so reopening kept showing it).
+      if (changed && currentTab === 'chat') initChatTab();
       if (changed && currentTab === 'config') loadConfig();
       if (changed && currentTab === 'identity') loadIdentity();
     })
@@ -1929,6 +1992,10 @@ function stopChatWait(entry) {
   if (entry && entry.timer) { clearInterval(entry.timer); entry.timer = null; }
 }
 
+/**
+ * Clear chat state for an agent switch. Deliberately does NOT reload: the reload happens in
+ * selectAgent's select_agent callback, once the server knows which agent we mean.
+ */
 function resetChat() {
   chatSessionId = 'dashboard';
   chatLoadedKey = null;
@@ -1936,7 +2003,6 @@ function resetChat() {
   localChatSessions = [];
   var box = document.getElementById('chat-messages');
   if (box) box.innerHTML = '';
-  if (currentTab === 'chat') initChatTab();
 }
 function initChatTab() {
   if (!currentAgentId) return;
@@ -1950,7 +2016,9 @@ function initChatTab() {
 }
 var localChatSessions = []; // created this page, not yet persisted by paw-session
 function loadChatSessions() {
+  var epoch = viewEpoch;
   sendCommand('chat_sessions').then(function(res) {
+    if (viewChanged(epoch)) return;
     var sel = document.getElementById('chat-session');
     var note = document.getElementById('chat-note');
     var opts = ['<option value="dashboard">dashboard</option>'];
@@ -1961,7 +2029,10 @@ function loadChatSessions() {
         if (seen[s.sessionId]) continue;
         if (s.sessionId.indexOf('volenet:') === 0) continue;
         seen[s.sessionId] = true;
-        var label = s.sessionId + (s.source ? ' (' + s.source + ')' : '') + ' — ' + (s.messageCount || 0) + ' msgs';
+        chatNoteTs(currentAgentId, s.sessionId, s.lastActive);
+        var unread = (chatUnreadFor(currentAgentId)[s.sessionId] || 0);
+        var label = s.sessionId + (s.source ? ' (' + s.source + ')' : '') + ' — ' + (s.messageCount || 0) + ' msgs'
+          + (unread ? ' · ' + unread + ' unread' : '');
         opts.push('<option value="' + esc(s.sessionId) + '">' + esc(label) + '</option>');
       }
       note.textContent = '';
@@ -1978,6 +2049,44 @@ function loadChatSessions() {
     if (sel.value !== chatSessionId) { sel.value = 'dashboard'; chatSessionId = 'dashboard'; }
   }).catch(function() {});
 }
+/**
+ * Clear unread across every session of this agent.
+ *
+ * The per-session count is correct but not always reachable: unread can sit on a session you
+ * never open (an old channel conversation, a session created before this agent's traffic was
+ * classified), and the card badge sums them — so a number could hang there with no chat that
+ * would clear it. This is the way out.
+ */
+function chatMarkAllRead() {
+  if (!currentAgentId) return;
+  var m = chatUnreadFor(currentAgentId);
+  var ids = [];
+  for (var k in m) ids.push(k);
+  var sel = document.getElementById('chat-session');
+  if (sel && sel.options) {
+    for (var i = 0; i < sel.options.length; i++) {
+      if (ids.indexOf(sel.options[i].value) === -1) ids.push(sel.options[i].value);
+    }
+  }
+  for (var j = 0; j < ids.length; j++) chatClearUnread(currentAgentId, ids[j]);
+  chatSaveUnread();
+  // The agent-card badge sums brain-chat AND VoleNet unread, so a button offering to clear
+  // "all" has to clear both — otherwise it leaves a number behind and looks broken.
+  var vm = vnUnreadFor(currentAgentId);
+  var peers = [];
+  for (var p in vm) peers.push(p);
+  for (var q = 0; q < peers.length; q++) vnClearUnread(currentAgentId, peers[q]);
+  refreshChatReadAllBtn();
+  loadChatSessions();
+}
+function refreshChatReadAllBtn() {
+  var btn = document.getElementById('btn-chat-read-all');
+  if (!btn) return;
+  var n = currentAgentId ? (chatAgentUnreadSum(currentAgentId) + vnAgentUnreadSum(currentAgentId)) : 0;
+  btn.style.display = n ? '' : 'none';
+  btn.textContent = 'Mark all read (' + n + ')';
+  btn.title = 'Clear unread on every chat and VoleNet conversation of this agent';
+}
 function newChatSession() {
   var d = new Date();
   var pad = function(x) { return (x < 10 ? '0' : '') + x; };
@@ -1991,7 +2100,9 @@ function newChatSession() {
 }
 function clearChatSession() {
   if (!confirm('Delete the transcript of session "' + chatSessionId + '"?')) return;
+  var epoch = viewEpoch;
   sendCommand('chat_clear', { sessionId: chatSessionId }).then(function(res) {
+    if (viewChanged(epoch)) return;
     if (res && res.ok === false) { showToast(res.error || 'Could not clear session', 'error'); return; }
     showToast('Cleared session "' + chatSessionId + '"', 'success');
     chatLoadedKey = null;
@@ -2012,7 +2123,10 @@ function loadChatHistory() {
   var box = document.getElementById('chat-messages');
   box.innerHTML = '<div class="chat-empty">Loading&hellip;</div>';
   var key = currentAgentId + ':' + chatSessionId;
+  var epoch = viewEpoch;
   sendCommand('chat_history', { sessionId: chatSessionId }).then(function(res) {
+    // Switched agents while this was in flight — drop it, the new agent's load owns the box.
+    if (viewChanged(epoch)) return;
     chatLoadedKey = key;
     box.innerHTML = '';
     var added = 0;
@@ -2040,6 +2154,14 @@ function loadChatHistory() {
       }
     }
     if (!added) box.innerHTML = '<div class="chat-empty">No messages yet — say hi to the brain.</div>';
+    // You have now literally seen every message in this transcript, so the watermark belongs at
+    // the newest one. Anchoring it to task timestamps instead left the transcript's own entries
+    // (stamped a moment later, when paw-session appended them) looking newer than the mark —
+    // the recount then re-flagged them and the badge reappeared the instant you opened the chat.
+    if (Array.isArray(h)) {
+      for (var k = 0; k < h.length; k++) chatNoteTs(currentAgentId, chatSessionId, h[k].ts);
+    }
+    chatClearUnread(currentAgentId, chatSessionId);
     restorePendingChat();
     box.scrollTop = box.scrollHeight;
   }).catch(function() {
@@ -2061,7 +2183,9 @@ function restorePendingChat() {
   var live = (lastStateTasks || []).filter(function(t) {
     return (t.status === 'running' || t.status === 'queued')
       && (t.sessionId || 'dashboard') === chatSessionId
-      && t.source !== 'heartbeat' && t.source !== 'schedule';
+      // Only a person's own messages get a placeholder — not heartbeats, schedules, orchestrator
+      // briefs ('agent') or channel traffic ('paw').
+      && (!t.source || t.source === 'user');
   });
   if (!live.length) return;
   live.sort(function(a, b) { return (a.createdAt || 0) - (b.createdAt || 0); });
@@ -2143,7 +2267,16 @@ function sendChat() {
   addChatBubble('user', text);
   var pendingEl = addChatBubble('brain', '', 'chat-msg-pending');
   var waitTimer = startChatWait(pendingEl);
+  var epoch = viewEpoch;
   sendCommand('submit', { input: text, sessionId: chatSessionId }).then(function(res) {
+    // Switched agents before the ack came back. The bubble left with the old view, so don't
+    // bind the task to it — the reply is still counted as unread for the agent it was sent to
+    // (chatOnTaskEvent does that from the event's own agentId), and reopening that chat
+    // re-attaches a live placeholder via restorePendingChat().
+    if (viewChanged(epoch)) {
+      clearInterval(waitTimer);
+      return;
+    }
     if (res && res.taskId) {
       pendingChats[res.taskId] = { el: pendingEl, agentId: currentAgentId, timer: waitTimer };
     } else {
@@ -2153,6 +2286,7 @@ function sendChat() {
     }
   }).catch(function(e) {
     clearInterval(waitTimer);
+    if (viewChanged(epoch)) return;
     pendingEl.className = 'chat-msg chat-msg-error';
     pendingEl.textContent = 'Failed to submit: ' + e.message;
   });
@@ -2161,7 +2295,8 @@ function chatOnTaskEvent(event, data, agentId) {
   // Unread accounting FIRST: a reply can land while you're on another tab or agent, and
   // there may be no pending bubble at all (page reloaded, or a different agent). Only
   // sessioned tasks are chat — heartbeat and schedule runs carry no sessionId.
-  if ((event === 'task:completed' || event === 'task:failed') && data && data.sessionId) {
+  if ((event === 'task:completed' || event === 'task:failed') && data && data.sessionId
+      && (!data.source || data.source === 'user')) {
     var target = agentId !== undefined ? agentId : currentAgentId;
     var viewing = currentTab === 'chat' && target === currentAgentId && data.sessionId === chatSessionId;
     if (viewing) {
@@ -2270,12 +2405,38 @@ function chatSaveUnread() {
    On reconnect we recount from the agent's task list against these marks. */
 var chatReadAt = {};
 try { chatReadAt = JSON.parse(localStorage.getItem('chatReadAt') || '{}') || {}; } catch (e) { chatReadAt = {}; }
+/* The newest engine-side timestamp seen for each chat, from ANY source: a task's completedAt,
+   a transcript entry, a session's lastActive, a channel message. Not persisted — it is rebuilt
+   from state and transcripts on load.
+
+   It exists because those sources disagree by design. paw-session stamps a transcript entry
+   when it APPENDS it, which is strictly after the task:completed that triggered it. Marking a
+   chat read from task timestamps alone therefore always leaves the transcript entry looking
+   newer than the watermark, and the transcript recount re-counted it as unread the moment you
+   opened the chat — the badge that would not go away. */
+/** How far a transcript entry may trail the task it records before it counts as new. */
+var CHAT_TS_SKEW_MS = 5000;
+var chatLatestTs = {};
+function chatNoteTs(agentId, sessionId, ts) {
+  var ms = tsMs(ts);
+  if (!ms || !sessionId) return;
+  var key = agentId || 'default';
+  if (!chatLatestTs[key]) chatLatestTs[key] = {};
+  if (!chatLatestTs[key][sessionId] || ms > chatLatestTs[key][sessionId]) {
+    chatLatestTs[key][sessionId] = ms;
+  }
+}
+function chatLatestFor(agentId, sessionId) {
+  var m = chatLatestTs[agentId || 'default'];
+  return (m && m[sessionId]) || 0;
+}
+
 function chatMarkRead(agentId, sessionId) {
   var key = agentId || 'default';
   if (!chatReadAt[key]) chatReadAt[key] = {};
-  // Mark with the newest ENGINE-side completion we know of for this session, never the
-  // browser clock: the dashboard often runs on a different machine, and a skewed clock
-  // would either resurrect read replies or silently swallow new ones.
+  // Mark with the newest ENGINE-side timestamp known for this chat, never the browser clock:
+  // the dashboard often runs on a different machine, and a skewed clock would either resurrect
+  // read replies or silently swallow new ones.
   var newest = chatReadAt[key][sessionId] || 0;
   for (var i = 0; i < (lastStateTasks || []).length; i++) {
     var t = lastStateTasks[i];
@@ -2283,6 +2444,8 @@ function chatMarkRead(agentId, sessionId) {
       newest = t.completedAt;
     }
   }
+  var latest = chatLatestFor(agentId, sessionId);
+  if (latest > newest) newest = latest;
   chatReadAt[key][sessionId] = newest;
 }
 
@@ -2297,22 +2460,37 @@ function recomputeChatUnread() {
   if (!currentAgentId) return;
   if (!chatReadAt[currentAgentId]) chatReadAt[currentAgentId] = {};
   var marks = chatReadAt[currentAgentId];
-  var counts = {};
+  var counts = chatUnreadFor(currentAgentId);
+  var tally = {};
+  var withTasks = {};
   var firstSight = {};
   for (var i = 0; i < (lastStateTasks || []).length; i++) {
     var t = lastStateTasks[i];
     if (!t.sessionId || (t.status !== 'completed' && t.status !== 'failed')) continue;
+    // Only work a person started here is "unread chat". Sibling briefs from an orchestrator
+    // ('agent') and channel traffic ('paw' — telegram, slack) carry a sessionId too, and used
+    // to raise badges on the dashboard for conversations nobody was ever going to open.
+    if (t.source && t.source !== 'user') continue;
     var doneAt = typeof t.completedAt === 'number' ? t.completedAt : 0;
     if (!doneAt) continue;
+    chatNoteTs(currentAgentId, t.sessionId, doneAt);
+    withTasks[t.sessionId] = true;
     if (marks[t.sessionId] === undefined) {
       // Never seen this session on this browser — adopt its history as already read.
       // Without this, a fresh browser would badge every reply still in the task list.
       firstSight[t.sessionId] = Math.max(firstSight[t.sessionId] || 0, doneAt);
       continue;
     }
-    if (doneAt > marks[t.sessionId]) counts[t.sessionId] = (counts[t.sessionId] || 0) + 1;
+    if (doneAt > marks[t.sessionId]) tally[t.sessionId] = (tally[t.sessionId] || 0) + 1;
   }
   for (var s in firstSight) marks[s] = firstSight[s];
+  // Only sessions the task list actually covers are rewritten. Replacing the whole map wiped
+  // counts the transcript pass had computed for sessions with no task behind them (an
+  // agent-initiated message), so the two passes overwrote each other on every state push.
+  for (var sid in withTasks) {
+    if (tally[sid]) counts[sid] = tally[sid];
+    else delete counts[sid];
+  }
   // Whatever you're looking at right now is read by definition.
   if (currentTab === 'chat' && counts[chatSessionId]) {
     delete counts[chatSessionId];
@@ -2320,6 +2498,157 @@ function recomputeChatUnread() {
   }
   chatUnreadStore[currentAgentId] = counts;
   chatSaveUnread();
+  // Tasks only cover replies. An agent-initiated message (paw-chat) has no task behind it, so
+  // the transcript is the only record of it — recount from there too.
+  recountChatFromTranscripts();
+}
+
+/** Engine-side timestamp → ms. paw-session writes ISO strings; tasks carry epoch numbers. */
+function tsMs(v) {
+  if (typeof v === 'number') return v;
+  if (!v) return 0;
+  var n = Date.parse(v);
+  return isNaN(n) ? 0 : n;
+}
+
+/** Raise a session's read watermark to an engine-side timestamp. */
+function chatMarkReadAt(agentId, sessionId, ts) {
+  var key = agentId || 'default';
+  if (!chatReadAt[key]) chatReadAt[key] = {};
+  var ms = tsMs(ts);
+  if (!ms) return;
+  if (!chatReadAt[key][sessionId] || ms > chatReadAt[key][sessionId]) {
+    chatReadAt[key][sessionId] = ms;
+  }
+}
+
+/**
+ * Recount unread from the session transcripts — the record that survives a closed browser and
+ * covers messages with no task behind them (an agent starting a conversation through the chat
+ * channel). Only sessions whose lastActive is newer than our watermark are fetched, so this is
+ * one cheap call plus one per genuinely-changed chat. Sessions seen for the first time on this
+ * browser adopt their history as read rather than badging all of it.
+ */
+function recountChatFromTranscripts() {
+  if (!currentAgentId) return;
+  var agent = currentAgentId;
+  var epoch = viewEpoch;
+  sendCommand('chat_sessions').then(function(res) {
+    if (viewChanged(epoch)) return;
+    var sessions = (res && res.sessions) || [];
+    if (!sessions.length) return;
+    if (!chatReadAt[agent]) chatReadAt[agent] = {};
+    var marks = chatReadAt[agent];
+    var todo = [];
+    var known = {};
+    for (var i = 0; i < sessions.length; i++) {
+      var s = sessions[i];
+      if (!s.sessionId || s.sessionId.indexOf('volenet:') === 0) continue;
+      // Sessions opened by machines (an orchestrator brief, a channel paw) are visible in the
+      // dropdown but are not your unread mail.
+      if (s.source && s.source !== 'user') continue;
+      known[s.sessionId] = true;
+      var last = tsMs(s.lastActive);
+      if (!last) continue;
+      chatNoteTs(agent, s.sessionId, last);
+      if (marks[s.sessionId] === undefined) {
+        // First sight on this browser — adopt as read, and drop any count carried over.
+        marks[s.sessionId] = last;
+        delete chatUnreadFor(agent)[s.sessionId];
+        continue;
+      }
+      if (last > marks[s.sessionId]) {
+        todo.push(s.sessionId);
+      } else if (chatLatestFor(agent, s.sessionId) <= marks[s.sessionId] + CHAT_TS_SKEW_MS) {
+        // Nothing known about this session — transcript, task, or channel message — is newer
+        // than what you have read, so it has no unread. Say so: both passes only ever *set*
+        // counts for sessions they examined, so a quiet session that picked up a bogus count
+        // (from an older build, or a watermark taken from a task timestamp that the transcript
+        // entry then beat by milliseconds) kept it forever — nothing recounted it, and you had
+        // no reason to open it. That is what left a number on an agent with several old
+        // sessions while an agent with only the chat you actually use looked fine.
+        //
+        // The chatLatestFor check matters: a reply's transcript entry is written a moment after
+        // its task completes, so between the two a session's lastActive is stale. Without it,
+        // this branch would delete a count the task pass had just correctly set.
+        delete chatUnreadFor(agent)[s.sessionId];
+      }
+    }
+    // Drop counts for sessions the agent no longer reports — a cleared or renamed session left
+    // a number in localStorage that no chat could ever clear, so the card badge stuck forever.
+    var stale = chatUnreadFor(agent);
+    for (var sid in stale) { if (!known[sid]) delete stale[sid]; }
+    if (!todo.length) { chatSaveUnread(); updateUnreadBadges(); return; }
+    Promise.all(todo.map(function(sid) {
+      return sendCommand('chat_history', { sessionId: sid })
+        .then(function(h) { return { sid: sid, h: h }; })
+        .catch(function() { return null; });
+    })).then(function(results) {
+      if (viewChanged(epoch)) return; // switched agents mid-flight
+      var counts = chatUnreadStore[agent] || {};
+      for (var i = 0; i < results.length; i++) {
+        var r = results[i];
+        if (!r || !r.h || r.h.ok === false) continue;
+        var msgs = Array.isArray(r.h.history) ? r.h.history : null;
+        if (!msgs) continue; // older paw-session returns flattened text — leave the task count alone
+        var n = 0;
+        var newest = marks[r.sid] || 0;
+        for (var j = 0; j < msgs.length; j++) {
+          chatNoteTs(agent, r.sid, msgs[j].ts);
+          var mts = tsMs(msgs[j].ts);
+          if (mts > newest) newest = mts;
+          // CHAT_TS_SKEW_MS: a reply's transcript entry is stamped when paw-session appends it,
+          // a moment AFTER the task:completed that the watermark may have come from. Without
+          // this allowance, a chat you have read shows one phantom unread forever — and if it
+          // is a session you never reopen, nothing ever recomputes it away.
+          if (msgs[j].role === 'brain' && mts > marks[r.sid] + CHAT_TS_SKEW_MS) n++;
+        }
+        if (n) {
+          counts[r.sid] = n;
+        } else {
+          // Resolved to zero: move the watermark past everything in the transcript so this
+          // does not depend on the skew allowance again next time.
+          delete counts[r.sid];
+          if (newest > (marks[r.sid] || 0)) marks[r.sid] = newest;
+        }
+      }
+      if (currentTab === 'chat' && counts[chatSessionId]) {
+        delete counts[chatSessionId];
+        chatMarkRead(agent, chatSessionId);
+      }
+      chatUnreadStore[agent] = counts;
+      chatSaveUnread();
+      updateUnreadBadges();
+    });
+  }).catch(function() {});
+}
+
+/**
+ * A message the agent started itself, over the chat channel (paw-chat). Unlike a reply there is
+ * no task and no pending bubble — a heartbeat or scheduled run reached out while nobody was
+ * necessarily looking — so this is purely append + notify.
+ */
+function chatOnChannelMessage(data, agentId) {
+  if (!data || data.channel !== 'chat') return;
+  if (data.dir === 'in') return; // inbound already becomes a task, which chat renders
+  var sessionId = data.sessionId || 'dashboard';
+  var target = agentId !== undefined ? agentId : currentAgentId;
+  chatNoteTs(target, sessionId, data.ts);
+  var viewing = currentTab === 'chat' && target === currentAgentId && sessionId === chatSessionId;
+  if (viewing) {
+    setBubbleMarkdown(addChatBubble('brain', ''), data.text || '');
+    var box = document.getElementById('chat-messages');
+    if (box) box.scrollTop = box.scrollHeight;
+    chatMarkReadAt(target, sessionId, data.ts);
+    chatSaveUnread();
+  } else {
+    chatBumpUnread(target, sessionId);
+    var ag = (lastAgents || []).filter(function(a) { return a.id === target; })[0];
+    var who = (ag && ag.name) || 'An agent';
+    showToast('\\uD83D\\uDCAC ' + who + ' messaged you'
+      + (sessionId !== 'dashboard' ? ' in ' + sessionId : ''), 'success');
+  }
+  updateUnreadBadges();
 }
 
 /* Aggregate badges: the Chat and VoleNet tab buttons (current agent) + each agent card,
@@ -2341,6 +2670,7 @@ function tabBadge(tab, count) {
 function updateUnreadBadges() {
   tabBadge('volenet', vnAgentUnreadSum(currentAgentId));
   tabBadge('chat', chatAgentUnreadSum(currentAgentId));
+  if (typeof refreshChatReadAllBtn === 'function') refreshChatReadAllBtn();
   var cardBadges = document.querySelectorAll('[data-vn-unread]');
   for (var i = 0; i < cardBadges.length; i++) {
     var el = cardBadges[i];
@@ -2367,12 +2697,14 @@ function resetVolenet() {
 var vnPairRequests = [];
 function refreshVnPeers() {
   if (!currentAgentId) { renderVnPeerList(); return; }
+  var epoch = viewEpoch;
   Promise.all([
     sendCommand('volenet_instances').catch(function() { return []; }),
     sendCommand('volenet_relay_members').catch(function() { return []; }),
     sendCommand('volenet_relay_requests').catch(function() { return []; }),
     sendCommand('net_pair_requests').catch(function() { return null; })
   ]).then(function(res) {
+    if (viewChanged(epoch)) return; // another agent's peers must not land in this list
     var direct = Array.isArray(res[0]) ? res[0] : [];
     var relay = Array.isArray(res[1]) ? res[1] : [];
     var requests = Array.isArray(res[2]) ? res[2] : [];
@@ -2471,7 +2803,9 @@ function vnConnectGo() {
   // Pair: two steps — probe (show fingerprint) then confirm (trust + request).
   if (!vnProbed || vnProbed.url !== url) {
     go.disabled = true; result.textContent = 'Fetching identity…';
+    var probeEpoch = viewEpoch;
     sendCommand('net_pair_probe', { url: url }, 15000).then(function(res) {
+      if (viewChanged(probeEpoch)) return; // a peer identity for the agent you left
       go.disabled = false;
       if (!res || res.ok === false) { result.textContent = 'Probe failed: ' + ((res && res.error) || 'unknown'); return; }
       vnProbed = { url: url, publicKey: res.publicKey, fingerprint: res.fingerprint, name: res.name };
@@ -2526,9 +2860,29 @@ function vnPairDeny(ref) {
   sendCommand('net_pair_deny', { ref: ref }).then(function() { refreshVnPeers(); });
 }
 
+/**
+ * Drop VoleNet unread for peers the roster no longer contains.
+ *
+ * A count is cleared by opening that peer's chat — so a peer that disappears (left the hub,
+ * revoked, renamed) leaves a number nothing can clear, and the agent-card badge (which sums
+ * VoleNet and brain-chat unread) hangs there forever. Only runs with a non-empty roster: an
+ * empty one means VoleNet is off or has not loaded, not that every peer vanished.
+ */
+function vnSweepUnread() {
+  if (!currentAgentId || !vnPeers.length) return;
+  var known = {};
+  for (var i = 0; i < vnPeers.length; i++) known[vnPeers[i].id] = true;
+  for (var j = 0; j < vnPairRequests.length; j++) known[vnPairRequests[j].id] = true;
+  var m = vnUnreadFor(currentAgentId);
+  var dropped = false;
+  for (var id in m) { if (!known[id]) { delete m[id]; dropped = true; } }
+  if (dropped) vnSaveUnread();
+}
+
 function renderVnPeerList() {
   var list = document.getElementById('vn-peer-list');
   if (!list) return;
+  vnSweepUnread();
   if (!vnPeers.length && !vnPairRequests.length) {
     list.innerHTML = '<div class="vn-empty" style="margin-top:20px;font-size:12px">No connected nodes.</div>';
     return;
@@ -2605,7 +2959,9 @@ function selectVnPeer(peerId) {
   }
   comp.style.display = '';
   box.innerHTML = '<div class="vn-empty">Loading&hellip;</div>';
+  var epoch = viewEpoch;
   sendCommand('volenet_chat_history', { peerId: peerId }).then(function(res) {
+    if (viewChanged(epoch)) return;
     box.innerHTML = '';
     var h = (res && res.history) ? res.history : [];
     if (h.length) {
@@ -2615,6 +2971,7 @@ function selectVnPeer(peerId) {
     // pending offer's Accept/Decline (or an in-flight transfer's progress) would be
     // lost if this chat wasn't open when the offer arrived.
     return sendCommand('net_file_status').catch(function() { return null; }).then(function(fs) {
+      if (viewChanged(epoch)) return;
       var transfers = (fs && fs.transfers) ? fs.transfers : [];
       var live = { pending: 1, offered: 1, accepted: 1, transferring: 1, verifying: 1 };
       for (var j = 0; j < transfers.length; j++) {
@@ -2630,6 +2987,7 @@ function selectVnPeer(peerId) {
       box.scrollTop = box.scrollHeight;
     });
   }).catch(function() {
+    if (viewChanged(epoch)) return;
     box.innerHTML = '<div class="vn-empty">Could not load history.</div>';
   });
 }
@@ -2668,7 +3026,9 @@ function sendVolenetChat() {
   // Selected peer is a relay member? Badge the sent bubble too.
   var sel = vnPeers.filter(function(p) { return p.id === vnSelectedPeer; })[0];
   var el = addVnBubble('out', text, sel && sel.kind === 'relay');
+  var epoch = viewEpoch;
   sendCommand('volenet_chat_send', { peerId: vnSelectedPeer, text: text }).then(function(res) {
+    if (viewChanged(epoch)) return;
     if (!res || res.ok === false) {
       el.className = 'chat-msg chat-msg-error';
       el.textContent = text + '  —  failed: ' + ((res && res.error) || 'unknown');
@@ -2677,6 +3037,7 @@ function sendVolenetChat() {
       el.textContent = text + '  (peer offline — not delivered)';
     }
   }).catch(function(e) {
+    if (viewChanged(epoch)) return;
     el.className = 'chat-msg chat-msg-error';
     el.textContent = text + '  —  ' + e.message;
   });
@@ -2756,11 +3117,13 @@ function addVnFileBubble(dir, t) {
 function vnFileDecide(transferId, accept, el) {
   var actions = el.querySelector('.vn-file-actions');
   if (actions) actions.remove();
+  var epoch = viewEpoch;
   sendCommand(accept ? 'net_file_accept' : 'net_file_reject', { transferId: transferId }).then(function(res) {
+    if (viewChanged(epoch)) return; // the bubble left with the previous agent's chat
     if (res && res.ok === false) vnFileState(transferId, 'failed: ' + (res.error || 'unknown'));
     else if (!accept) vnFileState(transferId, 'declined');
     else vnFileState(transferId, 'accepted — downloading…');
-  }).catch(function(e) { vnFileState(transferId, 'failed: ' + e.message); });
+  }).catch(function(e) { if (!viewChanged(epoch)) vnFileState(transferId, 'failed: ' + e.message); });
 }
 
 function vnFileState(transferId, text) {
@@ -2809,6 +3172,7 @@ function vnSendStagedFile(note) {
   vnClearStagedFile();
   var token = new URLSearchParams(location.search).get('token') || '';
   var el = addVnFileBubble('out', { transferId: 'up-' + Date.now(), name: file.name, size: file.size, state: 'uploading…', note: note });
+  var epoch = viewEpoch;
   fetch('/upload/' + encodeURIComponent(currentAgentId || '') + '?token=' + encodeURIComponent(token) + '&name=' + encodeURIComponent(file.name), {
     method: 'POST', body: file
   }).then(function(r) { return r.json(); }).then(function(up) {
@@ -2816,10 +3180,12 @@ function vnSendStagedFile(note) {
     return sendCommand('net_file_send', { peerId: vnSelectedPeer, path: up.path, note: note });
   }).then(function(res) {
     if (!res || res.ok === false) throw new Error((res && res.error) || 'send failed');
+    if (viewChanged(epoch)) return; // transfer is running; its bubble belongs to the old view
     // Rebind the optimistic bubble to the real transferId for event updates.
     if (el) { vnTransfers[res.transferId] = el; }
     vnFileState(res.transferId, 'offered — waiting for the peer…');
   }).catch(function(e) {
+    if (viewChanged(epoch)) return;
     if (el) { el.className = 'chat-msg chat-msg-error'; el.querySelector('.vn-file-state').textContent = e.message; }
   });
 }
@@ -3034,11 +3400,14 @@ function showAppFrame() {
       if (!f || e.source !== f.contentWindow) return;
       var d = e.data;
       if (!d || !d.__voleTool) return;
+      var epoch = viewEpoch;
       sendCommand('call_paw_tool', { agent: currentAgentId, name: d.name, params: d.params })
         .then(function(result) {
+          if (viewChanged(epoch)) return; // the frame now belongs to another agent's panel
           f.contentWindow.postMessage({ __voleToolResult: true, reqId: d.reqId, result: result }, '*');
         })
         .catch(function(err) {
+          if (viewChanged(epoch)) return;
           f.contentWindow.postMessage({ __voleToolResult: true, reqId: d.reqId, result: { error: String(err) } }, '*');
         });
     });
@@ -3172,13 +3541,19 @@ function applyDemoLock(on) {
   if (idSave) idSave.style.display = on ? 'none' : '';
 }
 function loadConfig() {
+  var epoch = viewEpoch;
   sendCommand('read_config').then(function(data) {
+    // Late response after an agent switch: dropping it leaves the form empty for the new
+    // agent (its own load is already running). Populating it would show A's config under B's
+    // name — and Save would then write A's values into B.
+    if (viewChanged(epoch)) return;
     cachedConfig = data || {};
     populateConfig(cachedConfig);
     configLoaded = true;
     applyDemoLock(!!cachedConfig.demo);
     showToast('Config loaded', 'success');
   }).catch(function(err) {
+    if (viewChanged(epoch)) return;
     showToast('Failed to load config: ' + err.message, 'error');
   });
 }
@@ -4167,7 +4542,9 @@ function switchIdentityFile(filename) {
 }
 
 function loadIdentity() {
+  var epoch = viewEpoch;
   sendCommand('read_identity').then(function(data) {
+    if (viewChanged(epoch)) return; // never show one agent's SOUL/AGENT.md under another's name
     if (data && typeof data === 'object') {
       var keys = Object.keys(data);
       for (var i = 0; i < keys.length; i++) {
@@ -4181,6 +4558,7 @@ function loadIdentity() {
     applyDemoLock(IS_DEMO);
     showToast('Identity files loaded', 'success');
   }).catch(function(err) {
+    if (viewChanged(epoch)) return;
     showToast('Failed to load identity files: ' + err.message, 'error');
   });
 }
@@ -4220,6 +4598,7 @@ document.getElementById('btn-restart').addEventListener('click', function() {
 ws.onopen = function() {
   dot.classList.add('connected');
   statusText.textContent = 'Connected';
+  loadEventDays();
 };
 ws.onclose = function() {
   dot.classList.remove('connected');
@@ -4276,8 +4655,11 @@ ws.onmessage = function(evt) {
         if (currentTab === 'volenet') refreshVnPeers();
       }
     }
+    if (msg.event === 'channel:message') {
+      chatOnChannelMessage(msg.data, msg.agentId);
+    }
     if (!currentAgentId || msg.agentId === undefined || msg.agentId === currentAgentId) {
-      addEvent(msg.event, msg.data);
+      addEvent(msg.event, msg.data, msg.agentId);
     }
   }
 };
@@ -4511,18 +4893,99 @@ function statusClass(s) {
   return 'tag-yellow';
 }
 
-function addEvent(name, data) {
+// 'live' or a YYYY-MM-DD day being read back from the saved log.
+var eventsMode = 'live';
+
+function eventsClear() { eventLog.innerHTML = ''; }
+
+/**
+ * One event row. The collapsed row is a preview; the full payload is kept on the element and
+ * swapped in on click, so nothing an event carried is ever unreachable from the UI.
+ */
+function eventLineEl(name, data, stamp, agentId) {
   var el = document.createElement('div');
   el.className = 'event-line';
   if (name === 'rate:limited') el.className += ' rate-limited';
   if (name === 'task:failed') el.className += ' task-failed';
-  var time = new Date().toLocaleTimeString();
-  var dataStr = typeof data === 'object' ? JSON.stringify(data) : String(data || '');
-  el.innerHTML = '<span class="time">' + time + '</span>'
+  var full;
+  if (data === null || data === undefined) full = '';
+  else if (typeof data === 'object') { try { full = JSON.stringify(data, null, 2); } catch (e) { full = String(data); } }
+  else full = String(data);
+  var oneLine = full.replace(/\\s+/g, ' ').trim();
+  el.innerHTML = '<span class="time">' + esc(stamp) + '</span>'
     + '<span class="name">' + esc(name) + '</span>'
-    + '<span class="data">' + esc(dataStr) + '</span>';
-  eventLog.prepend(el);
+    + '<span class="data"></span>';
+  var dataEl = el.querySelector('.data');
+  dataEl.textContent = oneLine;
+  dataEl.title = agentId ? (agentId + ' \\u2014 click to expand') : 'Click to expand';
+  dataEl.onclick = function() {
+    var open = el.classList.toggle('expanded');
+    dataEl.textContent = open ? full : oneLine;
+  };
+  return el;
+}
+
+function addEvent(name, data, agentId) {
+  // Reading history: don't interleave live lines into a day being reviewed.
+  if (eventsMode !== 'live') return;
+  eventLog.prepend(eventLineEl(name, data, new Date().toLocaleTimeString(), agentId));
   while (eventLog.children.length > MAX_EVENTS) eventLog.lastChild.remove();
+}
+
+/** Fill the day dropdown from the saved logs. Live stays first and is the default. */
+function loadEventDays() {
+  var sel = document.getElementById('events-day');
+  if (!sel) return;
+  sendCommand('event_log_days', {}).then(function(res) {
+    var days = (res && res.days) || [];
+    var keep = sel.value || 'live';
+    var opts = ['<option value="live">Live</option>'];
+    for (var i = 0; i < days.length; i++) {
+      opts.push('<option value="' + esc(days[i]) + '">' + esc(days[i]) + '</option>');
+    }
+    sel.innerHTML = opts.join('');
+    sel.value = keep;
+    if (sel.value !== keep) sel.value = 'live';
+  }).catch(function() {});
+}
+
+function eventsDayChange() {
+  var sel = document.getElementById('events-day');
+  var note = document.getElementById('events-note');
+  var raw = document.getElementById('events-raw');
+  var day = (sel && sel.value) || 'live';
+  eventsMode = day;
+  eventLog.innerHTML = '';
+
+  if (day === 'live') {
+    raw.className = 'events-raw off';
+    raw.removeAttribute('href');
+    note.textContent = '';
+    return;
+  }
+
+  var token = new URLSearchParams(location.search).get('token') || '';
+  raw.className = 'events-raw';
+  raw.href = '/events.jsonl?day=' + encodeURIComponent(day) + (token ? '&token=' + encodeURIComponent(token) : '');
+
+  note.textContent = 'Loading ' + day + '\\u2026';
+  sendCommand('event_log_read', { day: day, tail: 2000 }).then(function(res) {
+    if (!res || res.ok === false) { note.textContent = (res && res.error) || 'Could not read the log.'; return; }
+    var entries = res.entries || [];
+    var frag = document.createDocumentFragment();
+    for (var i = 0; i < entries.length; i++) {
+      var e = entries[i];
+      var stamp = (e.time || '').split(' ')[1] || (e.time || '');
+      frag.appendChild(eventLineEl(e.event || '?', e.data, stamp, e.agentId));
+    }
+    eventLog.appendChild(frag);
+    // Say what was left out rather than implying this is the whole day.
+    note.textContent = day + ' \\u2014 ' + res.total + ' event' + (res.total === 1 ? '' : 's')
+      + (res.dropped > 0 ? ', showing the newest ' + entries.length + ' (' + res.dropped + ' older not shown \\u2014 open raw for all)' : '')
+      + '. Newest first.';
+  }).catch(function(err) {
+    note.textContent = 'Could not read the log: ' + (err && err.message ? err.message : 'error');
+  });
 }
 
 function esc(s) {
