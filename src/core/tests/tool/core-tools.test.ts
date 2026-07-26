@@ -7,6 +7,7 @@ import { SchedulerStore } from '../../src/core/scheduler.js'
 import { TaskQueue } from '../../src/core/task.js'
 import { Vault } from '../../src/core/vault.js'
 import { createCoreTools } from '../../src/tool/core-tools.js'
+import { ToolRegistry } from '../../src/tool/registry.js'
 import type { ToolDefinition } from '../../src/tool/types.js'
 
 // Minimal SkillRegistry mock
@@ -427,5 +428,143 @@ describe('skill basePath + skill_run_script', () => {
 		const res = await run('skill_run_script', { name: 'demo', script: 'scripts/nope.js' })
 		expect(res.ok).toBe(false)
 		expect(res.error).toMatch(/not found/i)
+	})
+})
+
+/**
+ * chat_send — the built-in dashboard chat channel.
+ *
+ * This is the agent's only way to *start* a conversation with its human: a heartbeat or
+ * scheduled run carries no session, so there is no reply path. It publishes a `channel:message`
+ * event; paw-session files it into the transcript and the dashboard raises it as chat.
+ */
+describe('chat_send (built-in chat channel)', () => {
+	let tmpDir: string
+	let scheduler: SchedulerStore
+	let vault: Vault
+
+	const build = async (opts?: {
+		bus?: ReturnType<typeof createMessageBus>
+		withSession?: boolean
+	}) => {
+		const bus = opts?.bus
+		const queueBus = createMessageBus()
+		const registry = new ToolRegistry(queueBus)
+		if (opts?.withSession) {
+			registry.register(
+				'@openvole/paw-session',
+				[
+					{
+						name: 'session_append',
+						description: 'append',
+						parameters: undefined as never,
+						execute: async () => ({ ok: true }),
+					},
+				],
+				false,
+			)
+		}
+		const tools = createCoreTools(
+			scheduler,
+			new TaskQueue(queueBus),
+			tmpDir,
+			createMockSkillRegistry(),
+			vault,
+			registry,
+			bus,
+		)
+		return tools
+	}
+
+	beforeEach(async () => {
+		tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'vole-chatsend-test-'))
+		scheduler = new SchedulerStore()
+		vault = new Vault(path.join(tmpDir, 'vault.json'))
+		await vault.init()
+	})
+
+	afterEach(async () => {
+		scheduler.clearAll()
+		await fs.rm(tmpDir, { recursive: true, force: true })
+	})
+
+	it('is not registered without a bus — nothing to publish on', async () => {
+		const tools = await build()
+		expect(tools.find((t) => t.name === 'chat_send')).toBeUndefined()
+	})
+
+	it('publishes a channel:message for the dashboard session', async () => {
+		const bus = createMessageBus()
+		const seen: unknown[] = []
+		bus.on('channel:message', (d) => seen.push(d))
+		const tools = await build({ bus, withSession: true })
+
+		const res = (await tools
+			.find((t) => t.name === 'chat_send')!
+			.execute({ text: '  Should I bump the index to v3?  ' })) as Record<string, unknown>
+
+		expect(res.ok).toBe(true)
+		expect(res.sessionId).toBe('dashboard')
+		expect(res.persisted).toBe(true)
+		expect(seen).toHaveLength(1)
+		expect(seen[0]).toMatchObject({
+			channel: 'chat',
+			dir: 'out',
+			sessionId: 'dashboard',
+			text: 'Should I bump the index to v3?',
+			pawName: '__core__',
+		})
+	})
+
+	it('posts into a named session when given one', async () => {
+		const bus = createMessageBus()
+		const seen: Array<{ sessionId?: string }> = []
+		bus.on('channel:message', (d) => seen.push(d as { sessionId?: string }))
+		const tools = await build({ bus, withSession: true })
+
+		await tools.find((t) => t.name === 'chat_send')!.execute({ text: 'hi', session: 'telegram:42' })
+		expect(seen[0].sessionId).toBe('telegram:42')
+	})
+
+	it('warns when paw-session is absent — the message would leave no history', async () => {
+		const bus = createMessageBus()
+		const tools = await build({ bus, withSession: false })
+		const res = (await tools
+			.find((t) => t.name === 'chat_send')!
+			.execute({ text: 'hi' })) as Record<string, unknown>
+		expect(res.ok).toBe(true)
+		expect(res.persisted).toBe(false)
+		expect(String(res.note)).toMatch(/NOT saved to chat history/)
+	})
+
+	it('rejects an empty message instead of posting a blank bubble', async () => {
+		const bus = createMessageBus()
+		const seen: unknown[] = []
+		bus.on('channel:message', (d) => seen.push(d))
+		const tools = await build({ bus, withSession: true })
+		const res = (await tools
+			.find((t) => t.name === 'chat_send')!
+			.execute({ text: '   ' })) as Record<string, unknown>
+		expect(res.ok).toBe(false)
+		expect(seen).toHaveLength(0)
+	})
+
+	it('truncates a huge message and points at the workspace', async () => {
+		const bus = createMessageBus()
+		const seen: Array<{ text?: string }> = []
+		bus.on('channel:message', (d) => seen.push(d as { text?: string }))
+		const tools = await build({ bus, withSession: true })
+		await tools.find((t) => t.name === 'chat_send')!.execute({ text: 'z'.repeat(20_000) })
+		expect(seen[0].text!.length).toBeLessThan(9_000)
+		expect(seen[0].text).toMatch(/truncated at 8000 chars/)
+	})
+
+	it('tells the agent not to wait for a reply in this run', async () => {
+		const bus = createMessageBus()
+		const tools = await build({ bus, withSession: true })
+		const res = (await tools
+			.find((t) => t.name === 'chat_send')!
+			.execute({ text: 'hi' })) as Record<string, unknown>
+		expect(String(res.note)).toMatch(/do not wait for a reply/i)
 	})
 })

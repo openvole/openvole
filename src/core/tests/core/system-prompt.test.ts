@@ -145,6 +145,65 @@ describe('System Prompt', () => {
 			expect(prompt).toContain('Fetch a URL')
 		})
 
+		describe('channels section', () => {
+			// The reason this section exists: a self-initiated run (heartbeat, schedule) has no chat
+			// to reply into, so an agent told "ask me before shipping" needs to be told a channel
+			// exists at all — otherwise it writes the question into a file nobody reads.
+			const chat = {
+				id: 'chat',
+				sendTool: 'chat_send',
+				tools: ['chat_send'],
+				description: 'Dashboard chat',
+			}
+			const telegram = {
+				id: 'telegram',
+				sendTool: 'telegram_send',
+				tools: ['telegram_send', 'telegram_reply'],
+				description: 'Telegram messaging',
+			}
+
+			it('names the channel, its send tool, and what it is', () => {
+				const prompt = buildSystemPrompt(defaultContent, [], [], { channels: [chat] })
+				expect(prompt).toContain('## Channels — reaching your human')
+				expect(prompt).toContain('**chat** (the dashboard chat)')
+				expect(prompt).toContain('`chat_send`')
+				expect(prompt).toContain('Dashboard chat')
+			})
+
+			it('tells the agent not to park questions where nobody reads them', () => {
+				const prompt = buildSystemPrompt(defaultContent, [], [], { channels: [chat] })
+				expect(prompt).toMatch(/do not park a question in a file/i)
+				expect(prompt).toMatch(/does not block/i)
+			})
+
+			it('resolves loose instructions to the only channel when there is one', () => {
+				const prompt = buildSystemPrompt(defaultContent, [], [], { channels: [chat] })
+				expect(prompt).toContain('Only one channel is available')
+			})
+
+			it('asks the agent to match the closest id when several exist', () => {
+				const prompt = buildSystemPrompt(defaultContent, [], [], { channels: [chat, telegram] })
+				expect(prompt).toContain('**telegram**')
+				expect(prompt).toContain('match it to the closest id')
+				expect(prompt).not.toContain('Only one channel is available')
+			})
+
+			it('lists the tools when no send tool could be identified', () => {
+				const prompt = buildSystemPrompt(defaultContent, [], [], {
+					channels: [{ id: 'voice-call', tools: ['initiate_call', 'end_call'], description: '' }],
+				})
+				expect(prompt).toContain('`initiate_call`')
+				expect(prompt).toContain('`end_call`')
+			})
+
+			it('says nothing at all when no channel paw is loaded', () => {
+				expect(buildSystemPrompt(defaultContent, [], [])).not.toContain('## Channels')
+				expect(buildSystemPrompt(defaultContent, [], [], { channels: [] })).not.toContain(
+					'## Channels',
+				)
+			})
+		})
+
 		it('includes runtime context', () => {
 			const prompt = buildSystemPrompt(defaultContent, [], [])
 			expect(prompt).toContain('Current Context')

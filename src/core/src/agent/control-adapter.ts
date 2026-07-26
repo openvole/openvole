@@ -33,6 +33,7 @@ const FORWARDED_EVENTS: Array<keyof BusEvents> = [
 	'volenet:file:failed',
 	'volenet:file:rejected',
 	'volenet:pair:request',
+	'channel:message',
 ]
 
 /** Aggregate engine state for the dashboard (shape matches PawRegistry.handleQuery). */
@@ -209,7 +210,10 @@ export function installControlAdapter(engine: VoleEngine, projectRoot: string): 
 						ok: true,
 						taskId: current.run(
 							params.input as string,
-							'user',
+							// Defaults to 'user' — the dashboard chat. The control plane passes 'agent'
+							// for an orchestrator's brief so sibling-to-sibling work is not mistaken
+							// for a human message (chat badges, tool profiles, memory scoping).
+							(params.source as 'user' | 'agent') === 'agent' ? 'agent' : 'user',
 							params.sessionId as string | undefined,
 						),
 					}

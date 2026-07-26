@@ -92,6 +92,18 @@ function _createIpcTransport() {
 			process.send!({ jsonrpc: '2.0', method: 'subscribe', params: { events } })
 		},
 
+		/**
+		 * Emit a bus event into the core.
+		 *
+		 * Core publishes only the `channel:*` namespace — events that carry no authority, so a
+		 * sandboxed Paw cannot forge `task:completed` and drive core's own subscribers. Anything
+		 * else is logged and dropped. Fire-and-forget: the core stamps the emitting Paw's name onto
+		 * the payload, so provenance never comes from here.
+		 */
+		emit(event: string, data?: unknown): void {
+			process.send!({ jsonrpc: '2.0', method: 'emit', params: { event, data } })
+		},
+
 		/** Query core state (tools, paws, skills, tasks) */
 		async query(type: 'tools' | 'paws' | 'skills' | 'tasks'): Promise<unknown> {
 			const id = crypto.randomUUID()

@@ -1,3 +1,4 @@
+import { listChannels } from '../channel/registry.js'
 import type { LoopConfig } from '../config/index.js'
 import type { AgentContext } from '../context/types.js'
 import { createAgentContext } from '../context/types.js'
@@ -169,6 +170,14 @@ export async function runAgentLoop(task: AgentTask, deps: LoopDependencies): Pro
 					i.capabilities.some((c: string) => c.includes('paw-brain')),
 			})),
 		}
+	}
+
+	// Advertise the channel Paws this agent can reach its human through. Without this the agent
+	// has no idea a chat or a telegram exists, and a task that needs a person — a question, a
+	// confirmation — dead-ends in a file or in a task result nobody is watching.
+	const channels = listChannels(pawRegistry.list(), toolRegistry)
+	if (channels.length > 0) {
+		context.metadata.channels = channels
 	}
 
 	let consecutiveBrainFailures = 0

@@ -146,6 +146,45 @@ Your working directory is \`${content.workspaceDir}\` — put every file you cre
 - Secrets belong in the vault, not in files.`)
 	}
 
+	// Semi-static: Channels — the agent's only way to start a conversation with its human.
+	// Self-initiated runs (heartbeat, schedule) have no chat to reply into, so without this an
+	// agent told to "ask me" writes the question into a file nobody is watching.
+	if (Array.isArray(metadata?.channels) && metadata.channels.length > 0) {
+		const channels = metadata.channels as Array<{
+			id: string
+			sendTool?: string
+			tools: string[]
+			description: string
+		}>
+		const lines = ['## Channels — reaching your human']
+		lines.push(
+			'These channels reach a person. Use them for questions, confirmations, blockers, and anything that needs a decision — do not park a question in a file, journal, or task result and wait: nobody is reading those.',
+		)
+		for (const ch of channels) {
+			const how = ch.sendTool
+				? `send with \`${ch.sendTool}\``
+				: `tools: ${ch.tools.map((t) => `\`${t}\``).join(', ')}`
+			const label = ch.id === 'chat' ? `**chat** (the dashboard chat)` : `**${ch.id}**`
+			lines.push(`- ${label} — ${how}${ch.description ? `. ${ch.description}` : ''}`)
+		}
+		if (channels.length === 1) {
+			lines.push('')
+			lines.push(
+				`Only one channel is available, so **${channels[0].id}** is where every message goes — including when your instructions name a channel loosely ("message me", "ask in chat", "let me know").`,
+			)
+		} else {
+			lines.push('')
+			lines.push(
+				'When your instructions name a channel loosely ("ask in chat", "message me on telegram"), match it to the closest id above.',
+			)
+		}
+		lines.push(
+			'Sending is one-way and does not block: the answer arrives as a new message on a later run, so send, record that you asked, and carry on with whatever does not depend on the answer.',
+		)
+		parts.push('')
+		parts.push(lines.join('\n'))
+	}
+
 	// Semi-static: Skills list
 	if (activeSkills.length > 0) {
 		parts.push('')

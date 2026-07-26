@@ -35,6 +35,8 @@ export type {
 	AgentStatus as SpaceStatus,
 	AgentRunState as SpaceRunState,
 } from './agent/types.js'
+export { listChannels, channelIdFor, pickSendTool } from './channel/registry.js'
+export type { ChannelInfo } from './channel/registry.js'
 export { buildSystemPrompt, loadSystemPromptContent } from './core/system-prompt.js'
 export type { SystemPromptContent } from './core/system-prompt.js'
 export { Vault } from './core/vault.js'
@@ -114,6 +116,7 @@ import { TaskQueue } from './core/task.js'
 import { Vault } from './core/vault.js'
 import { createTtyIO } from './io/tty.js'
 import type { VoleIO } from './io/types.js'
+import { peekPawCategory } from './paw/manifest.js'
 import { PawRegistry } from './paw/registry.js'
 import { SkillRegistry } from './skill/registry.js'
 import { createCoreTools } from './tool/core-tools.js'
@@ -202,6 +205,7 @@ export async function createEngine(
 		skillRegistry,
 		vault,
 		toolRegistry,
+		bus,
 	)
 	toolRegistry.register('__core__', coreTools, true)
 
@@ -280,14 +284,16 @@ export async function createEngine(
 				engineLogger.info('No Brain Paw configured — Think step will be a no-op')
 			}
 
-			// In headless mode, skip dashboard and channel paws (telegram, slack, discord, whatsapp)
-			const headlessSkipPatterns = [
-				'paw-dashboard',
-				'paw-telegram',
-				'paw-slack',
-				'paw-discord',
-				'paw-whatsapp',
-			]
+			// In headless mode there is no human attached, so channel Paws are skipped: they open
+			// listeners and pollers to reach somebody who isn't there. Decided by the manifest's
+			// `category: "channel"` rather than a hardcoded name list, so any channel Paw — including
+			// ones that don't exist yet — is covered. The dashboard Paw is named explicitly because it
+			// is categorised as infrastructure.
+			const headlessSkipPatterns = ['paw-dashboard']
+			const headlessSkip = async (configName: string): Promise<boolean> => {
+				if (headlessSkipPatterns.some((pat) => configName.includes(pat))) return true
+				return (await peekPawCategory(configName, projectRoot)) === 'channel'
+			}
 
 			// Load Paws (Brain first, then others, in-process last)
 			const pawConfigs = config.paws.map(normalizePawConfig)
@@ -315,10 +321,25 @@ export async function createEngine(
 			promptContent = await loadSystemPromptContent(projectRoot, brainManifestName)
 
 			// Load other Paws in parallel
-			const pawsToLoad = headless
-				? subprocessPaws.filter((p) => !headlessSkipPatterns.some((pat) => p.name.includes(pat)))
-				: subprocessPaws
+			let pawsToLoad = subprocessPaws
+			if (headless) {
+				const keep = await Promise.all(
+					subprocessPaws.map(async (p) => !(await headlessSkip(p.name))),
+				)
+				pawsToLoad = subprocessPaws.filter((_, i) => keep[i])
+			}
 			await Promise.all(pawsToLoad.map((pawConfig) => pawRegistry.load(pawConfig)))
+
+			// Channels stay reachable under tool horizon. A hidden channel is an unusable one: the
+			// system prompt tells the agent it can message its human, so the send tool must be
+			// callable without a discover_tools round-trip first.
+			if (config.loop.toolHorizon) {
+				for (const paw of pawRegistry.list()) {
+					if (paw.manifest?.category === 'channel') {
+						toolRegistry.addAlwaysVisiblePaw(paw.name)
+					}
+				}
+			}
 
 			// The brain may be referenced by manifest name while its paws entry uses a local
 			// path (or vice versa) — resolve again now that manifest names are known. Without

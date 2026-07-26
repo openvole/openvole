@@ -2,6 +2,7 @@ import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 import { execa } from 'execa'
 import { z } from 'zod'
+import type { MessageBus } from '../core/bus.js'
 import type { SchedulerStore } from '../core/scheduler.js'
 import type { TaskQueue } from '../core/task.js'
 import type { Vault } from '../core/vault.js'
@@ -35,6 +36,11 @@ const SCRIPT_ENV_BASELINE = [
 	'PATHEXT',
 ]
 
+/** The session the dashboard's Chat tab opens by default. */
+const CHAT_DEFAULT_SESSION = 'dashboard'
+/** Keep one chat message readable — long output belongs in the workspace, with a pointer in chat. */
+const CHAT_MAX_TEXT_CHARS = 8_000
+
 /** Create the built-in core tools that are always available to the Brain */
 export function createCoreTools(
 	scheduler: SchedulerStore,
@@ -43,6 +49,8 @@ export function createCoreTools(
 	skillRegistry: SkillRegistry,
 	vault: Vault,
 	toolRegistry?: ToolRegistry,
+	/** Message bus — without it the dashboard chat channel (`chat_send`) is not registered. */
+	bus?: MessageBus,
 ): ToolDefinition[] {
 	const heartbeatPath = path.resolve(projectRoot, '.openvole', 'HEARTBEAT.md')
 	const workspaceDir = path.resolve(projectRoot, '.openvole', 'workspace')
@@ -840,6 +848,68 @@ export function createCoreTools(
 				return { ok: true, ...result }
 			},
 		},
+		// === Human channel: the dashboard chat ===
+		//
+		// Answering a human was always possible — a chat message becomes a task and its result
+		// flows back to the bubble that sent it. Starting a conversation was not: a heartbeat or
+		// scheduled run carries no session, so an agent told "ask me before you ship" had nowhere
+		// to put the question and would file it into a journal nobody reads.
+		//
+		// Built into core rather than shipped as a Paw because the dashboard chat is core's own
+		// surface: no credentials, no external service, nothing a subprocess sandbox would
+		// protect. It registers as the `chat` channel next to paw-provided ones (telegram, slack),
+		// so the agent reaches a person the same way everywhere.
+		...(bus
+			? [
+					{
+						name: 'chat_send',
+						description:
+							'Send a message to your human in the dashboard chat — a question, a confirmation, a blocker, a heads-up: anything that needs a person. Works from any run, including heartbeats and scheduled work where nobody is waiting: it raises an unread badge and is there when they next open the dashboard. One-way and non-blocking — the answer arrives as a new message on a later run, so send it, record that you asked, and get on with anything that does not depend on the reply.',
+						parameters: z.object({
+							text: z.string().describe('The message. Markdown renders in the chat.'),
+							session: z
+								.string()
+								.optional()
+								.describe(
+									'Chat session to post into. Defaults to "dashboard" — the chat tab. Pass another session id (e.g. a channel conversation) to post there instead.',
+								),
+						}),
+						async execute(params: unknown) {
+							const { text, session } = params as { text: string; session?: string }
+							const trimmed = (text ?? '').trim()
+							if (!trimmed) return { ok: false, error: 'text is empty — nothing to send' }
+							const body =
+								trimmed.length > CHAT_MAX_TEXT_CHARS
+									? `${trimmed.substring(0, CHAT_MAX_TEXT_CHARS)}\n\n[… truncated at ${CHAT_MAX_TEXT_CHARS} chars — write the full text to your workspace and reference the path]`
+									: trimmed
+							const sessionId = session?.trim() || CHAT_DEFAULT_SESSION
+
+							bus.emit('channel:message', {
+								channel: 'chat',
+								dir: 'out',
+								sessionId,
+								text: body,
+								ts: Date.now(),
+								pawName: '__core__',
+							})
+
+							// paw-session owns the transcript and records these off the bus. Without it the
+							// message still reaches an open dashboard but leaves no history — say so rather
+							// than reporting a durable delivery that isn't.
+							const persisted = !!toolRegistry?.get('session_append')
+							return {
+								ok: true,
+								sessionId,
+								delivered: 'dashboard chat',
+								persisted,
+								note: persisted
+									? `Message posted to the "${sessionId}" chat. It stays unread until your human opens the dashboard — do not wait for a reply in this run.`
+									: `Message sent to any open dashboard, but NOT saved to chat history (paw-session is not loaded), so it is lost if nobody is looking. Do not wait for a reply in this run.`,
+							}
+						},
+					},
+				]
+			: []),
 		{
 			name: 'net_message',
 			description:

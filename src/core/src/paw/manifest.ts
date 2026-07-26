@@ -54,6 +54,25 @@ export function resolvePawPath(name: string, projectRoot: string): string {
 	return path.resolve(projectRoot, 'node_modules', name)
 }
 
+/**
+ * Read just a Paw's category without loading it.
+ *
+ * Headless mode decides what to skip before any Paw is spawned, and the category lives in the
+ * manifest rather than the config — so this reads the manifest ahead of time. Returns
+ * `undefined` when it can't be read; callers treat that as "load it and let load() report".
+ */
+export async function peekPawCategory(
+	configName: string,
+	projectRoot: string,
+): Promise<PawManifest['category'] | undefined> {
+	try {
+		const manifest = await readPawManifest(resolvePawPath(configName, projectRoot))
+		return manifest?.category
+	} catch {
+		return undefined
+	}
+}
+
 /** Read and validate a vole-paw.json manifest */
 export async function readPawManifest(pawPath: string): Promise<PawManifest | null> {
 	const manifestPath = path.join(pawPath, 'vole-paw.json')

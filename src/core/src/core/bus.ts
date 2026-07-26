@@ -9,8 +9,16 @@ export type BusEvents = {
 	'paw:crashed': { pawName: string; error?: unknown }
 	'task:queued': { taskId: string }
 	'task:started': { taskId: string }
-	'task:completed': { taskId: string; result?: string; sessionId?: string }
-	'task:failed': { taskId: string; error?: unknown; result?: string; sessionId?: string }
+	// `source` travels with the outcome so a subscriber can tell a person's chat message from a
+	// heartbeat, an orchestrator's brief, or channel traffic without re-reading the task list.
+	'task:completed': { taskId: string; result?: string; sessionId?: string; source?: string }
+	'task:failed': {
+		taskId: string
+		error?: unknown
+		result?: string
+		sessionId?: string
+		source?: string
+	}
 	'task:cancelled': { taskId: string }
 	'agent:completed': {
 		taskId: string
@@ -89,6 +97,27 @@ export type BusEvents = {
 	'volenet:file:rejected': { transferId: string; by: string; reason: string }
 	'rate:limited': { bucket: string; source?: string }
 	'engine:restart': Record<string, never>
+	/**
+	 * A human-facing message crossed a channel — emitted by channel Paws (paw-chat for the
+	 * dashboard chat, paw-telegram, paw-slack, …), not by core. `dir: 'out'` is the agent
+	 * reaching its human on its own initiative; `dir: 'in'` is an inbound message a channel
+	 * recorded before turning it into a task. paw-session files these into the transcript and
+	 * the dashboard raises them as chat + unread. `pawName` is stamped by core from the
+	 * emitting Paw, so provenance never comes from the payload.
+	 */
+	'channel:message': {
+		/** Channel id — the paw name minus the `@openvole/paw-` prefix (`chat`, `telegram`). */
+		channel: string
+		dir: 'in' | 'out'
+		/** Transcript this belongs to (`dashboard` for the dashboard chat). */
+		sessionId: string
+		text: string
+		ts: number
+		/** Channel-specific sender handle, for inbound messages. */
+		from?: string
+		/** Stamped by core — the Paw that emitted the event. */
+		pawName?: string
+	}
 }
 
 export type MessageBus = Emitter<BusEvents>

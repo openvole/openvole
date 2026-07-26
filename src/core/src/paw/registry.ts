@@ -7,7 +7,7 @@ import {
 	writeIdentityFile,
 } from '../config/index.js'
 import type { AgentContext } from '../context/types.js'
-import type { MessageBus } from '../core/bus.js'
+import type { BusEvents, MessageBus } from '../core/bus.js'
 import type { ActionResult } from '../core/errors.js'
 import type { IpcTransport } from '../core/ipc.js'
 import type { ToolRegistry } from '../tool/registry.js'
@@ -526,10 +526,28 @@ export class PawRegistry {
 			return { ok: true }
 		})
 
-		// Handle Paw → Core: emit
+		// Handle Paw → Core: emit a bus event.
+		//
+		// Only the `channel:*` namespace is published onto the bus. A Paw runs sandboxed and
+		// untrusted; letting it emit arbitrary event names would let it forge `task:completed`
+		// or `paw:crashed` and drive core's own subscribers. Channel events carry no authority —
+		// they are messages between an agent and its human — so they are safe to relay, and
+		// they are the only way a channel Paw (chat, telegram, …) can reach the dashboard and
+		// the session transcript. Anything else is logged and dropped, as before.
 		transport.onRequest('emit', async (params) => {
-			const { event } = params as { event: string; data: unknown }
-			logger.info(`Paw "${pawName}" emitted event: ${event}`)
+			const { event, data } = params as { event: string; data: unknown }
+			if (event.startsWith('channel:')) {
+				if (!data || typeof data !== 'object') {
+					logger.warn(`Paw "${pawName}" emitted ${event} with no payload — dropped`)
+					return { ok: false, error: 'payload must be an object' }
+				}
+				// pawName is stamped here, never read from the payload — provenance must not be
+				// something the emitting Paw can claim.
+				this.bus.emit(event as keyof BusEvents, { ...(data as object), pawName } as never)
+				logger.debug(`Paw "${pawName}" emitted event: ${event}`)
+				return { ok: true }
+			}
+			logger.info(`Paw "${pawName}" emitted event: ${event} (not published — core-owned event)`)
 			return { ok: true }
 		})
 
