@@ -1,5 +1,18 @@
 # Changelog
 
+## v4.15.0 (2026-07-28)
+
+> Ships as `openvole` 4.15.0 and `@openvole/dashboard-server` 0.13.0 (plus `@openvole/paw-session` 2.3.0 on PawHub). Renaming agents, and two fixes to yesterday's features.
+
+### Fixed
+
+- **Live Events opened empty while today's activity sat in the dropdown.** The feed only ever showed events that arrived *after* you opened the page, so a quiet moment looked like a broken feed — and today's log was listed among the past days, as if the day were already over. Live now **tails today and follows it**: it loads the last 300 of today's events for the selected agent, then new ones land on top. Today is no longer offered as a "previous day" (it is the file being written to; the dropdown reads **Live (today)** plus earlier days), the **raw** link works in live mode too, and switching agents reloads the tail for the agent you moved to. Which day is "today" comes from the server, so a dashboard in another timezone still follows the file that is actually being appended to.
+- **An agent's chat message could be announced and then lost.** `chat_send` emitted its event and left storage to a `paw-session` version that subscribes to it — which no installed agent had yet, since 2.3.0 is still unpublished. The result was a notification with nothing behind it: the chat opened empty. Core now writes the transcript itself through `session_append` (present since paw-session 2.2.0) *before* announcing, reports `persisted` from the actual write, and marks the event `stored` so a newer paw-session does not save it twice.
+
+### Added
+
+- **Rename an agent from the dashboard.** Each agent card gets a **Rename** button, and the CLI gains `vole agent rename <name> <new name>`. It changes the **display name only** — the id keeps naming the folder on disk, `VOLE_AGENT_ID` in the running engine, the agent's MCP endpoint, and the key the dashboard files its chat history and unread counts under, so a rename needs no restart and a running agent is untouched. Names are unique across the server, compared case-insensitively against ids *and* names, because either can address an agent (`agent_submit`, the CLI, the control plane).
+
 ## v4.14.0 (2026-07-26)
 
 > Ships as `openvole` 4.14.0, `@openvole/dashboard-server` 0.12.0, and `@openvole/paw-sdk` 3.1.0. Theme: **channels are two-way** — an agent can start a conversation — plus a durable event log.

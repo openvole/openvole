@@ -61,6 +61,7 @@ Manage agents from the CLI. (The dashboard's agent switcher does the same things
 | `vole agent start <name>` | Start an agent's engine (its own process). |
 | `vole agent stop <name> \| --all` | Stop an agent (or all agents). |
 | `vole agent switch <name>` | Set the active agent. |
+| `vole agent rename <name> <new name>` | Rename an agent's display name. Its id, directory, and MCP endpoint stay put, so a running agent is unaffected. |
 | `vole agent remove <name> [--purge]` | Remove an agent. Add `--purge` to delete its files on disk. |
 
 ```bash

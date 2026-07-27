@@ -71,6 +71,14 @@ Whichever you keep selected are installed into the new agent. (You can install m
 
 The CLI equivalent is `vole agent create <name>` — see [CLI Commands](/cli#vole-agent).
 
+## Renaming an Agent
+
+Each agent card has a **Rename** button. It changes the **display name only** — the agent's id stays exactly as it was, and that is deliberate: the id is its folder on disk, `VOLE_AGENT_ID` inside the running engine, its MCP endpoint (`/mcp/<id>`), and the key the dashboard files its chat history and unread counts under. A rename therefore needs no restart and a running agent is unaffected.
+
+Names must be unique across the server (compared case-insensitively against both names and ids), because an agent can be addressed by either — `agent_submit`, the CLI, and the control plane all accept a name where they accept an id.
+
+The CLI equivalent is `vole agent rename <name> <new name>`.
+
 ## Deleting an Agent
 
 Deleting an agent from the dashboard **permanently deletes its directory on disk** — config, identity, installed paws, and data — after a destructive confirmation.
@@ -111,12 +119,13 @@ Requires openvole ≥ 4.8.1 — earlier versions hardcoded an insecure `ws://` U
 
 ## Live Events — and the daily log
 
-The Overview tab's **Live Events** feed shows every bus event as it happens, one line each. Two things to know:
+The Overview tab's **Live Events** feed opens on today and follows it: it loads the last 300 of today's events for the selected agent, then new ones appear on top as they happen. Three things to know:
 
 - **Click a line to expand it.** The collapsed row is a preview; expanding shows the whole payload, pretty-printed and selectable. Nothing is dropped on the way to the UI, so a task result or an error is readable in full.
 - **Everything is also written to disk.** The control plane appends every event to `<root>/.openvole/logs/events-YYYY-MM-DD.jsonl` — one JSON object per line, payloads whole, a new file each local day. The in-page feed holds the last 500 lines; the file holds the day.
+- **The feed is scoped to the selected agent**, like the rest of the tab. The file is not — it covers every agent, with an `agentId` on each line.
 
-Pick a day from the dropdown next to the header to read it back (newest first, bounded to the newest 2000 entries — the note tells you when older ones exist), and hit **raw** for the untouched file:
+The dropdown offers **Live (today)** plus *earlier* days. Today is never listed as history: it is the file being written to right now, and Live is how you read it. Pick an earlier day to read it back (newest first, bounded to the newest 2000 entries — the note tells you when older ones exist), and hit **raw** for the untouched file of whichever day you are on:
 
 ```
 GET /events.jsonl?day=2026-07-26&token=<token>
