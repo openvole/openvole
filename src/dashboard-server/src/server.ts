@@ -32,6 +32,8 @@ export interface DashboardCallbacks {
 	/** Multi-agent (control plane). Omitted by the single-engine paw. */
 	listAgents?: () => Promise<AgentSummary[]>
 	createAgent?: (name: string) => Promise<unknown>
+	/** Change an agent's display name (its id and directory are unaffected). */
+	renameAgent?: (agentId: string, name: string) => Promise<unknown>
 	removeAgent?: (agentId: string) => Promise<unknown>
 	startAgent?: (agentId: string) => Promise<unknown>
 	stopAgent?: (agentId: string) => Promise<unknown>
@@ -85,6 +87,8 @@ export interface DashboardCallbacks {
 		day: string,
 		tail?: number,
 	) => Promise<{ day: string; entries: unknown[]; total: number; dropped: number }>
+	/** The server's current local day key — which file "live" is being written to. */
+	eventLogToday?: () => string
 	/** Absolute path of a day's log file, for the raw download route. */
 	eventLogPath?: (day: string) => string
 	getPanelHtml?: (agentId: string, paw: string) => Promise<unknown>
@@ -476,7 +480,11 @@ export function createDashboardServer(
 					respond(await callbacks.chatSessions?.(sel()))
 					break
 				case 'event_log_days':
-					respond({ ok: true, days: (await callbacks.eventLogDays?.()) ?? [] })
+					respond({
+						ok: true,
+						days: (await callbacks.eventLogDays?.()) ?? [],
+						today: callbacks.eventLogToday?.(),
+					})
 					break
 				case 'event_log_read': {
 					const p = cmd.params as { day?: string; tail?: number }
@@ -606,6 +614,11 @@ export function createDashboardServer(
 				case 'create_agent': {
 					const p = cmd.params as { name: string }
 					respond(await callbacks.createAgent?.(p?.name))
+					break
+				}
+				case 'rename_agent': {
+					const p = cmd.params as { agentId: string; name: string }
+					respond(await callbacks.renameAgent?.(p?.agentId, p?.name))
 					break
 				}
 				case 'remove_agent': {

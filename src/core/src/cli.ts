@@ -178,6 +178,7 @@ VoleNet (distributed networking):
 Agent management ("vole space" is a deprecated alias):
   vole serve                             Control-plane dashboard for this dir's agents (empty dir = new root; VOLE_HOME overrides)
   vole agent create <name>               Scaffold a new agent (clones your template if set; --orchestrator to let it manage siblings)
+  vole agent rename <name> <new name>    Rename an agent's display name (its id and directory stay put)
   vole agent orchestrate <name> [on|off] Grant/revoke an agent's sibling-management authority (vole serve)
   vole agent template                    Create/locate the template new agents clone
   vole agent list                        List agents and running status
@@ -1900,6 +1901,20 @@ async function runAgentSubcommand(
 			break
 		}
 
+		case 'rename': {
+			const [id, ...rest] = args.slice(1)
+			const newName = rest.join(' ').trim()
+			if (!id || !newName) {
+				logger.error('Usage: vole agent rename <name> <new name>')
+				process.exit(1)
+			}
+			// Display name only — the id (directory, VOLE_AGENT_ID, MCP endpoint) is deliberately
+			// left alone, so a running agent keeps working and needs no restart.
+			const entry = await mgr.rename(id, newName)
+			logger.info(`Renamed to "${entry.name}" (id stays "${entry.id}")`)
+			break
+		}
+
 		case 'remove': {
 			const id = args.slice(1).find((a) => !a.startsWith('--'))
 			if (!id) {
@@ -1946,7 +1961,7 @@ async function runAgentSubcommand(
 		default:
 			logger.error(`Unknown agent command: ${subcommand}`)
 			logger.info(
-				'Available: create, template, list, start, stop, status, switch, remove, orchestrate',
+				'Available: create, template, list, start, stop, status, switch, rename, remove, orchestrate',
 			)
 			process.exit(1)
 	}

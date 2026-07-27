@@ -303,6 +303,47 @@ export class AgentManager {
 		return entry
 	}
 
+	/**
+	 * Rename an agent — its **display name only**.
+	 *
+	 * The id stays put on purpose. It is the directory name, `VOLE_AGENT_ID` in the running
+	 * engine, the MCP endpoint path, and the key the dashboard files chat history and unread
+	 * counts under. Renaming it would orphan all of that and break any orchestrator brief
+	 * addressing the agent mid-flight, to spare the operator one cosmetic detail. So the name
+	 * moves and the identity does not — no restart needed, and a running agent is unaffected.
+	 *
+	 * The new name must not collide with another agent's id *or* name: both are accepted when
+	 * targeting an agent (`agent_submit`, the CLI, the control plane), so a duplicate would make
+	 * "which agent did you mean" unanswerable.
+	 */
+	async rename(idOrName: string, newName: string): Promise<AgentEntry> {
+		const reg = await this.readRegistry()
+		const entry = this.getEntry(reg, idOrName)
+		if (!entry) throw new Error(`Agent not found: "${idOrName}"`)
+
+		const name = newName.trim()
+		if (!name) throw new Error('New name is empty')
+		if (name.length > 64) throw new Error('Name is too long (max 64 characters)')
+		// Keep it addressable from a shell and a URL query without quoting games.
+		if (!/^[\w][\w .-]*$/.test(name)) {
+			throw new Error(
+				`Invalid name: "${name}". Use letters, numbers, spaces, dots, dashes and underscores.`,
+			)
+		}
+		if (name === entry.name) return entry
+
+		const taken = reg.agents.some(
+			(s) =>
+				s.id !== entry.id &&
+				(s.name.toLowerCase() === name.toLowerCase() || s.id.toLowerCase() === name.toLowerCase()),
+		)
+		if (taken) throw new Error(`Another agent already answers to "${name}"`)
+
+		entry.name = name
+		await this.writeRegistry(reg)
+		return entry
+	}
+
 	async switchTo(idOrName: string): Promise<AgentEntry> {
 		const reg = await this.readRegistry()
 		const entry = this.getEntry(reg, idOrName)

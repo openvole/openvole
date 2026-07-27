@@ -7,7 +7,7 @@ import {
 } from '@openvole/dashboard-server'
 import { execa } from 'execa'
 import { createLogger } from '../core/logger.js'
-import { EventLog } from './event-log.js'
+import { EventLog, dayKey } from './event-log.js'
 import { AgentManager } from './manager.js'
 
 const logger = createLogger('control-plane')
@@ -81,6 +81,7 @@ export class ControlPlane {
 				startAgent: (id) => this.startAgent(id),
 				stopAgent: (id) => this.stopAgent(id),
 				createAgent: (name) => this.createAgent(name),
+				renameAgent: (id, name) => this.renameAgent(id, name),
 				removeAgent: (id) => this.removeAgent(id),
 				fetchState: (id) => this.callAgent(id, 'state'),
 				readConfig: (id) => this.callAgent(id, 'read_config'),
@@ -129,6 +130,9 @@ export class ControlPlane {
 					return path.join(entry.path, '.openvole', 'net', 'files', 'outbox')
 				},
 				eventLogDays: () => this.eventLog.listDays(),
+				// The server's local day — the browser may sit in another timezone, and "today"
+				// has to mean the file events are being appended to right now.
+				eventLogToday: () => dayKey(new Date()),
 				eventLogRead: (day, tail) => this.eventLog.read(day, tail),
 				eventLogPath: (day) => this.eventLog.fileFor(day),
 				getPanelHtml: (agentId, paw) => this.callAgent(agentId, 'panel_html', { paw }),
@@ -211,6 +215,17 @@ export class ControlPlane {
 
 	async createAgent(name: string): Promise<{ ok: true; id: string; name: string }> {
 		const entry = await this.manager.create(name)
+		this.broadcastAgents()
+		return { ok: true, id: entry.id, name: entry.name }
+	}
+
+	/**
+	 * Rename an agent's display name. The id — and therefore the directory, the running engine's
+	 * VOLE_AGENT_ID, and its MCP endpoint — is left alone, so a running agent keeps working and
+	 * needs no restart.
+	 */
+	async renameAgent(id: string, name: string): Promise<{ ok: true; id: string; name: string }> {
+		const entry = await this.manager.rename(id, name)
 		this.broadcastAgents()
 		return { ok: true, id: entry.id, name: entry.name }
 	}
