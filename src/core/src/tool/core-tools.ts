@@ -884,6 +884,29 @@ export function createCoreTools(
 									: trimmed
 							const sessionId = session?.trim() || CHAT_DEFAULT_SESSION
 
+							// Write the transcript HERE, before announcing anything.
+							//
+							// The first cut emitted the event and left storage to a paw-session that
+							// subscribes to `channel:message` — a version that did not exist on any
+							// installed agent yet. Every message raised a notification and was then lost:
+							// the chat opened empty. Storage must not depend on a paw being new enough, so
+							// core appends through the tool paw-session has exposed since 2.2.0, and the
+							// event carries `stored` so a subscribing paw does not write it twice.
+							let persisted = false
+							const appendTool = toolRegistry?.get('session_append')
+							if (appendTool) {
+								try {
+									const res = (await appendTool.execute({
+										sessionId,
+										role: 'brain',
+										content: body,
+									})) as { ok?: boolean } | undefined
+									persisted = res?.ok !== false
+								} catch {
+									persisted = false
+								}
+							}
+
 							bus.emit('channel:message', {
 								channel: 'chat',
 								dir: 'out',
@@ -891,12 +914,8 @@ export function createCoreTools(
 								text: body,
 								ts: Date.now(),
 								pawName: '__core__',
+								stored: persisted,
 							})
-
-							// paw-session owns the transcript and records these off the bus. Without it the
-							// message still reaches an open dashboard but leaves no history — say so rather
-							// than reporting a durable delivery that isn't.
-							const persisted = !!toolRegistry?.get('session_append')
 							return {
 								ok: true,
 								sessionId,
@@ -904,7 +923,7 @@ export function createCoreTools(
 								persisted,
 								note: persisted
 									? `Message posted to the "${sessionId}" chat. It stays unread until your human opens the dashboard — do not wait for a reply in this run.`
-									: `Message sent to any open dashboard, but NOT saved to chat history (paw-session is not loaded), so it is lost if nobody is looking. Do not wait for a reply in this run.`,
+									: `Message sent to any open dashboard, but NOT saved to chat history (paw-session is not loaded), so it is lost unless someone is looking right now. Do not wait for a reply in this run.`,
 							}
 						},
 					},

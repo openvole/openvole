@@ -117,6 +117,8 @@ export type BusEvents = {
 		from?: string
 		/** Stamped by core — the Paw that emitted the event. */
 		pawName?: string
+		/** True when the emitter already wrote this to the session transcript — do not store it again. */
+		stored?: boolean
 	}
 }
 

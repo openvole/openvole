@@ -443,13 +443,18 @@ describe('chat_send (built-in chat channel)', () => {
 	let scheduler: SchedulerStore
 	let vault: Vault
 
+	/** Every session_append the tool made — proof a message was stored, not merely announced. */
+	let appended: Array<{ sessionId: string; role: string; content: string }> = []
+
 	const build = async (opts?: {
 		bus?: ReturnType<typeof createMessageBus>
 		withSession?: boolean
+		appendFails?: boolean
 	}) => {
 		const bus = opts?.bus
 		const queueBus = createMessageBus()
 		const registry = new ToolRegistry(queueBus)
+		appended = []
 		if (opts?.withSession) {
 			registry.register(
 				'@openvole/paw-session',
@@ -458,7 +463,11 @@ describe('chat_send (built-in chat channel)', () => {
 						name: 'session_append',
 						description: 'append',
 						parameters: undefined as never,
-						execute: async () => ({ ok: true }),
+						execute: async (p: unknown) => {
+							if (opts?.appendFails) throw new Error('disk full')
+							appended.push(p as { sessionId: string; role: string; content: string })
+							return { ok: true }
+						},
 					},
 				],
 				false,
@@ -513,7 +522,37 @@ describe('chat_send (built-in chat channel)', () => {
 			sessionId: 'dashboard',
 			text: 'Should I bump the index to v3?',
 			pawName: '__core__',
+			stored: true,
 		})
+	})
+
+	it('writes the message to the transcript itself — storage must not depend on a paw version', async () => {
+		// Regression: the first cut only emitted the event and left storage to a paw-session new
+		// enough to subscribe to it. No installed agent had that version, so every message raised
+		// a notification and then vanished — the chat opened empty.
+		const bus = createMessageBus()
+		const tools = await build({ bus, withSession: true })
+		await tools.find((t) => t.name === 'chat_send')!.execute({ text: 'stored?' })
+
+		expect(appended).toHaveLength(1)
+		expect(appended[0]).toMatchObject({ sessionId: 'dashboard', role: 'brain', content: 'stored?' })
+	})
+
+	it('reports persisted:false and stored:false when the append fails', async () => {
+		const bus = createMessageBus()
+		const seen: Array<{ stored?: boolean }> = []
+		bus.on('channel:message', (d) => seen.push(d as { stored?: boolean }))
+		const tools = await build({ bus, withSession: true, appendFails: true })
+
+		const res = (await tools
+			.find((t) => t.name === 'chat_send')!
+			.execute({ text: 'hi' })) as Record<string, unknown>
+
+		// The message still reaches an open dashboard; the agent is told it left no history.
+		expect(res.ok).toBe(true)
+		expect(res.persisted).toBe(false)
+		expect(seen[0].stored).toBe(false)
+		expect(String(res.note)).toMatch(/NOT saved to chat history/)
 	})
 
 	it('posts into a named session when given one', async () => {
