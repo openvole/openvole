@@ -1741,6 +1741,7 @@ function agentCardHtml(s) {
     + '<div class="agent-card-actions">'
     + '<button class="btn-primary" data-act="open" data-id="' + esc(s.id) + '">Open</button>'
     + '<button class="agent-btn" data-act="' + (running ? 'stop_agent' : 'start_agent') + '" data-id="' + esc(s.id) + '">' + (running ? 'Stop' : 'Start') + '</button>'
+    + '<button class="agent-btn" data-act="rename" data-id="' + esc(s.id) + '" data-name="' + esc(s.name) + '">Rename</button>'
     + '<button class="agent-btn agent-btn-danger" data-act="remove" data-id="' + esc(s.id) + '">Remove</button>'
     + '</div></div>';
 }
@@ -1752,6 +1753,7 @@ function wireAgentCards() {
       var id = this.getAttribute('data-id');
       if (act === 'open') { openAgent(id); return; }
       if (act === 'remove') { removeAgentById(id); return; }
+      if (act === 'rename') { renameAgentById(id, this.getAttribute('data-name') || ''); return; }
       sendCommand(act, { agentId: id })
         .then(function() { return sendCommand('list_agents'); })
         .then(renderAgents)
@@ -1873,6 +1875,47 @@ function installEssentials() {
   }
   step(0);
 }
+/**
+ * Rename an agent — its display name only.
+ *
+ * The id is deliberately left alone: it is the directory name, the running engine's
+ * VOLE_AGENT_ID, this agent's MCP endpoint, and the key its chat history and unread counts are
+ * filed under in this browser. Renaming that to fix a label would orphan all of it, so the form
+ * says so rather than quietly doing half a job.
+ */
+function renameAgentById(id, current) {
+  openModal(
+    '<h2 class="modal-title">Rename agent</h2>'
+    + '<p class="modal-sub">Changes the display name only. Its id stays <b>' + esc(id) + '</b> — that is its folder, its MCP endpoint, and how an orchestrator addresses it, so nothing needs restarting.</p>'
+    + '<input type="text" class="form-input" id="rename-input" value="' + esc(current) + '" placeholder="New name" onkeydown="if(event.key===\\'Enter\\'){confirmRenameAgent(\\'' + esc(id) + '\\');}else if(event.key===\\'Escape\\'){closeModal();}">'
+    + '<div class="modal-actions">'
+    +   '<button class="btn-restart" type="button" onclick="closeModal()">Cancel</button>'
+    +   '<button class="btn-primary" type="button" id="confirm-rename" onclick="confirmRenameAgent(\\'' + esc(id) + '\\')">Rename</button>'
+    + '</div>'
+  );
+  var input = document.getElementById('rename-input');
+  if (input) { input.focus(); input.select(); }
+}
+function confirmRenameAgent(id) {
+  var input = document.getElementById('rename-input');
+  var name = input ? input.value.trim() : '';
+  if (!name) { showToast('Enter a name', 'error'); return; }
+  var btn = document.getElementById('confirm-rename');
+  if (btn) { btn.disabled = true; btn.textContent = 'Renaming…'; }
+  sendCommand('rename_agent', { agentId: id, name: name })
+    .then(function(res) {
+      if (res && res.ok === false) throw new Error(res.error || 'Rename failed');
+      closeModal();
+      showToast('Renamed to "' + name + '"', 'success');
+      return sendCommand('list_agents').then(renderAgents);
+    })
+    .then(function() { if (currentAgentId === id) updateAgentHeader(); })
+    .catch(function(e) {
+      if (btn) { btn.disabled = false; btn.textContent = 'Rename'; }
+      showToast(e.message, 'error');
+    });
+}
+
 function removeAgentById(id) {
   openModal(
     '<h2 class="modal-title">Delete agent</h2>'
@@ -1926,7 +1969,7 @@ function selectAgent(id) {
     // The feed only accepts events for the selected agent, so leftover lines from the previous
     // one would be read as this agent's activity. (A saved day being reviewed is server-wide
     // and covers every agent — leave that alone.)
-    if (eventsMode === 'live' && eventLog) eventLog.innerHTML = '';
+    if (eventsMode === 'live' && eventLog) { eventLog.innerHTML = ''; eventsLoadLive(); }
     // Config and Identity tabs load lazily and cache per (former) agent. Without resetting
     // here, switching agents leaves the previous agent's config/identity in the form — and
     // saving would write THOSE values to the newly-selected agent. Reset so the next view
@@ -4896,7 +4939,11 @@ function statusClass(s) {
 // 'live' or a YYYY-MM-DD day being read back from the saved log.
 var eventsMode = 'live';
 
-function eventsClear() { eventLog.innerHTML = ''; }
+function eventsClear() {
+  eventLog.innerHTML = '';
+  var note = document.getElementById('events-note');
+  if (note && eventsMode === 'live') note.textContent = 'Live \u2014 cleared. New events appear here; today\u2019s log on disk is untouched.';
+}
 
 /**
  * One event row. The collapsed row is a preview; the full payload is kept on the element and
@@ -4932,21 +4979,81 @@ function addEvent(name, data, agentId) {
   while (eventLog.children.length > MAX_EVENTS) eventLog.lastChild.remove();
 }
 
-/** Fill the day dropdown from the saved logs. Live stays first and is the default. */
+/** The server's current day — the file live events are being appended to right now. */
+var eventsTodayKey = null;
+/** How much of today to show when the feed opens. */
+var EVENTS_LIVE_TAIL = 300;
+
+/**
+ * Fill the day dropdown, then load today's tail into the live feed.
+ *
+ * "Live" used to start blank and only fill as new events happened — so opening the dashboard on
+ * a quiet agent showed nothing, while today's events sat in the dropdown one click away, listed
+ * as if the day were already over. Today is not a past day: it is the file being written to.
+ * So Live now tails today and follows it, and only *earlier* days appear as history.
+ */
 function loadEventDays() {
   var sel = document.getElementById('events-day');
   if (!sel) return;
   sendCommand('event_log_days', {}).then(function(res) {
     var days = (res && res.days) || [];
+    eventsTodayKey = (res && res.today) || days[0] || null;
     var keep = sel.value || 'live';
-    var opts = ['<option value="live">Live</option>'];
+    var opts = ['<option value="live">Live (today)</option>'];
     for (var i = 0; i < days.length; i++) {
+      if (days[i] === eventsTodayKey) continue; // that IS live
       opts.push('<option value="' + esc(days[i]) + '">' + esc(days[i]) + '</option>');
     }
     sel.innerHTML = opts.join('');
     sel.value = keep;
-    if (sel.value !== keep) sel.value = 'live';
+    if (sel.value !== keep) { sel.value = 'live'; eventsMode = 'live'; }
+    if (eventsMode === 'live') eventsLoadLive();
   }).catch(function() {});
+}
+
+/**
+ * Show today's recent events, newest first, then let live ones prepend on top.
+ *
+ * Filtered to the selected agent, because that is what the live feed accepts — mixing another
+ * agent's history into this agent's feed would read as its own activity.
+ */
+function eventsLoadLive() {
+  var note = document.getElementById('events-note');
+  var raw = document.getElementById('events-raw');
+  if (eventsTodayKey && raw) {
+    var token = new URLSearchParams(location.search).get('token') || '';
+    raw.className = 'events-raw';
+    raw.href = '/events.jsonl?day=' + encodeURIComponent(eventsTodayKey)
+      + (token ? '&token=' + encodeURIComponent(token) : '');
+  }
+  if (!eventsTodayKey) { if (note) note.textContent = ''; return; }
+
+  var epoch = viewEpoch;
+  var agent = currentAgentId;
+  if (note) note.textContent = 'Live \u2014 loading today\u2026';
+  sendCommand('event_log_read', { day: eventsTodayKey, tail: EVENTS_LIVE_TAIL }).then(function(res) {
+    // Agent switched, or you moved to a saved day while this was in flight.
+    if (viewChanged(epoch) || eventsMode !== 'live') return;
+    var entries = ((res && res.entries) || []).filter(function(e) {
+      return !agent || !e.agentId || e.agentId === agent;
+    });
+    var frag = document.createDocumentFragment();
+    for (var i = 0; i < entries.length; i++) {
+      var e = entries[i];
+      var stamp = (e.time || '').split(' ')[1] || (e.time || '');
+      frag.appendChild(eventLineEl(e.event || '?', e.data, stamp, e.agentId));
+    }
+    // Appended below whatever arrived live while this was loading — those are newer.
+    eventLog.appendChild(frag);
+    while (eventLog.children.length > MAX_EVENTS) eventLog.lastChild.remove();
+    if (note) {
+      note.textContent = entries.length
+        ? 'Live \u2014 following today, showing the last ' + entries.length + ' for this agent.'
+        : 'Live \u2014 nothing logged for this agent today yet.';
+    }
+  }).catch(function() {
+    if (note) note.textContent = '';
+  });
 }
 
 function eventsDayChange() {
@@ -4958,9 +5065,7 @@ function eventsDayChange() {
   eventLog.innerHTML = '';
 
   if (day === 'live') {
-    raw.className = 'events-raw off';
-    raw.removeAttribute('href');
-    note.textContent = '';
+    eventsLoadLive();
     return;
   }
 
