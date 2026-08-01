@@ -2,12 +2,12 @@
 
 ## v4.15.0 (2026-07-28)
 
-> Ships as `openvole` 4.15.0 and `@openvole/dashboard-server` 0.13.0 (plus `@openvole/paw-session` 2.3.0 on PawHub). Renaming agents, and two fixes to yesterday's features.
+> Ships as `openvole` 4.15.0 and `@openvole/dashboard-server` 0.13.0 (plus `@openvole/paw-session` 2.3.0 on PawHub). Agent renaming, and two fixes to the features added in 4.14.0.
 
 ### Fixed
 
-- **Live Events opened empty while today's activity sat in the dropdown.** The feed only ever showed events that arrived *after* you opened the page, so a quiet moment looked like a broken feed — and today's log was listed among the past days, as if the day were already over. Live now **tails today and follows it**: it loads the last 300 of today's events for the selected agent, then new ones land on top. Today is no longer offered as a "previous day" (it is the file being written to; the dropdown reads **Live (today)** plus earlier days), the **raw** link works in live mode too, and switching agents reloads the tail for the agent you moved to. Which day is "today" comes from the server, so a dashboard in another timezone still follows the file that is actually being appended to.
-- **An agent's chat message could be announced and then lost.** `chat_send` emitted its event and left storage to a `paw-session` version that subscribes to it — which no installed agent had yet, since 2.3.0 is still unpublished. The result was a notification with nothing behind it: the chat opened empty. Core now writes the transcript itself through `session_append` (present since paw-session 2.2.0) *before* announcing, reports `persisted` from the actual write, and marks the event `stored` so a newer paw-session does not save it twice.
+- **Live Events opened empty, and the current day was listed as history.** The feed showed only events that arrived *after* the page was opened, so an idle period was indistinguishable from a broken feed — while the current day's log sat in the day dropdown as though the day had ended. Live mode now **loads the current day and follows it**: the most recent 300 entries for the selected agent, with new events prepended as they arrive. The dropdown reads **Live (today)** followed by earlier days only, the **raw** download link works in live mode, and switching agents reloads the feed for the newly selected one. The current day is determined by the server, so a dashboard in a different timezone still follows the file being written.
+- **An agent's chat message could be announced and then lost.** `chat_send` emitted its event and left storage to `paw-session` 2.3.0, which subscribes to that event; on any earlier version the message was never recorded, producing a notification with no message behind it and a chat that opened empty. Core now writes the transcript itself through `session_append` (available since paw-session 2.2.0) *before* announcing, reports `persisted` from the result of that write, and marks the event `stored` so a subscribing paw-session does not record it a second time.
 
 ### Added
 
