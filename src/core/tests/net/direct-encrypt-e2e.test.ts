@@ -154,5 +154,8 @@ describe('direct-mesh end-to-end encryption', () => {
 		}
 		expect(ac).toBe(true)
 		expect(ca).toBe(true)
-	})
+		// Timeout must exceed the poll budget above: with vitest's 5s default this test could be
+		// killed mid-wait on a loaded machine, which read as a flaky failure rather than a slow
+		// handshake.
+	}, 20000)
 })
