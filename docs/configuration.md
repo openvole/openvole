@@ -664,6 +664,7 @@ Global environment variables that affect OpenVole core:
 | `VOLE_DEBUG` | Enable debug mode (`true`/`false`). |
 | `VOLE_IPC_TIMEOUT_MS` | IPC timeout for paw communication in ms. Default: `300000`. Applies to tool calls and lifecycle hooks — **not** to the brain's `think`, which is deliberately unbounded (see [Timeouts](/paws-brain#timeouts-how-long-a-brain-may-think)). |
 | `VOLE_COMPACT_MODEL` | Explicit model for LLM compaction (if unset, uses simple compaction). |
+| `VOLE_UPLOAD_MAX_BYTES` | Largest browser → agent upload accepted by the dashboard's file spool, in bytes. Default: `4294967296` (4 GiB). Streams to disk, so this bounds disk use rather than memory. |
 | `VOLE_EVENT_LOG_DAYS` | Days of daily event log kept under `<root>/.openvole/logs/` (`vole serve`). Default: `30`. `0` keeps everything. See [Live Events](/dashboard#live-events-and-the-daily-log). |
 
 Provider-specific env vars are passed to paws via the `allow.env` config — they are **not** globally available to all paws.

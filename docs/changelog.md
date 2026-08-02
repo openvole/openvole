@@ -1,5 +1,20 @@
 # Changelog
 
+## v4.16.0 (2026-08-02)
+
+> Ships as `openvole` 4.16.0 and `@openvole/dashboard-server` 0.13.1. Windows support for in-process Paws, symmetric VoleNet pairing, and file transfers that are no longer capped at 256 MiB.
+
+### Fixed
+
+- **In-process Paws failed to load on Windows.** Core imported a Paw's entry file by absolute path, which Node's ESM loader accepts on POSIX but rejects on Windows: `ERR_UNSUPPORTED_ESM_URL_SCHEME … Received protocol 'c:'` — the drive letter parsed as a URL scheme. `paw-compact` is the only Paw that runs in-process, so it was the only one that failed while every subprocess Paw loaded normally. Both computed imports (the Paw entry and a JS/TS `vole.config`) now go through a `file://` URL.
+- **Accepting a VoleNet pair request left the pairing one-sided.** The accepting node trusted the key and dialled the requester's endpoint but never recorded it as a peer, so its peer list stayed empty and it had nothing to reconnect to after a restart — the operator had to add the peer by hand or send a pairing request back. Accepting now saves the peer exactly as initiating does, when the requester advertised a reachable endpoint.
+- **A test could fail purely under load.** A VoleNet interop test polled for up to 12s while declaring no timeout, so vitest's 5s default killed it mid-wait on a busy machine.
+
+### Changed
+
+- **File transfers are no longer capped at 256 MiB.** `net.files.maxBytes` now defaults to **2 GiB**, and `0` disables the limit entirely. Transfers are chunked, resumable and streamed to disk, so the limit only ever protected disk space — which is now guarded directly: an offer is declined with `no-space` when the inbox filesystem cannot hold it. Rejections state both numbers (`too-large: 3.4 GiB exceeds this node's limit of 2 GiB`) instead of a bare `too-large`.
+- **Relay limits are independent of what a node accepts for itself.** The hub's per-blob cap moved to its own `net.files.relayMaxBytes` (default 512 MiB) rather than tracking `maxBytes`, so raising your own accept limit cannot turn your relay into unbounded storage for other people's traffic. The dashboard's browser upload spool now allows 4 GiB and is tunable with `VOLE_UPLOAD_MAX_BYTES`.
+
 ## v4.15.0 (2026-07-28)
 
 > Ships as `openvole` 4.15.0 and `@openvole/dashboard-server` 0.13.0 (plus `@openvole/paw-session` 2.3.0 on PawHub). Agent renaming, and two fixes to the features added in 4.14.0.

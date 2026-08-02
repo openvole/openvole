@@ -25,7 +25,7 @@ graph TB
 ```
 
 1. Each instance generates an Ed25519 keypair (`vole net init`)
-2. Instances exchange public keys to establish trust (`vole net trust` — or [`vole net pair <url>`](/cli#vole-net-pair), which automates the exchange with a fingerprint check on the initiating side and an explicit operator accept on the other)
+2. Instances exchange public keys to establish trust (`vole net trust` — or [`vole net pair <url>`](/cli#vole-net-pair), which automates the exchange with a fingerprint check on the initiating side and an explicit operator accept on the other). Accepting is symmetric: both sides trust the key **and** save the other as a peer, so either can reconnect after a restart — provided the requester advertised a reachable endpoint. A node behind NAT with no advertised endpoint is trusted but not saved; it has to be the one that dials.
 3. On startup, peers connect via WebSocket and discover each other's tools
 4. Remote tools appear in the coordinator's tool registry — the Brain calls them like local tools
 5. All messages are signed with Ed25519 and include replay protection (60s window)
@@ -421,7 +421,20 @@ Send a file from one vole to another — machine-independently, end-to-end encry
 
 **Direction is negotiated automatically**: the receiver pulls from the sender when the sender's endpoint is reachable; the sender pushes when only the receiver is reachable; and two NAT'd members of a relay hub exchange through the hub — which stores **ciphertext only** (per-pair quota `files.relayQuotaBytes`, TTL `files.relayTtlHours`), exactly as blind as relayed chat.
 
-**Consent.** `net.files.acceptFrom` mirrors `relay.acceptFrom`: unset (default) means every offer waits for an explicit accept; `"*"` or a name/id-prefix list auto-accepts — use that for your own fleet. Offers are only possible from authorized peers in the first place (every control message is signature-verified). Received files land in `net.files.inboxDir` (default `.openvole/net/inbox`) with sanitized names, size-capped by `net.files.maxBytes` (default 256 MiB), and are never executed.
+**Consent.** `net.files.acceptFrom` mirrors `relay.acceptFrom`: unset (default) means every offer waits for an explicit accept; `"*"` or a name/id-prefix list auto-accepts — use that for your own fleet. Offers are only possible from authorized peers in the first place (every control message is signature-verified). Received files land in `net.files.inboxDir` (default `.openvole/net/inbox`) with sanitized names and are never executed.
+
+**Size.** Transfers are chunked, resumable and streamed to disk, so a large file costs nothing but disk — which is the only thing a limit is really protecting:
+
+| Setting | Default | Applies to |
+|---|---|---|
+| `net.files.maxBytes` | 2 GiB (`0` = unlimited) | what this node accepts over a **direct** transfer |
+| `net.files.relayMaxBytes` | 512 MiB | the largest single blob this node will host **as a relay hub** |
+| `net.files.relayQuotaBytes` | 512 MiB | total relay storage per peer pair |
+| `VOLE_UPLOAD_MAX_BYTES` | 4 GiB | the browser → agent upload spool behind the dashboard's 📎 button |
+
+The relay limits are deliberately independent of `maxBytes`: raising what you accept for yourself should not turn your hub into unbounded storage for other people's traffic. Set `maxBytes: 0` for a trusted fleet where the disk is the only real boundary.
+
+A rejected offer says which limit it hit and by how much (`too-large: 3.4 GiB exceeds this node's limit of 2 GiB`), and a receiver also declines an offer it has no room for (`no-space`) rather than filling its disk and failing mid-transfer.
 
 > Reverse-proxied hubs (the [`/mesh` pattern](#behind-a-reverse-proxy-hiding-the-volenet-port)): raise nginx's `client_max_body_size` for the `/mesh/volenet/blob/` path, or relay uploads will be rejected at the proxy.
 
