@@ -2035,7 +2035,8 @@ export class VoleNetManager {
 		if (this.pairRequests.size >= 32 && !this.pairRequests.has(parsed.instanceId)) {
 			return { status: 503, json: { error: 'too many pending pair requests' } }
 		}
-		const safeName = (typeof name === 'string' ? name : '').slice(0, 64) || parsed.instanceId.substring(0, 8)
+		const safeName =
+			(typeof name === 'string' ? name : '').slice(0, 64) || parsed.instanceId.substring(0, 8)
 		this.pairRequests.set(parsed.instanceId, {
 			id: parsed.instanceId,
 			name: safeName,
@@ -2053,11 +2054,21 @@ export class VoleNetManager {
 		logger.info(`Pair request from "${safeName}" (${parsed.instanceId.substring(0, 8)}) via ${ip}`)
 		return {
 			status: 200,
-			json: { ok: true, pending: true, message: 'Pair request received — awaiting operator approval.' },
+			json: {
+				ok: true,
+				pending: true,
+				message: 'Pair request received — awaiting operator approval.',
+			},
 		}
 	}
 
-	listPairRequests(): Array<{ id: string; name: string; endpoint?: string; note?: string; ts: number }> {
+	listPairRequests(): Array<{
+		id: string
+		name: string
+		endpoint?: string
+		note?: string
+		ts: number
+	}> {
 		return [...this.pairRequests.values()].map(({ publicKey: _pk, ...rest }) => rest)
 	}
 
@@ -2071,8 +2082,17 @@ export class VoleNetManager {
 		await this.discovery?.reloadAuthorized()
 		this.pairRequests.delete(req.id)
 		await this.persistPairRequests()
-		if (req.endpoint) void this.discovery?.connectToPeer(req.endpoint).catch(() => {})
-		logger.info(`Pair accepted: "${req.name}" (${req.id.substring(0, 8)}) is now trusted`)
+		// Save the peer, exactly as initiatePair does for the side that asked. Accepting used to
+		// trust the key and dial the endpoint without ever recording it, so pairing came out
+		// one-sided: chat and file transfer worked over the connection the other node had opened,
+		// but this node had no peer of its own — nothing to reconnect to after a restart, and an
+		// empty peer list until the operator added it by hand or sent a request back.
+		if (req.endpoint) {
+			await this.addPeerEntry(req.endpoint) // also dials it
+		}
+		logger.info(
+			`Pair accepted: "${req.name}" (${req.id.substring(0, 8)}) is now trusted${req.endpoint ? ` and saved as a peer (${req.endpoint})` : ' (no endpoint advertised — it must connect to us)'}`,
+		)
 		return { ok: true, name: req.name }
 	}
 
@@ -2101,7 +2121,10 @@ export class VoleNetManager {
 			const r = await fetch(`${base}/volenet/info`, { signal: AbortSignal.timeout(8000) })
 			info = (await r.json()) as typeof info
 		} catch (err) {
-			return { ok: false, error: `could not reach ${base}: ${err instanceof Error ? err.message : err}` }
+			return {
+				ok: false,
+				error: `could not reach ${base}: ${err instanceof Error ? err.message : err}`,
+			}
 		}
 		const parsed = info.publicKey ? parsePublicKey(info.publicKey) : null
 		if (!parsed) return { ok: false, error: 'peer offered no public key (openvole < 4.13?)' }
@@ -2163,12 +2186,14 @@ export class VoleNetManager {
 					publicKey: this.keyPair.publicKeyString,
 					name: this.config.instanceName ?? 'vole',
 					note,
-					endpoint: this.transport ? buildAdvertisedEndpoint({
-						publicUrl: this.config.publicUrl ?? process.env.VOLE_NET_PUBLIC_URL,
-						tls: !!this.config.tls,
-						hostname: this.getHostname(),
-						port: this.config.port ?? 9700,
-					}) : undefined,
+					endpoint: this.transport
+						? buildAdvertisedEndpoint({
+								publicUrl: this.config.publicUrl ?? process.env.VOLE_NET_PUBLIC_URL,
+								tls: !!this.config.tls,
+								hostname: this.getHostname(),
+								port: this.config.port ?? 9700,
+							})
+						: undefined,
 				}),
 				signal: AbortSignal.timeout(8000),
 			})
@@ -2203,7 +2228,10 @@ export class VoleNetManager {
 			})
 			const text = await r.text()
 			if (r.status === 404 || !text.trim()) {
-				return { ok: false, error: 'not a public hub (publicJoin is not enabled there) — use pair instead' }
+				return {
+					ok: false,
+					error: 'not a public hub (publicJoin is not enabled there) — use pair instead',
+				}
 			}
 			const resp = JSON.parse(text) as {
 				ok?: boolean
