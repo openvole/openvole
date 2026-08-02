@@ -44,13 +44,40 @@ const logger = createLogger('volenet-files')
 export interface VoleNetFilesConfig {
 	enabled?: boolean
 	inboxDir?: string
+	/**
+	 * Largest file this node will accept over a direct transfer. Default 2 GiB; `0` means no
+	 * limit. Transfers are chunked, resumable and streamed to disk, so size costs nothing but
+	 * disk — which is exactly why a limit exists at all: it is the only thing standing between a
+	 * peer (or a buggy sender) and a full disk. Relayed transfers are bounded separately by
+	 * `relayMaxBytes`, because there the bytes land on somebody else's disk.
+	 */
 	maxBytes?: number
 	acceptFrom?: '*' | string[]
 	maxConcurrent?: number
 	offerTtlMinutes?: number
 	chunkBytes?: number
+	/** Largest single blob this node will host when acting as a relay hub. Default 512 MiB. */
+	relayMaxBytes?: number
 	relayQuotaBytes?: number
 	relayTtlHours?: number
+}
+
+/** 2 GiB — generous enough for video and disk images, bounded enough to be a safety net. */
+const DEFAULT_MAX_BYTES = 2 * 1024 * 1024 * 1024
+/** A relay hub stores other people's bytes, so it stays capped regardless of endpoint limits. */
+const DEFAULT_RELAY_MAX_BYTES = 512 * 1024 * 1024
+
+/** Human-readable size for operator-facing messages. */
+function fmtBytes(n: number): string {
+	if (n < 1024) return `${n} B`
+	const units = ['KiB', 'MiB', 'GiB', 'TiB']
+	let v = n / 1024
+	let i = 0
+	while (v >= 1024 && i < units.length - 1) {
+		v /= 1024
+		i++
+	}
+	return `${v.toFixed(v >= 10 || i === 0 ? 0 : 1)} ${units[i]}`
 }
 
 export type TransferState =
@@ -208,7 +235,10 @@ export class VoleNetFiles {
 				dir: path.join(opts.netDir, 'blobs'),
 				quotaBytes: opts.config.relayQuotaBytes ?? 512 * 1024 * 1024,
 				ttlMs: (opts.config.relayTtlHours ?? 24) * 60 * 60_000,
-				maxBlobBytes: (opts.config.maxBytes ?? 256 * 1024 * 1024) + 1024 * FRAME_OVERHEAD,
+				// Deliberately NOT derived from maxBytes: raising (or removing) what this node
+				// accepts for itself must not turn its relay into unbounded storage for others.
+				maxBlobBytes:
+					(opts.config.relayMaxBytes ?? DEFAULT_RELAY_MAX_BYTES) + 1024 * FRAME_OVERHEAD,
 			})
 			this.blobStore.sweep()
 			this.blobSweepTimer = setInterval(() => this.blobStore?.sweep(), BLOB_SWEEP_INTERVAL_MS)
@@ -235,8 +265,33 @@ export class VoleNetFiles {
 		return this.opts.config.chunkBytes ?? CHUNK_BYTES_DEFAULT
 	}
 
+	/** Configured accept limit. `0` (or negative) means unlimited — checked via `overLimit`. */
 	private get maxBytes(): number {
-		return this.opts.config.maxBytes ?? 256 * 1024 * 1024
+		return this.opts.config.maxBytes ?? DEFAULT_MAX_BYTES
+	}
+
+	private overLimit(size: number): boolean {
+		const limit = this.maxBytes
+		return limit > 0 && size > limit
+	}
+
+	/**
+	 * Free bytes on the inbox's filesystem, or null when it can't be determined.
+	 *
+	 * With a generous (or disabled) size limit, the disk becomes the real boundary — and running
+	 * it to zero takes the whole agent down, not just the transfer. Better to decline the offer
+	 * than to accept and die halfway through.
+	 */
+	private async freeSpace(): Promise<number | null> {
+		for (const dir of [this.inboxDir(), this.opts.netDir]) {
+			try {
+				const st = await fsp.statfs(dir)
+				return Number(st.bavail) * Number(st.bsize)
+			} catch {
+				// dir may not exist yet — fall through to the next candidate
+			}
+		}
+		return null
 	}
 
 	private get offerTtlMs(): number {
@@ -581,8 +636,22 @@ export class VoleNetFiles {
 			await this.sendCtl(reply, 'file:reject', { transferId: p.transferId, reason: 'disabled' })
 			return
 		}
-		if (p.size > this.maxBytes) {
-			await this.sendCtl(reply, 'file:reject', { transferId: p.transferId, reason: 'too-large' })
+		const free = await this.freeSpace()
+		// 5% headroom: the partial file, its atomic rename, and whatever else the agent is doing.
+		if (free !== null && p.size * 1.05 > free) {
+			await this.sendCtl(reply, 'file:reject', {
+				transferId: p.transferId,
+				reason: `no-space: ${fmtBytes(p.size)} offered, ${fmtBytes(free)} free on the inbox filesystem`,
+			})
+			return
+		}
+		if (this.overLimit(p.size)) {
+			// Say what the limit is. A bare "too-large" leaves the sender guessing whether to
+			// retry, split the file, or ask the operator to raise net.files.maxBytes.
+			await this.sendCtl(reply, 'file:reject', {
+				transferId: p.transferId,
+				reason: `too-large: ${fmtBytes(p.size)} exceeds this node's limit of ${fmtBytes(this.maxBytes)} (net.files.maxBytes)`,
+			})
 			return
 		}
 

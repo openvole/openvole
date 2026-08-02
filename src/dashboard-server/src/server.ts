@@ -321,7 +321,11 @@ export function createDashboardServer(
 					if (!dir) throw new Error('no upload dir')
 					fs.mkdirSync(dir, { recursive: true })
 					const dest = path.join(dir, `${Date.now().toString(36)}-${base}`)
-					const MAX_UPLOAD_BYTES = 512 * 1024 * 1024
+					// The browser→agent spool for VoleDrop. Streamed to disk, so this bounds disk
+					// use, not memory. Kept well above the transfer limit so the upload is never
+					// the thing that fails; tune with VOLE_UPLOAD_MAX_BYTES.
+					const MAX_UPLOAD_BYTES =
+						Number(process.env.VOLE_UPLOAD_MAX_BYTES) || 4 * 1024 * 1024 * 1024
 					const { pipeline } = await import('node:stream/promises')
 					const { Transform } = await import('node:stream')
 					// Budget enforced INSIDE the pipeline — a bare req.on('data') counter would

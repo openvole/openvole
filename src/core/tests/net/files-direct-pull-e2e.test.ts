@@ -147,6 +147,12 @@ describe('VoleDrop direct pull', () => {
 		expect(s.ok).toBe(true)
 		await until(() => a.getFileTransfer(s.transferId as string)?.state === 'rejected')
 		expect(a.getFileTransfer(s.transferId as string)?.state).toBe('rejected')
-		expect(a.getFileTransfer(s.transferId as string)?.error).toBe('too-large')
+		// The reason names both numbers so the sender knows whether to split the file or ask for
+		// a bigger limit, rather than being told only that something was too large.
+		const why = a.getFileTransfer(s.transferId as string)?.error ?? ''
+		expect(why).toMatch(/^too-large/)
+		expect(why).toMatch(/9(\.0)? MiB/)
+		expect(why).toMatch(/8(\.0)? MiB/)
+		expect(why).toMatch(/net\.files\.maxBytes/)
 	}, 40000)
 })
