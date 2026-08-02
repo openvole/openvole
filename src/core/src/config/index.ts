@@ -1,5 +1,6 @@
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
+import { pathToFileURL } from 'node:url'
 import type { PawConfig } from '../paw/types.js'
 
 /** Rate limit configuration */
@@ -214,7 +215,8 @@ async function loadUserConfig(configPath: string): Promise<VoleConfig> {
 
 	for (const candidate of candidates) {
 		try {
-			const module = await import(candidate)
+			// Same Windows rule as the Paw loader: an absolute path must be a file:// URL.
+			const module = await import(pathToFileURL(candidate).href)
 			const config = module.default ?? module
 			return {
 				brain: config.brain,

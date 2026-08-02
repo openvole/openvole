@@ -1,5 +1,6 @@
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { type ResultPromise, execa } from 'execa'
 import type { SecurityConfig } from '../config/index.js'
 import { type IpcTransport, createTransport } from '../core/ipc.js'
@@ -19,7 +20,11 @@ export async function loadInProcessPaw(
 
 	logger.info(`Loading in-process Paw "${manifest.name}" from ${entryPath}`)
 
-	const module = await import(entryPath)
+	// file:// URL, not a bare path. Node's ESM loader accepts an absolute POSIX path as a
+	// specifier but rejects a Windows one (`C:\...`) with ERR_UNSUPPORTED_ESM_URL_SCHEME, so
+	// this line worked everywhere except Windows — where it took down the only in-process Paw
+	// (paw-compact) while every subprocess Paw loaded fine.
+	const module = await import(pathToFileURL(entryPath).href)
 	const definition: PawDefinition = module.default ?? module
 
 	if (definition.onLoad) {
