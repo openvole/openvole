@@ -526,7 +526,10 @@ End-to-end encrypted file transfer between voles — see [VoleNet → File Trans
 | `enabled` | `boolean` | `true` | Turn the whole feature off (`false` auto-rejects inbound offers). |
 | `inboxDir` | `string` | `.openvole/net/inbox` | Where accepted files land (relative to the agent root). Point it at a watch folder to feed an agent pipeline. |
 | `acceptFrom` | `"*" \| string[]` | unset | Auto-accept policy. Unset: every offer waits for an explicit accept. `"*"` or a name/id-prefix list auto-accepts (your own fleet). |
-| `maxBytes` | `number` | `268435456` | Max accepted file size; also the hub's per-blob cap. |
+| `maxBytes` | `number` | `2147483648` | Largest file accepted over a **direct** transfer (2 GiB). `0` means no limit — transfers are chunked and streamed to disk, so the disk is then the only boundary (and a receiver declines an offer it has no room for). |
+| `relayMaxBytes` | `number` | `536870912` | Largest single blob hosted when this node acts as a **relay hub** (512 MiB). Deliberately independent of `maxBytes`: raising what you accept for yourself should not turn your hub into unbounded storage for other people. |
+| `relayQuotaBytes` | `number` | `536870912` | Total relay storage per peer pair. |
+| `relayTtlHours` | `number` | `24` | How long a relayed blob survives before the sweep removes it. |
 | `maxConcurrent` | `number` | `4` | Max simultaneous transfer streams. |
 | `offerTtlMinutes` | `number` | `60` | Pending offers, transfer tokens, and unfinished transfers expire after this. |
 | `chunkBytes` | `number` | `4194304` | Sender-side encryption chunk size (advanced). |

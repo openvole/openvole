@@ -152,8 +152,11 @@ File transfer between two NAT'd members rides the same blindness contract: the s
 **pre-encrypted chunk frames** to the hub (`relay:blob:create` → grant → streamed POST), the
 receiver fetches and decrypts them, and the hub deletes the blob on the receiver's confirmation.
 The per-transfer key travels sealed end-to-end (PQ-hybrid) inside the members' `file:offer`
-envelope — the hub allocates and serves storage it can never read, bounded by a per-pair quota
-(`files.relayQuotaBytes`, default 512 MiB) and a TTL sweep (`files.relayTtlHours`, default 24h).
+envelope — the hub allocates and serves storage it can never read, bounded by a per-blob cap
+(`files.relayMaxBytes`, default 512 MiB), a per-pair quota (`files.relayQuotaBytes`, default
+512 MiB) and a TTL sweep (`files.relayTtlHours`, default 24h). Those three are independent of
+`files.maxBytes`, which governs only what this node accepts for **itself** — a hub's storage
+budget should not move because its operator raised their own inbox limit.
 See [VoleNet → File Transfer](/volenet#file-transfer-voledrop).
 
 ## 3 — Direct upgrade
