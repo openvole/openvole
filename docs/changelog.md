@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **Received filenames are normalized for the receiving filesystem.** A sender's filesystem happily allows names NTFS cannot create — macOS will produce `screen:shot.png` — and a VoleDrop transfer to a Windows receiver then failed at the final rename. The receiver now replaces Windows-reserved characters (`< > : " | ? *`) with underscores, strips trailing dots and spaces, and prefixes DOS device names.
+
+### Also on PawHub
+
+`@openvole/paw-session` **2.3.1** — session transcripts were silently lost on Windows: every colon-named session (`volenet:<peer>`, `telegram:<chat>`, `dashboard:<stamp>`) failed to persist because `:` is an illegal NTFS directory name. Directory names are now percent-encoded (reversible; `dashboard` stays `dashboard`), and pre-encoding directories migrate on first start with history intact.
+
 ## v4.16.0 (2026-08-02)
 
 > Ships as `openvole` 4.16.0 and `@openvole/dashboard-server` 0.13.1. Windows support for in-process Paws, symmetric VoleNet pairing, and file transfers that are no longer capped at 256 MiB.

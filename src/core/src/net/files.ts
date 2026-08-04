@@ -178,7 +178,15 @@ const PROBE_TIMEOUT_MS = 4_000
 function sanitizeFilename(name: string): string {
 	// biome-ignore lint/suspicious/noControlCharactersInRegex: stripping control chars is the point
 	let base = path.basename(name || 'file').replace(/[\x00-\x1f/\\]/g, '')
+	// The receiver may be NTFS, where <>:"|?* cannot appear in a filename (a colon names an
+	// alternate data stream) and a trailing dot or space is silently stripped. The sender's
+	// filesystem happily allows all of these — macOS will hand us `screen:shot.png` — so they
+	// are normalized here, on the receiving side. Unlike session ids a filename needs no
+	// reversibility, only readability, so reserved characters become underscores.
+	base = base.replace(/[<>:"|?*]/g, '_').replace(/[. ]+$/, '')
 	if (!base || base === '.' || base === '..') base = 'file'
+	// DOS device names (CON, NUL, COM1…) are reserved even with an extension.
+	if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\.|$)/i.test(base)) base = `_${base}`
 	if (base.length > 200) {
 		const ext = path.extname(base).slice(0, 20)
 		base = base.slice(0, 200 - ext.length) + ext

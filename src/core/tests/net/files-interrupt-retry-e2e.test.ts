@@ -23,7 +23,10 @@ let rootB: string
 async function until(cond: () => boolean, ms = 30000): Promise<void> {
 	const t0 = Date.now()
 	while (!cond()) {
-		if (Date.now() - t0 > ms) return
+		// Throw, never return silently: a swallowed timeout here let a slow suite setup
+		// masquerade as an instant assertion failure in the first test (the roster wait gave
+		// up quietly, then sendFile failed fast) — a flake with a misleading stack.
+		if (Date.now() - t0 > ms) throw new Error(`until(): not met within ${ms}ms — ${cond}`)
 		await new Promise((r) => setTimeout(r, 150))
 	}
 }

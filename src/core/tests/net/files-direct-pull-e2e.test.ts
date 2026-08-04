@@ -25,7 +25,10 @@ let events: Array<{ type: string; data: unknown }>
 async function until(cond: () => boolean, ms = 20000): Promise<void> {
 	const t0 = Date.now()
 	while (!cond()) {
-		if (Date.now() - t0 > ms) return
+		// Throw, never return silently: a swallowed timeout here let a slow suite setup
+		// masquerade as an instant assertion failure in the first test (the roster wait gave
+		// up quietly, then sendFile failed fast) — a flake with a misleading stack.
+		if (Date.now() - t0 > ms) throw new Error(`until(): not met within ${ms}ms — ${cond}`)
 		await new Promise((r) => setTimeout(r, 150))
 	}
 }
@@ -138,6 +141,20 @@ describe('VoleDrop direct pull', () => {
 		const saved = b.getFileTransfer(s.transferId as string)?.savedPath as string
 		// Landed inside B's inbox, not outside it.
 		expect(saved.startsWith(path.join(rootB, '.openvole/net/inbox'))).toBe(true)
+	}, 40000)
+
+	it('normalizes Windows-reserved characters in the saved filename', async () => {
+		// macOS happily creates `report:v2?.png`; NTFS cannot. The receiver normalizes, so a
+		// Mac → Windows transfer does not die at the final rename.
+		const src = path.join(rootA, 'report:v2?.png')
+		await fs.writeFile(src, crypto.randomBytes(1024))
+		const s = await a.sendFile('recv-b', src)
+		expect(s.ok).toBe(true)
+		await until(() => a.getFileTransfer(s.transferId as string)?.state === 'done')
+		const saved = b.getFileTransfer(s.transferId as string)?.savedPath as string
+		const base = path.basename(saved)
+		expect(base).toBe('report_v2_.png')
+		expect(base).not.toMatch(/[<>:"|?*]/)
 	}, 40000)
 
 	it('auto-rejects offers over maxBytes', async () => {

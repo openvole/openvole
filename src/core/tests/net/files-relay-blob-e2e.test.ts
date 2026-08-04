@@ -29,7 +29,10 @@ let rootB: string
 async function until(cond: () => boolean, ms = 25000): Promise<void> {
 	const t0 = Date.now()
 	while (!cond()) {
-		if (Date.now() - t0 > ms) return
+		// Throw, never return silently: a swallowed timeout here let a slow suite setup
+		// masquerade as an instant assertion failure in the first test (the roster wait gave
+		// up quietly, then sendFile failed fast) — a flake with a misleading stack.
+		if (Date.now() - t0 > ms) throw new Error(`until(): not met within ${ms}ms — ${cond}`)
 		await new Promise((r) => setTimeout(r, 150))
 	}
 }
@@ -90,14 +93,16 @@ beforeAll(async () => {
 	)
 	await b.start()
 
-	// Wait for the hub's roster to reach both members.
+	// Wait for the hub's roster to reach both members. 35s: the heaviest setup in the net
+	// suites (hub + two members, three key generations) — under parallel load 25s was tight,
+	// and the beforeAll cap is 40s.
 	await until(() => {
 		// biome-ignore lint/suspicious/noExplicitAny: test reads internals
 		const rosters = (a as any).hubRosters as Map<string, Map<string, { name: string }>>
 		for (const roster of rosters.values())
 			for (const m of roster.values()) if (m.name === 'member-b') return true
 		return false
-	})
+	}, 35000)
 }, 40000)
 
 afterAll(async () => {
