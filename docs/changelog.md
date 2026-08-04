@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## v4.16.1 (2026-08-04)
+
+> Ships as `openvole` 4.16.1 (`@openvole/dashboard-server` unchanged at 0.13.1), alongside `@openvole/paw-session` 2.3.1 on PawHub. Windows fixes: session transcripts and received filenames.
 
 ### Fixed
 
