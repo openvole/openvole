@@ -765,3 +765,4 @@ Sharing a relay hub no longer means two agents can reach each other. A member's 
 - Ollama brain paw, Telegram channel
 - Memory, session, compact, dashboard paws
 - Vault, workspace, heartbeat, scheduling
+
