@@ -1,5 +1,13 @@
 # Changelog
 
+## v4.16.2 (2026-08-06)
+
+> Ships as `openvole` 4.16.2 (`@openvole/dashboard-server` unchanged at 0.13.1). Tool-call validation fix, found by an agent field-testing the demo-studio skill.
+
+### Fixed
+
+- **`skill_run_script` shredded string args into characters, and MCP tool calls skipped validation.** Tools invoked over MCP (a Claude Code brain with `CLAUDE_CODE_EXPOSE_TOOLS=1`) or from dashboard panels reached `execute()` without schema validation — the brain loop validates, that path did not. So `args` passed as a string survived to a spread and `"--out x"` became `['-','-','o',…]`. The MCP/panel path now validates against the tool's schema exactly like the loop, and `skill_run_script` additionally accepts `args` as a single space-separated string.
+
 ## v4.16.1 (2026-08-04)
 
 > Ships as `openvole` 4.16.1 (`@openvole/dashboard-server` unchanged at 0.13.1), alongside `@openvole/paw-session` 2.3.1 on PawHub. Windows fixes: session transcripts and received filenames.
