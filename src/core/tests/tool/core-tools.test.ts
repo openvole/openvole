@@ -383,6 +383,18 @@ describe('skill basePath + skill_run_script', () => {
 		expect(res.stdout).toBe('hi:a,b')
 	})
 
+	it('skill_run_script accepts args as one string without shredding it into characters', async () => {
+		// Field report: an MCP-invoked call passed args as a string; spreading it turned
+		// "scenario.json --out x" into ['s','c','e','n',…]. Strings now split on whitespace.
+		const res = await run('skill_run_script', {
+			name: 'demo',
+			script: 'scripts/echo.js',
+			args: 'scenario.json --out demo-dir',
+		})
+		expect(res.ok).toBe(true)
+		expect(res.stdout).toBe('hi:scenario.json,--out,demo-dir')
+	})
+
 	it('skill_run_script scopes env to requires.env + baseline (no secret leak)', async () => {
 		process.env.VOLE_TEST_SECRET = 'leak'
 		process.env.VOLE_TEST_DECLARED = 'ok'

@@ -230,7 +230,10 @@ export function createCoreTools(
 				script: z
 					.string()
 					.describe("Script path relative to the skill directory, e.g. 'scripts/run.js'"),
-				args: z.array(z.string()).optional().describe('Command-line arguments for the script'),
+				args: z
+					.union([z.array(z.string()), z.string()])
+					.optional()
+					.describe('Command-line arguments — an array of strings, or one space-separated string'),
 				input: z.string().optional().describe('Data written to the script on stdin'),
 				timeoutMs: z
 					.number()
@@ -316,7 +319,10 @@ export function createCoreTools(
 					SCRIPT_TIMEOUT_MAX_MS,
 				)
 				try {
-					const res = await execa(interpreter, [resolved, ...(args ?? [])], {
+					// Callers reaching this over MCP have been seen passing args as one string; a
+					// spread would then shred it into characters ("-o x" → ['-','o',' ','x']).
+					const argv = typeof args === 'string' ? args.split(/\s+/).filter(Boolean) : (args ?? [])
+					const res = await execa(interpreter, [resolved, ...argv], {
 						cwd: skillDir,
 						timeout,
 						maxBuffer: SCRIPT_MAX_BUFFER,

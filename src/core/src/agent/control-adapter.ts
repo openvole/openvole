@@ -392,9 +392,26 @@ export function installControlAdapter(engine: VoleEngine, projectRoot: string): 
 				}
 				case 'tool': {
 					const t = current.toolRegistry.get(params.name as string)
-					result = t
-						? await t.execute((params.params as Record<string, unknown>) ?? {})
-						: { error: `tool not found: ${params.name}` }
+					if (!t) {
+						result = { error: `tool not found: ${params.name}` }
+						break
+					}
+					const toolParams = (params.params as Record<string, unknown>) ?? {}
+					// Validate like the brain loop does (loop.ts executeAction). This path serves MCP
+					// clients and dashboard panels, which used to reach execute() unvalidated — that is
+					// how a string `args` got through a z.array schema and was spread into characters.
+					const schema = t.parameters as { parse?: (v: unknown) => unknown } | undefined
+					if (schema && typeof schema.parse === 'function') {
+						try {
+							schema.parse(toolParams)
+						} catch (err) {
+							result = {
+								error: `invalid params for ${params.name}: ${err instanceof Error ? err.message : err}`,
+							}
+							break
+						}
+					}
+					result = await t.execute(toolParams)
 					break
 				}
 				case 'restart':
