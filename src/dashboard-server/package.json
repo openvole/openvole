@@ -16,7 +16,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.0.0",
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "ws": "^8.20.1"
   },
   "devDependencies": {
@@ -28,12 +28,19 @@
   "engines": {
     "node": ">=20.0.0"
   },
-  "files": ["dist", "assets"],
+  "files": [
+    "dist",
+    "assets"
+  ],
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/openvole/openvole",
     "directory": "src/dashboard-server"
   },
-  "keywords": ["openvole", "dashboard", "control-plane"]
+  "keywords": [
+    "openvole",
+    "dashboard",
+    "control-plane"
+  ]
 }
