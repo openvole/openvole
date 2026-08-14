@@ -1,4 +1,6 @@
 import type { ChildProcess } from 'node:child_process'
+import * as fsp from 'node:fs/promises'
+import * as os from 'node:os'
 import * as path from 'node:path'
 import {
 	type AgentSummary,
@@ -15,6 +17,14 @@ import { EventLog, dayKey } from './event-log.js'
 import { AgentManager } from './manager.js'
 
 const logger = createLogger('control-plane')
+
+/** True when `target` is one of `roots` or sits beneath one. */
+function isInsideAny(target: string, roots: string[]): boolean {
+	return roots.some((root) => {
+		const resolved = path.resolve(root)
+		return target === resolved || target.startsWith(resolved + path.sep)
+	})
+}
 const RPC_TIMEOUT_MS = 15_000
 const STOP_GRACE_MS = 5000
 const STATE_DEBOUNCE_MS = 150
@@ -89,6 +99,8 @@ export class ControlPlane {
 				projectList: (agentId, status) => this.projectList(agentId, status as never),
 				projectOpen: (agentId, id) => this.projectOpen(agentId, id),
 				projectScan: (agentId, root) => this.projectScan(agentId, root),
+				listDirectories: (agentId, dirPath) => this.listDirectories(agentId, dirPath),
+				grantPath: (agentId, dirPath) => this.grantPath(agentId, dirPath),
 				projectCreate: (agentId, input) => this.projectCreate(agentId, input),
 				projectUpdate: (agentId, id, patch) => this.projectUpdate(agentId, id, patch),
 				projectArchive: (agentId, id) => this.projectArchive(agentId, id),
@@ -306,6 +318,94 @@ export class ControlPlane {
 			dir: projects.dirFor(id),
 			context: (await projects.readContext(id)) ?? null,
 			tasks: await tasks.list({ projectId: id, state: 'all' }),
+		}
+	}
+
+	/**
+	 * List sub-directories of a path, for the dashboard's directory picker.
+	 *
+	 * A browser cannot supply an absolute path — `webkitdirectory` gives relative names and the
+	 * File System Access API gives an opaque handle — so choosing a project root has to be done
+	 * against the filesystem the agent actually runs on.
+	 *
+	 * Not restricted to `allowedPaths`, deliberately: the whole point is to pick a directory that
+	 * is *not* granted yet and then grant it. That is not a widening of what this dashboard can
+	 * already do — `writeConfig` lets the same operator set `allowedPaths` to `/` outright — so a
+	 * lister is strictly weaker than what the token already carries. Each response says whether
+	 * the path is currently granted so the UI can be honest about it.
+	 */
+	async listDirectories(agentId: string, dirPath?: string) {
+		const { projects } = await this.projectStoresFor(agentId)
+		const target = path.resolve(dirPath?.trim() || os.homedir())
+
+		const entries = await fsp.readdir(target, { withFileTypes: true })
+		const dirs: Array<{ name: string; path: string }> = []
+		for (const entry of entries) {
+			// Skip dotfiles: they are noise in a project picker, and .git/node_modules dominate.
+			if (entry.name.startsWith('.')) continue
+			if (!entry.isDirectory()) {
+				// A symlink to a directory is a legitimate project root; readdir types it as a link.
+				if (!entry.isSymbolicLink()) continue
+				try {
+					if (!(await fsp.stat(path.join(target, entry.name))).isDirectory()) continue
+				} catch {
+					continue
+				}
+			}
+			dirs.push({ name: entry.name, path: path.join(target, entry.name) })
+		}
+		dirs.sort((a, b) => a.name.localeCompare(b.name))
+
+		const parent = path.dirname(target)
+		return {
+			ok: true as const,
+			path: target,
+			parent: parent === target ? null : parent,
+			home: os.homedir(),
+			dirs,
+			allowed: isInsideAny(target, projects.allowedRoots),
+			allowedRoots: projects.allowedRoots,
+		}
+	}
+
+	/**
+	 * Add a path to the agent's `security.allowedPaths`.
+	 *
+	 * Written straight to vole.config.json rather than through the running engine, so it works on
+	 * a stopped agent like the rest of the projects surface. This is a human action from an
+	 * authenticated dashboard — the boundary it protects is the *agent* granting itself reach, not
+	 * the operator doing it deliberately.
+	 */
+	async grantPath(agentId: string, dirPath: string) {
+		const reg = await this.manager.readRegistry()
+		const entry = reg.agents.find(
+			(a) => a.id === agentId || a.name.toLowerCase() === agentId.toLowerCase(),
+		)
+		if (!entry) throw new Error(`Agent not found: "${agentId}"`)
+
+		const resolved = path.resolve(dirPath)
+		const stat = await fsp.stat(resolved).catch(() => null)
+		if (!stat?.isDirectory()) throw new Error(`Not a directory: ${resolved}`)
+
+		const configPath = path.resolve(entry.path, 'vole.config.json')
+		const raw = JSON.parse(await fsp.readFile(configPath, 'utf-8')) as Record<string, unknown>
+		const security = (raw.security as Record<string, unknown> | undefined) ?? {}
+		const current = Array.isArray(security.allowedPaths) ? (security.allowedPaths as string[]) : []
+
+		if (!current.includes(resolved)) {
+			security.allowedPaths = [...current, resolved]
+			raw.security = security
+			await fsp.writeFile(configPath, `${JSON.stringify(raw, null, 2)}\n`, 'utf-8')
+			logger.info(`Granted ${resolved} to agent ${entry.id}`)
+		}
+
+		return {
+			ok: true as const,
+			path: resolved,
+			allowedPaths: security.allowedPaths as string[],
+			// allowedPaths is read when the engine loads its config, so a running agent keeps the
+			// old set until it restarts. The control plane re-reads per request and is current.
+			restartRequired: this.children.has(entry.id),
 		}
 	}
 

@@ -41,6 +41,10 @@ export interface DashboardCallbacks {
 	projectList?: (agentId: string, status?: string) => Promise<unknown>
 	projectOpen?: (agentId: string, id: string) => Promise<unknown>
 	projectScan?: (agentId: string, root: string) => Promise<unknown>
+	/** Server-side directory listing — a browser cannot hand back an absolute path. */
+	listDirectories?: (agentId: string, dirPath?: string) => Promise<unknown>
+	/** Add a directory to the agent's security.allowedPaths. A human action, not an agent one. */
+	grantPath?: (agentId: string, dirPath: string) => Promise<unknown>
 	projectCreate?: (agentId: string, input: Record<string, unknown>) => Promise<unknown>
 	projectUpdate?: (
 		agentId: string,
@@ -669,6 +673,16 @@ export function createDashboardServer(
 				case 'project_scan': {
 					const p = cmd.params as { root: string }
 					respond(await callbacks.projectScan?.(sel() ?? '', p?.root))
+					break
+				}
+				case 'list_directories': {
+					const p = cmd.params as { path?: string }
+					respond(await callbacks.listDirectories?.(sel() ?? '', p?.path))
+					break
+				}
+				case 'grant_path': {
+					const p = cmd.params as { path: string }
+					respond(await callbacks.grantPath?.(sel() ?? '', p?.path))
 					break
 				}
 				case 'project_create': {

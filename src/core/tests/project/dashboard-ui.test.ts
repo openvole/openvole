@@ -20,6 +20,20 @@ const UI_PATH = path.resolve(
 	'../../../dashboard-server/src/ui.ts',
 )
 
+/** Every command the projects surface sends; both ends must know about each one. */
+const DASHBOARD_COMMANDS = [
+	'project_list',
+	'project_open',
+	'project_scan',
+	'project_create',
+	'project_update',
+	'project_archive',
+	'task_add',
+	'task_update',
+	'list_directories',
+	'grant_path',
+]
+
 async function readUi(): Promise<string> {
 	return fs.readFile(UI_PATH, 'utf-8')
 }
@@ -109,18 +123,19 @@ describe('dashboard projects UI', () => {
 		expect(source).toContain(`switchTab('projects')`)
 		expect(source).toContain(`id="tab-projects"`)
 		expect(source).toContain(`if (tabName === 'projects') loadProjects();`)
-		for (const command of [
-			'project_list',
-			'project_open',
-			'project_scan',
-			'project_create',
-			'project_update',
-			'project_archive',
-			'task_add',
-			'task_update',
-		]) {
+		for (const command of DASHBOARD_COMMANDS) {
 			expect(source, `ui.ts never sends ${command}`).toContain(`sendCommand('${command}'`)
 		}
+	})
+
+	it('addresses picker entries by index, never by interpolating a path', async () => {
+		const source = await readUi()
+		const start = source.indexOf('function browseDir(')
+		const block = source.substring(start, source.indexOf('function useDirPicked(', start))
+		// Paths carry spaces, quotes and backslashes, and this file is a template literal that
+		// eats escapes — interpolating one into an onclick is how that breaks silently.
+		expect(block).toContain('browseDirAt(')
+		expect(block).not.toMatch(/onclick="browseDir\('/)
 	})
 
 	it('guards renders against a mid-flight agent switch', async () => {
@@ -139,16 +154,7 @@ describe('dashboard projects UI', () => {
 			path.resolve(path.dirname(UI_PATH), 'server.ts'),
 			'utf-8',
 		)
-		for (const command of [
-			'project_list',
-			'project_open',
-			'project_scan',
-			'project_create',
-			'project_update',
-			'project_archive',
-			'task_add',
-			'task_update',
-		]) {
+		for (const command of DASHBOARD_COMMANDS) {
 			expect(server, `server.ts has no case for ${command}`).toContain(`case '${command}'`)
 		}
 	})

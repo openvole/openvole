@@ -147,8 +147,11 @@ Buttons move a task to whatever states are legal from where it is, so `done` is 
 after `verifying`. Blocking asks for a reason, because a board full of blocked tasks with no notes
 is unreadable a week later.
 
-**New** creates a project; **Scan** inspects a path first and fills in the kind and stack from what
-it finds. Everything here is served from the agent's files, so it works while the agent is stopped —
+**New** creates a project. **Browse…** opens a directory picker that walks the filesystem of the
+machine the agent runs on — a browser cannot hand back an absolute path, so the listing is served
+by the control plane. It says whether the folder you land on is inside the agent's allowed paths,
+and offers to grant it if not; a running agent needs a restart to pick a new grant up. **Scan**
+inspects the chosen path and fills in the kind and stack from what it finds. Everything here is served from the agent's files, so it works while the agent is stopped —
 which is when queueing work up is most useful.
 
 ## Commands

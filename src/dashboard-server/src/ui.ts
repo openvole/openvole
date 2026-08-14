@@ -414,6 +414,15 @@ export function getDashboardHtml(wsPort: number): string {
   .task-crit { font-size: 11px; color: var(--text-dim); margin-top: 4px; padding-left: 12px; }
   .task-actions { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 7px; }
   .task-actions button { padding: 2px 8px; font-size: 10px; }
+  .path-row { display: flex; gap: 6px; }
+  .path-row .form-input { flex: 1; min-width: 0; }
+  .dir-crumb { font-size: 11px; color: var(--text-dim); word-break: break-all; margin-bottom: 8px; }
+  .dir-list { max-height: 260px; overflow: auto; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); }
+  .dir-entry { padding: 6px 10px; font-size: 12px; cursor: pointer; display: flex; align-items: center; gap: 7px; }
+  .dir-entry:hover { background: var(--surface-hover); }
+  .dir-up { color: var(--text-dim); }
+  .dir-grant { margin-top: 10px; font-size: 11px; padding: 8px 10px; border-radius: 6px; border: 1px solid var(--orange); background: rgba(219,109,40,.08); }
+  .dir-ok { margin-top: 10px; font-size: 11px; color: var(--green); }
   @media (max-width: 760px) {
     .proj-layout { grid-template-columns: 1fr; }
     .proj-list-pane { order: -1; }
@@ -3000,9 +3009,9 @@ function openCreateProject() {
     '<input class="form-input" id="np-name" placeholder="OpenVole 4.17"></div>' +
     '<div class="form-field"><label class="form-label">Kind</label>' +
     '<select class="form-select" id="np-kind"><option value="general">general</option><option value="code">code</option><option value="writing">writing</option><option value="media">media</option><option value="research">research</option></select></div>' +
-    '<div class="form-field"><label class="form-label">Files (optional)</label>' +
-    '<input class="form-input" id="np-root" placeholder="/Users/you/repo — leave empty for self-contained">' +
-    '<div class="form-help">Must already be inside the agent’s allowed paths. Scan fills in the kind and stack.</div></div>' +
+    '<div class="form-field"><label class="form-label">Project files (optional)</label>' +
+    '<div class="path-row"><input class="form-input" id="np-root" placeholder="leave empty for self-contained"><button class="btn-subtle btn-sm" onclick="openDirPicker()">Browse&hellip;</button></div>' +
+    '<div class="form-help">A directory on the machine running this agent. Leave it empty and the project lives in its own workspace folder.</div></div>' +
     '<div id="np-scan" class="form-help"></div>' +
     '<div class="modal-actions">' +
     '<button class="btn-subtle" onclick="scanProjectRoot()">Scan</button>' +
@@ -3084,6 +3093,106 @@ function addTask(projectId) {
     showToast('Task added', 'success');
     openProject(projectId);
   }).catch(function(err) { showToast(String(err && err.message || err), 'error'); });
+}
+
+/**
+ * Directory picker.
+ *
+ * A browser cannot hand back an absolute path — webkitdirectory yields relative names and the
+ * File System Access API an opaque handle — so this walks the filesystem of the machine the agent
+ * runs on, server-side, and returns real paths.
+ *
+ * Entries are addressed by index rather than by interpolating the path into the onclick. Paths
+ * contain spaces, quotes and backslashes, and this file is itself a template literal that eats
+ * escape characters — an index has nothing to quote.
+ */
+var dirPickerPath = null;
+var dirPickerAllowed = false;
+var dirPickerEntries = [];
+var dirPickerParent = null;
+
+function openDirPicker() {
+  openModal('<div class="modal-title">Choose project files</div>' +
+    '<div class="modal-sub">Directories on the machine running this agent.</div>' +
+    '<div id="dp-crumb" class="dir-crumb">Loading&hellip;</div>' +
+    '<div id="dp-list" class="dir-list"></div>' +
+    '<div id="dp-note"></div>' +
+    '<div class="modal-actions">' +
+    '<button class="btn-subtle" onclick="openCreateProjectAgain()">Cancel</button>' +
+    '<button class="btn-primary" onclick="useDirPicked()">Use this folder</button></div>');
+  var current = document.getElementById('np-root');
+  browseDir(current && current.value.trim() ? current.value.trim() : undefined);
+}
+
+/** Navigate by index into the last listing: -1 is the parent, otherwise a sub-folder. */
+function browseDirAt(index) {
+  if (index < 0) { if (dirPickerParent) browseDir(dirPickerParent); return; }
+  var entry = dirPickerEntries[index];
+  if (entry) browseDir(entry);
+}
+
+function browseDir(dirPath) {
+  sendCommand('list_directories', dirPath ? { path: dirPath } : {}).then(function(res) {
+    dirPickerPath = res.path;
+    dirPickerAllowed = !!res.allowed;
+    dirPickerParent = res.parent;
+    dirPickerEntries = [];
+
+    document.getElementById('dp-crumb').textContent = res.path;
+
+    var html = '';
+    if (res.parent) html += '<div class="dir-entry dir-up" onclick="browseDirAt(-1)">&#8593; up</div>';
+    for (var i = 0; i < res.dirs.length; i++) {
+      dirPickerEntries.push(res.dirs[i].path);
+      html += '<div class="dir-entry" onclick="browseDirAt(' + i + ')">&#128193; ' + esc(res.dirs[i].name) + '</div>';
+    }
+    if (!res.dirs.length) html += '<div class="empty" style="padding:10px">No sub-folders here.</div>';
+    document.getElementById('dp-list').innerHTML = html;
+
+    // Say plainly whether this path is already granted, and offer the grant if not — otherwise
+    // creating the project just fails later with a message about editing vole.config.json.
+    var note = document.getElementById('dp-note');
+    if (res.allowed) {
+      note.className = 'dir-ok';
+      note.textContent = 'This folder is inside the agent’s allowed paths.';
+    } else {
+      note.className = 'dir-grant';
+      note.innerHTML = 'This folder is <strong>outside</strong> the agent’s allowed paths, so it cannot ' +
+        'use it yet. Granting adds it to <code>security.allowedPaths</code> in this agent’s config.' +
+        '<div style="margin-top:6px"><label><input type="checkbox" id="dp-grant"> Grant access to this folder</label></div>';
+    }
+  }).catch(function(err) {
+    document.getElementById('dp-crumb').textContent = String(err && err.message || err);
+    document.getElementById('dp-list').innerHTML = '';
+  });
+}
+
+function useDirPicked() {
+  if (!dirPickerPath) return;
+  var grant = document.getElementById('dp-grant');
+  var picked = dirPickerPath;
+
+  var finish = function(restartRequired) {
+    closeModal();
+    openCreateProject();
+    document.getElementById('np-root').value = picked;
+    if (restartRequired) showToast('Path granted — restart the agent for it to take effect', 'info');
+    scanProjectRoot();
+  };
+
+  if (!dirPickerAllowed && grant && grant.checked) {
+    sendCommand('grant_path', { path: picked }).then(function(res) {
+      finish(res && res.restartRequired);
+    }).catch(function(err) { showToast(String(err && err.message || err), 'error'); });
+    return;
+  }
+  finish(false);
+}
+
+/** Cancelling the picker returns to the create form rather than dropping it entirely. */
+function openCreateProjectAgain() {
+  closeModal();
+  openCreateProject();
 }
 
 function openEditContext(projectId) {
