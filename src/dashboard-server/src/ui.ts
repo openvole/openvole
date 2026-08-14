@@ -384,6 +384,40 @@ export function getDashboardHtml(wsPort: number): string {
   .events-raw.off { color: #444; pointer-events: none; }
   .events-note { color: var(--text-dim); font-family: var(--mono); font-size: 10px; padding: 2px 0 4px; }
   .empty { color: var(--text-dim); font-style: italic; font-size: 12px; padding: 8px 0; }
+
+  /* --- Projects & tasks --- */
+  .proj-layout { display: grid; grid-template-columns: 260px minmax(0,1fr); gap: 16px; align-items: start; }
+  .proj-list-pane { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
+  .proj-list-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+  .proj-list-head h3 { margin: 0; font-size: 13px; }
+  .btn-sm { padding: 3px 10px; font-size: 11px; }
+  .proj-item { padding: 8px 10px; border-radius: 6px; cursor: pointer; border: 1px solid transparent; margin-bottom: 4px; }
+  .proj-item:hover { background: var(--surface-hover); }
+  .proj-item.active { background: var(--surface-hover); border-color: var(--accent); }
+  .proj-item-name { font-size: 13px; font-weight: 500; }
+  .proj-item-meta { font-size: 11px; color: var(--text-dim); margin-top: 2px; display: flex; gap: 6px; }
+  .proj-archived .proj-item-name { color: var(--text-dim); }
+  .proj-showall { display: block; margin-top: 10px; font-size: 11px; color: var(--text-dim); cursor: pointer; }
+  .proj-detail-pane { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; min-height: 240px; }
+  .proj-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .proj-title { margin: 0 0 4px; font-size: 16px; }
+  .proj-sub { font-size: 12px; color: var(--text-dim); word-break: break-all; }
+  .proj-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+  .proj-context { margin: 14px 0; padding: 10px 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; font-size: 12px; white-space: pre-wrap; max-height: 180px; overflow: auto; color: var(--text-dim); }
+  .proj-board { display: grid; gap: 14px; margin-top: 14px; }
+  .board-col-title { font-size: 11px; text-transform: uppercase; letter-spacing: .07em; color: var(--text-dim); margin-bottom: 6px; display: flex; align-items: center; gap: 6px; }
+  .board-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+  .task-row { border: 1px solid var(--border); border-radius: 6px; padding: 9px 11px; margin-bottom: 6px; background: var(--bg); }
+  .task-goal { font-size: 13px; }
+  .task-meta { font-size: 11px; color: var(--text-dim); margin-top: 4px; }
+  .task-note { font-size: 11px; color: var(--orange); margin-top: 4px; }
+  .task-crit { font-size: 11px; color: var(--text-dim); margin-top: 4px; padding-left: 12px; }
+  .task-actions { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 7px; }
+  .task-actions button { padding: 2px 8px; font-size: 10px; }
+  @media (max-width: 760px) {
+    .proj-layout { grid-template-columns: 1fr; }
+    .proj-list-pane { order: -1; }
+  }
   footer {
     background: var(--surface);
     border-top: 1px solid var(--border);
@@ -1027,6 +1061,7 @@ export function getDashboardHtml(wsPort: number): string {
 <div class="tab-bar">
   <button class="tab-btn active" data-tab="overview" onclick="switchTab('overview')">Overview</button>
   <button class="tab-btn" data-tab="chat" onclick="switchTab('chat')">&#129504; Chat</button>
+  <button class="tab-btn" data-tab="projects" onclick="switchTab('projects')">Projects</button>
   <button class="tab-btn" data-tab="apps" id="tab-btn-apps" onclick="switchTab('apps')" style="display:none">Apps</button>
   <button class="tab-btn" data-tab="config" onclick="switchTab('config')">Config</button>
   <button class="tab-btn" data-tab="identity" onclick="switchTab('identity')">Identity</button>
@@ -1102,6 +1137,22 @@ export function getDashboardHtml(wsPort: number): string {
       <div class="chat-composer">
         <input type="text" class="form-input" id="chat-input" placeholder="Message the brain&hellip;" onkeydown="if(event.key==='Enter'){sendChat();}">
         <button class="btn-primary" id="chat-send" onclick="sendChat()">Send</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="tab-projects" class="tab-content" style="display:none">
+    <div class="proj-layout">
+      <div class="proj-list-pane">
+        <div class="proj-list-head">
+          <h3>Projects</h3>
+          <button class="btn-primary btn-sm" onclick="openCreateProject()">New</button>
+        </div>
+        <div id="proj-list"></div>
+        <label class="proj-showall"><input type="checkbox" id="proj-show-archived" onchange="loadProjects()"> show archived</label>
+      </div>
+      <div class="proj-detail-pane" id="proj-detail">
+        <div class="empty">Select a project, or create one.</div>
       </div>
     </div>
   </div>
@@ -1635,8 +1686,6 @@ export function getDashboardHtml(wsPort: number): string {
     <a href="https://net.openvole.com" target="_blank">VoleNet</a>
     <span class="footer-sep">&middot;</span>
     <a href="https://www.npmjs.com/package/openvole" target="_blank">npm</a>
-    <span class="footer-sep">&middot;</span>
-    <a href="https://clawhub.ai" target="_blank">ClawHub Skills</a>
   </footer>
 </div>
 
@@ -2777,6 +2826,286 @@ function refreshVnPeers() {
   });
 }
 var vnPollTimer = null;
+/* === Projects & tasks ============================================================== */
+
+/**
+ * Mirrors TASK_TRANSITIONS in core (src/project/types.ts). Kept as a copy because the dashboard
+ * has no build-time link to core's types — a test asserts the two stay identical, so a change in
+ * core that is not reflected here fails the suite rather than silently offering illegal moves.
+ */
+var TASK_MOVES = {
+  queued: ['running', 'cancelled'],
+  running: ['verifying', 'blocked', 'failed', 'cancelled'],
+  verifying: ['done', 'blocked', 'failed', 'cancelled'],
+  waiting_approval: ['running', 'blocked', 'cancelled'],
+  blocked: ['queued', 'running', 'cancelled'],
+  done: [],
+  failed: ['queued'],
+  cancelled: []
+};
+
+var TASK_STATE_COLOR = {
+  queued: 'var(--text-dim)',
+  running: 'var(--accent)',
+  verifying: 'var(--yellow)',
+  waiting_approval: 'var(--text-dim)',
+  blocked: 'var(--orange)',
+  done: 'var(--green)',
+  failed: 'var(--red)',
+  cancelled: 'var(--text-dim)'
+};
+
+var BOARD_ORDER = ['running', 'verifying', 'blocked', 'waiting_approval', 'queued', 'done', 'failed', 'cancelled'];
+
+var currentProjectId = null;
+
+function loadProjects() {
+  var showArchived = document.getElementById('proj-show-archived');
+  var params = (showArchived && showArchived.checked) ? { status: 'all' } : {};
+  var epoch = viewEpoch;
+  sendCommand('project_list', params).then(function(res) {
+    if (viewChanged(epoch)) return;
+    renderProjectList((res && res.projects) || []);
+  }).catch(function(err) {
+    if (viewChanged(epoch)) return;
+    document.getElementById('proj-list').innerHTML = '<div class="empty">' + esc(String(err && err.message || err)) + '</div>';
+  });
+}
+
+function renderProjectList(projects) {
+  var box = document.getElementById('proj-list');
+  if (!projects.length) {
+    box.innerHTML = '<div class="empty">No projects yet.</div>';
+    document.getElementById('proj-detail').innerHTML = '<div class="empty">Create a project, or just ask this agent to work on something — it can set one up itself.</div>';
+    return;
+  }
+  var html = '';
+  for (var i = 0; i < projects.length; i++) {
+    var p = projects[i];
+    var cls = 'proj-item' + (p.id === currentProjectId ? ' active' : '') + (p.status === 'archived' ? ' proj-archived' : '');
+    var open = p.openTasks === 1 ? '1 open' : (p.openTasks || 0) + ' open';
+    html += '<div class="' + cls + '" onclick="openProject(\\'' + esc(p.id) + '\\')">' +
+      '<div class="proj-item-name">' + esc(p.name || p.id) + '</div>' +
+      '<div class="proj-item-meta"><span>' + esc(p.kind) + '</span><span>&middot;</span><span>' + esc(open) + '</span>' +
+      (p.status !== 'active' ? '<span>&middot;</span><span>' + esc(p.status) + '</span>' : '') +
+      '</div></div>';
+  }
+  box.innerHTML = html;
+  // Keep the open project in view across refreshes; drop it if it vanished.
+  if (currentProjectId && !projects.some(function(p) { return p.id === currentProjectId; })) {
+    currentProjectId = null;
+    document.getElementById('proj-detail').innerHTML = '<div class="empty">Select a project.</div>';
+  }
+}
+
+function openProject(id) {
+  currentProjectId = id;
+  var epoch = viewEpoch;
+  sendCommand('project_open', { id: id }).then(function(res) {
+    if (viewChanged(epoch) || currentProjectId !== id) return;
+    renderProjectDetail(res);
+    loadProjects();
+  }).catch(function(err) {
+    if (viewChanged(epoch)) return;
+    document.getElementById('proj-detail').innerHTML = '<div class="empty">' + esc(String(err && err.message || err)) + '</div>';
+  });
+}
+
+function renderProjectDetail(res) {
+  var p = res.project || {};
+  var tasks = res.tasks || [];
+  var where = p.root ? esc(p.root) : 'self-contained — files live in the project folder';
+
+  var html = '<div class="proj-head"><div>' +
+    '<h3 class="proj-title">' + esc(p.name || p.id) + '</h3>' +
+    '<div class="proj-sub">' + esc(p.kind) + ' &middot; ' + where + '</div>' +
+    (p.stack && p.stack.length ? '<div class="proj-sub">' + esc(p.stack.join(', ')) + '</div>' : '') +
+    '</div><div class="proj-actions">' +
+    '<button class="btn-primary btn-sm" onclick="openAddTask(\\'' + esc(p.id) + '\\')">Add task</button>' +
+    '<button class="btn-subtle btn-sm" onclick="openEditContext(\\'' + esc(p.id) + '\\')">Context</button>' +
+    (p.status === 'archived' ? '' : '<button class="btn-subtle btn-sm" onclick="archiveProject(\\'' + esc(p.id) + '\\')">Archive</button>') +
+    '</div></div>';
+
+  html += '<div class="proj-context">' + (res.context ? esc(res.context) : 'No CONTEXT.md yet — this is what a future run reads to understand the project.') + '</div>';
+
+  var byState = {};
+  for (var i = 0; i < tasks.length; i++) {
+    (byState[tasks[i].state] = byState[tasks[i].state] || []).push(tasks[i]);
+  }
+
+  var board = '';
+  for (var b = 0; b < BOARD_ORDER.length; b++) {
+    var state = BOARD_ORDER[b];
+    var group = byState[state];
+    if (!group || !group.length) continue;
+    board += '<div><div class="board-col-title"><span class="board-dot" style="background:' + TASK_STATE_COLOR[state] + '"></span>' +
+      esc(state.replace('_', ' ')) + ' (' + group.length + ')</div>';
+    for (var t = 0; t < group.length; t++) board += renderTaskRow(p.id, group[t]);
+    board += '</div>';
+  }
+  html += '<div class="proj-board">' + (board || '<div class="empty">No tasks yet.</div>') + '</div>';
+
+  document.getElementById('proj-detail').innerHTML = html;
+}
+
+function renderTaskRow(projectId, t) {
+  var html = '<div class="task-row"><div class="task-goal">' + esc(t.goal) + '</div>';
+  var meta = [];
+  if (t.priority) meta.push('priority ' + t.priority);
+  if (t.budget && t.budget.maxIterations) meta.push((t.iterationsUsed || 0) + '/' + t.budget.maxIterations + ' iterations');
+  if (meta.length) html += '<div class="task-meta">' + esc(meta.join(' · ')) + '</div>';
+  if (t.doneCriteria && t.doneCriteria.length) {
+    for (var c = 0; c < t.doneCriteria.length; c++) {
+      html += '<div class="task-crit">✓ ' + esc(t.doneCriteria[c]) + '</div>';
+    }
+  }
+  if (t.note) html += '<div class="task-note">' + esc(t.note) + '</div>';
+
+  var moves = TASK_MOVES[t.state] || [];
+  if (moves.length) {
+    html += '<div class="task-actions">';
+    for (var m = 0; m < moves.length; m++) {
+      html += '<button class="btn-subtle" onclick="moveTask(\\'' + esc(projectId) + '\\',\\'' + esc(t.id) + '\\',\\'' + moves[m] + '\\')">' + esc(moves[m].replace('_', ' ')) + '</button>';
+    }
+    html += '</div>';
+  }
+  return html + '</div>';
+}
+
+function moveTask(projectId, taskId, state) {
+  // Blocking without a reason is what makes a board useless a week later.
+  var note = (state === 'blocked') ? prompt('Why is this blocked?') : null;
+  if (state === 'blocked' && note === null) return;
+  sendCommand('task_update', { projectId: projectId, taskId: taskId, patch: { state: state, note: note || undefined } })
+    .then(function() { openProject(projectId); })
+    .catch(function(err) { showToast(String(err && err.message || err), 'error'); });
+}
+
+function archiveProject(id) {
+  if (!confirm('Archive "' + id + '"? Files and task history are kept.')) return;
+  sendCommand('project_archive', { id: id }).then(function() {
+    showToast('Project archived', 'success');
+    currentProjectId = null;
+    document.getElementById('proj-detail').innerHTML = '<div class="empty">Select a project.</div>';
+    loadProjects();
+  }).catch(function(err) { showToast(String(err && err.message || err), 'error'); });
+}
+
+function openCreateProject() {
+  openModal('<div class="modal-title">New project</div>' +
+    '<div class="modal-sub">A project holds its own context, notes and task queue.</div>' +
+    '<div class="form-field"><label class="form-label">Id</label>' +
+    '<input class="form-input" id="np-id" placeholder="openvole-4.17" oninput="npSyncName()"></div>' +
+    '<div class="form-field"><label class="form-label">Name</label>' +
+    '<input class="form-input" id="np-name" placeholder="OpenVole 4.17"></div>' +
+    '<div class="form-field"><label class="form-label">Kind</label>' +
+    '<select class="form-select" id="np-kind"><option value="general">general</option><option value="code">code</option><option value="writing">writing</option><option value="media">media</option><option value="research">research</option></select></div>' +
+    '<div class="form-field"><label class="form-label">Files (optional)</label>' +
+    '<input class="form-input" id="np-root" placeholder="/Users/you/repo — leave empty for self-contained">' +
+    '<div class="form-help">Must already be inside the agent’s allowed paths. Scan fills in the kind and stack.</div></div>' +
+    '<div id="np-scan" class="form-help"></div>' +
+    '<div class="modal-actions">' +
+    '<button class="btn-subtle" onclick="scanProjectRoot()">Scan</button>' +
+    '<button class="btn-subtle" onclick="closeModal()">Cancel</button>' +
+    '<button class="btn-primary" onclick="createProject()">Create</button></div>');
+}
+
+/** Fill a blank name from the id as it is typed, without clobbering anything typed by hand. */
+function npSyncName() {
+  var id = document.getElementById('np-id');
+  var name = document.getElementById('np-name');
+  if (!name.dataset.touched) name.value = id.value;
+}
+
+var npScanned = null;
+function scanProjectRoot() {
+  var root = document.getElementById('np-root').value.trim();
+  var out = document.getElementById('np-scan');
+  if (!root) { out.textContent = 'Enter a path to scan.'; return; }
+  out.textContent = 'Scanning…';
+  sendCommand('project_scan', { root: root }).then(function(res) {
+    npScanned = res;
+    out.textContent = res.summary + (res.readFirst && res.readFirst.length ? ' · docs: ' + res.readFirst.join(', ') : '');
+    if (res.kind) document.getElementById('np-kind').value = res.kind;
+    var id = document.getElementById('np-id');
+    if (!id.value && res.name) { id.value = String(res.name).replace(/[^a-z0-9._-]+/gi, '-').toLowerCase(); npSyncName(); }
+  }).catch(function(err) {
+    npScanned = null;
+    out.textContent = String(err && err.message || err);
+  });
+}
+
+function createProject() {
+  var project = {
+    id: document.getElementById('np-id').value.trim(),
+    name: document.getElementById('np-name').value.trim() || undefined,
+    kind: document.getElementById('np-kind').value,
+    root: document.getElementById('np-root').value.trim() || undefined
+  };
+  if (npScanned && npScanned.stack) project.stack = npScanned.stack;
+  if (!project.id) { showToast('Give the project an id', 'error'); return; }
+  sendCommand('project_create', { project: project }).then(function(res) {
+    closeModal();
+    npScanned = null;
+    showToast('Project created', 'success');
+    loadProjects();
+    openProject(res.project.id);
+  }).catch(function(err) { showToast(String(err && err.message || err), 'error'); });
+}
+
+function openAddTask(projectId) {
+  openModal('<div class="modal-title">Add task</div>' +
+    '<div class="modal-sub">Give it criteria you can check — the agent must verify them before it may finish.</div>' +
+    '<div class="form-field"><label class="form-label">Goal</label>' +
+    '<input class="form-input" id="nt-goal" placeholder="Port paw-database off better-sqlite3"></div>' +
+    '<div class="form-field"><label class="form-label">Done when (one per line)</label>' +
+    '<textarea class="form-textarea" id="nt-criteria" rows="3" placeholder="pnpm test passes&#10;no better-sqlite3 in any package.json"></textarea></div>' +
+    '<div class="form-field"><label class="form-label">Priority</label>' +
+    '<input class="form-input" id="nt-priority" type="number" value="0"></div>' +
+    '<div class="modal-actions">' +
+    '<button class="btn-subtle" onclick="closeModal()">Cancel</button>' +
+    '<button class="btn-primary" onclick="addTask(\\'' + esc(projectId) + '\\')">Add</button></div>');
+}
+
+function addTask(projectId) {
+  var goal = document.getElementById('nt-goal').value.trim();
+  if (!goal) { showToast('Give the task a goal', 'error'); return; }
+  var raw = document.getElementById('nt-criteria').value.split('\\n');
+  var criteria = [];
+  for (var i = 0; i < raw.length; i++) { if (raw[i].trim()) criteria.push(raw[i].trim()); }
+  var priority = parseInt(document.getElementById('nt-priority').value, 10);
+  sendCommand('task_add', { task: {
+    projectId: projectId,
+    goal: goal,
+    doneCriteria: criteria,
+    priority: isNaN(priority) ? 0 : priority
+  } }).then(function() {
+    closeModal();
+    showToast('Task added', 'success');
+    openProject(projectId);
+  }).catch(function(err) { showToast(String(err && err.message || err), 'error'); });
+}
+
+function openEditContext(projectId) {
+  sendCommand('project_open', { id: projectId }).then(function(res) {
+    openModal('<div class="modal-title">CONTEXT.md</div>' +
+      '<div class="modal-sub">What a future run reads to understand this project. The agent keeps this current too.</div>' +
+      '<div class="form-field"><textarea class="form-textarea" id="pc-body" rows="14">' + esc(res.context || '') + '</textarea></div>' +
+      '<div class="modal-actions">' +
+      '<button class="btn-subtle" onclick="closeModal()">Cancel</button>' +
+      '<button class="btn-primary" onclick="saveContext(\\'' + esc(projectId) + '\\')">Save</button></div>');
+  }).catch(function(err) { showToast(String(err && err.message || err), 'error'); });
+}
+
+function saveContext(projectId) {
+  var body = document.getElementById('pc-body').value;
+  sendCommand('project_update', { id: projectId, patch: { context: body } }).then(function() {
+    closeModal();
+    showToast('CONTEXT.md saved', 'success');
+    openProject(projectId);
+  }).catch(function(err) { showToast(String(err && err.message || err), 'error'); });
+}
+
 function initVolenetTab() {
   refreshVnPeers();
   // Peer connect/disconnect isn't a bus event, so poll while the tab is open to keep
@@ -3371,6 +3700,8 @@ function switchTab(tabName) {
   document.getElementById('tab-identity').style.display = tabName === 'identity' ? '' : 'none';
   document.getElementById('tab-panel').style.display = tabName === 'apps' ? '' : 'none';
   document.getElementById('tab-volenet').style.display = tabName === 'volenet' ? '' : 'none';
+  document.getElementById('tab-projects').style.display = tabName === 'projects' ? '' : 'none';
+  if (tabName === 'projects') loadProjects();
   if (tabName === 'apps') showAppFrame();
   if (tabName === 'volenet') initVolenetTab();
 

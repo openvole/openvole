@@ -34,6 +34,27 @@ export interface DashboardCallbacks {
 	createAgent?: (name: string) => Promise<unknown>
 	/** Change an agent's display name (its id and directory are unaffected). */
 	renameAgent?: (agentId: string, name: string) => Promise<unknown>
+	/**
+	 * Project and task management. Served straight from the agent's files by the control plane,
+	 * so these work while the agent is stopped — which is exactly when you queue work for it.
+	 */
+	projectList?: (agentId: string, status?: string) => Promise<unknown>
+	projectOpen?: (agentId: string, id: string) => Promise<unknown>
+	projectScan?: (agentId: string, root: string) => Promise<unknown>
+	projectCreate?: (agentId: string, input: Record<string, unknown>) => Promise<unknown>
+	projectUpdate?: (
+		agentId: string,
+		id: string,
+		patch: Record<string, unknown>,
+	) => Promise<unknown>
+	projectArchive?: (agentId: string, id: string) => Promise<unknown>
+	taskAdd?: (agentId: string, input: Record<string, unknown>) => Promise<unknown>
+	taskUpdate?: (
+		agentId: string,
+		projectId: string,
+		taskId: string,
+		patch: Record<string, unknown>,
+	) => Promise<unknown>
 	removeAgent?: (agentId: string) => Promise<unknown>
 	startAgent?: (agentId: string) => Promise<unknown>
 	stopAgent?: (agentId: string) => Promise<unknown>
@@ -628,6 +649,57 @@ export function createDashboardServer(
 				case 'remove_agent': {
 					const p = cmd.params as { agentId: string }
 					respond(await callbacks.removeAgent?.(p?.agentId))
+					break
+				}
+
+				// --- Projects & tasks ---
+				// Every one resolves its agent through sel(), so an explicit agentId on the command
+				// wins over the socket's last selection — the same rule the rest of the dashboard
+				// follows, and what stops a switch mid-request from answering for the wrong agent.
+				case 'project_list': {
+					const p = cmd.params as { status?: string }
+					respond(await callbacks.projectList?.(sel() ?? '', p?.status))
+					break
+				}
+				case 'project_open': {
+					const p = cmd.params as { id: string }
+					respond(await callbacks.projectOpen?.(sel() ?? '', p?.id))
+					break
+				}
+				case 'project_scan': {
+					const p = cmd.params as { root: string }
+					respond(await callbacks.projectScan?.(sel() ?? '', p?.root))
+					break
+				}
+				case 'project_create': {
+					const p = cmd.params as { project: Record<string, unknown> }
+					respond(await callbacks.projectCreate?.(sel() ?? '', p?.project ?? {}))
+					break
+				}
+				case 'project_update': {
+					const p = cmd.params as { id: string; patch: Record<string, unknown> }
+					respond(await callbacks.projectUpdate?.(sel() ?? '', p?.id, p?.patch ?? {}))
+					break
+				}
+				case 'project_archive': {
+					const p = cmd.params as { id: string }
+					respond(await callbacks.projectArchive?.(sel() ?? '', p?.id))
+					break
+				}
+				case 'task_add': {
+					const p = cmd.params as { task: Record<string, unknown> }
+					respond(await callbacks.taskAdd?.(sel() ?? '', p?.task ?? {}))
+					break
+				}
+				case 'task_update': {
+					const p = cmd.params as {
+						projectId: string
+						taskId: string
+						patch: Record<string, unknown>
+					}
+					respond(
+						await callbacks.taskUpdate?.(sel() ?? '', p?.projectId, p?.taskId, p?.patch ?? {}),
+					)
 					break
 				}
 				case 'start_agent': {

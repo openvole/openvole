@@ -6,7 +6,11 @@ import {
 	createDashboardServer,
 } from '@openvole/dashboard-server'
 import { execa } from 'execa'
+import { loadConfig } from '../config/index.js'
 import { createLogger } from '../core/logger.js'
+import { scanProjectRoot } from '../project/scan.js'
+import { ProjectStore } from '../project/store.js'
+import { TaskStore } from '../project/tasks.js'
 import { EventLog, dayKey } from './event-log.js'
 import { AgentManager } from './manager.js'
 
@@ -82,6 +86,15 @@ export class ControlPlane {
 				stopAgent: (id) => this.stopAgent(id),
 				createAgent: (name) => this.createAgent(name),
 				renameAgent: (id, name) => this.renameAgent(id, name),
+				projectList: (agentId, status) => this.projectList(agentId, status as never),
+				projectOpen: (agentId, id) => this.projectOpen(agentId, id),
+				projectScan: (agentId, root) => this.projectScan(agentId, root),
+				projectCreate: (agentId, input) => this.projectCreate(agentId, input),
+				projectUpdate: (agentId, id, patch) => this.projectUpdate(agentId, id, patch),
+				projectArchive: (agentId, id) => this.projectArchive(agentId, id),
+				taskAdd: (agentId, input) => this.taskAdd(agentId, input),
+				taskUpdate: (agentId, projectId, taskId, patch) =>
+					this.taskUpdate(agentId, projectId, taskId, patch),
 				removeAgent: (id) => this.removeAgent(id),
 				fetchState: (id) => this.callAgent(id, 'state'),
 				readConfig: (id) => this.callAgent(id, 'read_config'),
@@ -228,6 +241,129 @@ export class ControlPlane {
 		const entry = await this.manager.rename(id, name)
 		this.broadcastAgents()
 		return { ok: true, id: entry.id, name: entry.name }
+	}
+
+	/**
+	 * Open an agent's project stores.
+	 *
+	 * Projects are files in the agent's own directory, so the control plane reads and writes them
+	 * directly instead of round-tripping through the agent process. That means the dashboard shows
+	 * an agent's projects and tasks while it is **stopped** — which is exactly when you want to
+	 * queue work for it — and needs no IPC surface for any of this.
+	 *
+	 * Safe to do concurrently with a running agent: neither store caches, manifests are written
+	 * atomically, and the task log is append-only with last-line-wins. Two writers racing the same
+	 * task can lose one update; they cannot corrupt the file.
+	 */
+	private async projectStoresFor(
+		agentId: string,
+	): Promise<{ projects: ProjectStore; tasks: TaskStore }> {
+		const reg = await this.manager.readRegistry()
+		const entry = reg.agents.find(
+			(a) => a.id === agentId || a.name.toLowerCase() === agentId.toLowerCase(),
+		)
+		if (!entry) throw new Error(`Agent not found: "${agentId}"`)
+
+		let allowedPaths: string[] = []
+		try {
+			const config = await loadConfig(path.resolve(entry.path, 'vole.config.json'))
+			allowedPaths = config.security?.allowedPaths ?? []
+		} catch {
+			// An unreadable config only limits external roots, not listing what already exists.
+		}
+
+		const projects = new ProjectStore(path.resolve(entry.path, '.openvole', 'workspace'), {
+			agentRoot: entry.path,
+			allowedPaths,
+		})
+		await projects.init()
+		return { projects, tasks: new TaskStore(projects) }
+	}
+
+	/** Projects with their open-task counts — what the dashboard's Projects tab lists. */
+	async projectList(agentId: string, status?: 'active' | 'paused' | 'archived' | 'all') {
+		const { projects, tasks } = await this.projectStoresFor(agentId)
+		const list = await projects.list(status ? { status } : undefined)
+		return {
+			ok: true as const,
+			projects: await Promise.all(
+				list.map(async (p) => ({
+					...p,
+					dir: projects.dirFor(p.id),
+					openTasks: (await tasks.list({ projectId: p.id })).length,
+				})),
+			),
+		}
+	}
+
+	async projectOpen(agentId: string, id: string) {
+		const { projects, tasks } = await this.projectStoresFor(agentId)
+		const project = await projects.get(id)
+		if (!project) throw new Error(`No such project: "${id}"`)
+		return {
+			ok: true as const,
+			project,
+			dir: projects.dirFor(id),
+			context: (await projects.readContext(id)) ?? null,
+			tasks: await tasks.list({ projectId: id, state: 'all' }),
+		}
+	}
+
+	async projectScan(agentId: string, root: string) {
+		const { projects } = await this.projectStoresFor(agentId)
+		return { ok: true as const, ...(await scanProjectRoot(root, projects.allowedRoots)) }
+	}
+
+	async projectCreate(agentId: string, input: Record<string, unknown>) {
+		const { projects } = await this.projectStoresFor(agentId)
+		const project = await projects.create(input as never)
+		this.broadcastAgents()
+		return { ok: true as const, project }
+	}
+
+	async projectUpdate(agentId: string, id: string, patch: Record<string, unknown>) {
+		const { projects } = await this.projectStoresFor(agentId)
+		const { context, ...rest } = patch as { context?: string; [k: string]: unknown }
+		const hasPatch = Object.values(rest).some((v) => v !== undefined)
+		const project = hasPatch ? await projects.update(id, rest as never) : await projects.get(id)
+		if (!project) throw new Error(`No such project: "${id}"`)
+		if (context !== undefined) await projects.writeContext(id, context)
+		return { ok: true as const, project }
+	}
+
+	async projectArchive(agentId: string, id: string) {
+		const { projects } = await this.projectStoresFor(agentId)
+		return { ok: true as const, project: await projects.archive(id) }
+	}
+
+	async taskAdd(agentId: string, input: Record<string, unknown>) {
+		const { tasks } = await this.projectStoresFor(agentId)
+		const { projectId, goal, doneCriteria, priority, maxIterations } = input as {
+			projectId: string
+			goal: string
+			doneCriteria?: string[]
+			priority?: number
+			maxIterations?: number
+		}
+		const task = await tasks.create({
+			projectId,
+			goal,
+			doneCriteria,
+			priority,
+			...(maxIterations ? { budget: { maxIterations } } : {}),
+		})
+		return { ok: true as const, task }
+	}
+
+	async taskUpdate(
+		agentId: string,
+		projectId: string,
+		taskId: string,
+		patch: Record<string, unknown>,
+	) {
+		const { tasks } = await this.projectStoresFor(agentId)
+		const defined = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined))
+		return { ok: true as const, task: await tasks.update(projectId, taskId, defined as never) }
 	}
 
 	async removeAgent(id: string): Promise<{ ok: true }> {

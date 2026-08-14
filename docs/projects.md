@@ -137,6 +137,20 @@ A project may carry a `toolProfile` that restricts which tools are available whi
 This can only ever narrow. Denials from the project and from the task are unioned, allowlists are
 intersected — so a project can never hand its agent a capability the agent did not already have.
 
+## In the dashboard
+
+The agent view has a **Projects** tab: projects on the left, and for the selected one its
+`CONTEXT.md` and a task board grouped by state — running, verifying, blocked, queued, done — with
+each task's done-criteria and, when blocked, the reason.
+
+Buttons move a task to whatever states are legal from where it is, so `done` is only ever offered
+after `verifying`. Blocking asks for a reason, because a board full of blocked tasks with no notes
+is unreadable a week later.
+
+**New** creates a project; **Scan** inspects a path first and fills in the kind and stack from what
+it finds. Everything here is served from the agent's files, so it works while the agent is stopped —
+which is when queueing work up is most useful.
+
 ## Commands
 
 ```bash

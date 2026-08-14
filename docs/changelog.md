@@ -16,9 +16,15 @@
 
 - **Project-scoped schedules.** A schedule can name a project, turning a heartbeat from "wake up and do something" into "pick up this project's queued work" — the agent arrives knowing the goal and its criteria. Selecting work does not claim it, so a crashed run cannot strand a task in `running`. A chat message never pulls queued work: what you asked for is the instruction.
 
+- **A Projects tab in the dashboard.** Projects with their open-task counts, the selected project's `CONTEXT.md`, and a task board grouped by state with done-criteria and block reasons. Task buttons offer only the moves that are legal from the current state, and blocking prompts for a reason. Create a project from the UI, optionally scanning a path first to fill in its kind and stack. Served from the agent's files, so it works while the agent is stopped.
+
 - **`vole project` and `vole task` commands** — list, scan, create, open, archive; add, list, next, update, cancel. They read the project files directly, so they work with the agent stopped. `vole task` previously existed as a stub that only ever printed "requires a running vole instance"; it now manages real work items.
 
 - **`SchedulerStore.trigger(id)`** fires a schedule immediately without disturbing its cron.
+
+### Removed
+
+- The **ClawHub Skills** link is gone from the dashboard footer.
 
 ### Security
 
@@ -430,28 +436,52 @@ Sharing a relay hub no longer means two agents can reach each other. A member's 
 
 > Ships as `openvole` 4.3.0 and `@openvole/dashboard-server` 0.4.0. The VoleNet wire protocol is now **v2** — a breaking change: **all mesh nodes must upgrade together** (mismatched versions reject each other with a clear "unsupported version" error). A security-hardening release across signature integrity, the control-plane dashboard, the paw sandbox, and DoS resistance.
 
+### Removed
+
+- The **ClawHub Skills** link is gone from the dashboard footer.
+
 ### Security — signature integrity (VoleNet wire protocol v2)
 - **Fixed a critical signature-coverage bug: message signatures did not cover nested payload fields.** The canonicalizer used `JSON.stringify(payload, keysArray)`, where the array is a *recursive property allowlist* — so nested data (e.g. a `tool:call`'s `params`) serialized to `{}` and was never signed. On a non-TLS mesh an on-path attacker could rewrite tool arguments while keeping a valid signature. Signing now uses a fully recursive canonical serialization over the entire payload.
 - **The message `id` and `timestamp` are now signed**, and a missing/non-numeric `timestamp` is rejected — closing a replay-cache bypass (re-id'ing a captured message) and a freshness bypass (NaN age check).
 - **Wire protocol bumped to v2.** Signatures are incompatible with v1 nodes, so **all mesh nodes must upgrade together** (mismatched versions reject with a clear "unsupported version" error).
+
+### Removed
+
+- The **ClawHub Skills** link is gone from the dashboard footer.
 
 ### Security — dashboard + robustness
 - The panel **tool** route now requires a present, matching `Origin` — a token-less curl or cross-site request can no longer execute paw tools (browser same-origin POSTs still work).
 - The dashboard HTTP server now handles `error` (e.g. `EADDRINUSE`) instead of crashing.
 - VoleNet WS sockets get an error listener before any cap/auth-timeout close (no crash on a close-time socket error); the replay cache + rate windows are cleared on `stop()`.
 
+### Removed
+
+- The **ClawHub Skills** link is gone from the dashboard footer.
+
 ### Security — DoS hardening
 - Per-source rate-limit windows (VoleNet `msgWindow`) and the public-join timestamp map are now pruned, so they can't grow unbounded under IP/connection spray.
 - Stdio-framed IPC messages are capped at 32 MB, so a misbehaving paw can't balloon core memory with a huge `Content-Length`.
 
+### Removed
+
+- The **ClawHub Skills** link is gone from the dashboard footer.
+
 ### Security — paw filesystem sandbox scoping
 - **Paws can no longer read outside their sandbox.** The read sandbox was effectively open: the module-path resolver granted recursive read up to the filesystem root (`--allow-fs-read=/`), so any paw — even one with no permissions — could read the vault, the VoleNet private keys, and other paws' data. Reads are now scoped to the paw's own package, its own data dir (`.openvole/paws/<paw>`), `node_modules`, the temp dir, and anything explicitly granted via `allow.filesystem` / `security.allowedPaths`. The project root and `.openvole/` are no longer granted wholesale. (The write sandbox was already scoped.)
+
+### Removed
+
+- The **ClawHub Skills** link is gone from the dashboard footer.
 
 ### Security — dashboard / control-plane hardening
 - **Session token.** The control-plane dashboard is now gated by a session token, so reaching the port is no longer enough to control it (previously it was unauthenticated). `vole serve` generates one (persisted at `<root>/.openvole/dashboard-token`, override with `VOLE_DASHBOARD_TOKEN`) and prints a tokenized URL; the token is required on the page, the WebSocket, and panel routes. The dashboard still binds all interfaces by default for convenience — set `VOLE_DASHBOARD_HOST=127.0.0.1` to restrict it to localhost, and firewall/tunnel the port on public servers.
 - **Cross-site protection.** The WebSocket and panel tool routes enforce a same-origin check, closing cross-site WebSocket hijacking (a malicious page you visit can no longer drive your local dashboard).
 - **Config-downgrade guard.** `write_config` from the dashboard refuses to weaken the sandbox (`security.sandboxFilesystem: false` or broadening `allowedPaths`); those require a deliberate edit of `vole.config.json` on the server, removing a remote-RCE path.
 - **Panel token isolation.** Paw-rendered panels now run in a sandboxed, null-origin iframe (`sandbox="allow-scripts"`) and no longer receive the dashboard token in their URL. A panel's `fetch('tool/…')` calls are proxied through the parent over the authenticated WebSocket — scoped to the panel's own space — via `postMessage`, so a malicious or compromised paw can no longer read the session token, drive other spaces, or reach into the parent dashboard DOM.
+
+### Removed
+
+- The **ClawHub Skills** link is gone from the dashboard footer.
 
 ### Security — VoleNet message verification (transport-level)
 - **Every inbound message is now verified at the transport before any handler runs.** Previously each handler had to check the signature itself, and three subsystems didn't — so an unauthenticated remote peer could trigger `memory:sync`/`session:sync` (disk writes), hijack leader election (`leader:claim`/`leader:heartbeat`), or inject forged `task:result`/`tool:result` into the Brain. Verification — valid signature from an authorized peer — is now a single chokepoint on all three dispatch paths (HTTP, inbound WS, outbound WS); unverified messages are dropped, and the gate fails closed.
@@ -566,6 +596,10 @@ Sharing a relay hub no longer means two agents can reach each other. A member's 
 - **Behavior change**: paw-brain no longer silently defaults to Ollama. If no provider is configured (`BRAIN_PROVIDER`, a provider API key, or `OLLAMA_HOST`/`OLLAMA_MODEL`), it now exits with a clear error
 - paw-brain self-scaffolds `BRAIN.md` on first load if missing
 - Fixed the fallback path crashing with a `ReferenceError` when the primary provider errored and `BRAIN_FALLBACK` was set (vars were scoped to the `try` block)
+
+### Removed
+
+- The **ClawHub Skills** link is gone from the dashboard footer.
 
 ### Security
 - Bumped `ws` to `^8.20.1` in core and paw-dashboard (resolves moderate DoS advisory)
