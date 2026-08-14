@@ -1,6 +1,7 @@
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 import type { ActiveSkill, ToolSummary } from '../context/types.js'
+import type { ProjectContextInfo } from '../project/types.js'
 import { createLogger } from './logger.js'
 
 const logger = createLogger('system-prompt')
@@ -133,6 +134,17 @@ export function buildSystemPrompt(
 	// is nobody's intent. The workspace_* tools already confine themselves here; this tells
 	// the agent so it also holds for shell commands and any absolute-path tool.
 	if (content.workspaceDir) {
+		// A project scopes the default write target one level deeper: work belonging to a project
+		// goes in that project's folder, not loose in the workspace root, or a long-running agent
+		// ends up with everything from every project in one flat pile.
+		const activeProject = metadata?.project as ProjectContextInfo | undefined
+		const projectLine = activeProject
+			? `\n- Work for the current project belongs in \`${activeProject.dir}\` (see **Current Project** below).${
+					activeProject.root
+						? ` Its source files live at \`${activeProject.root}\` — edit those in place.`
+						: ''
+				}`
+			: ''
 		parts.push('')
 		parts.push(`## Files & Workspace
 Your working directory is \`${content.workspaceDir}\` — put every file you create there
@@ -143,7 +155,7 @@ Your working directory is \`${content.workspaceDir}\` — put every file you cre
   so use an absolute path under the workspace, or \`cd\` into it first.
 - Never write into the agent root or \`.openvole/\` itself: those hold config, identity, memory,
   and paw data that the engine manages.
-- Secrets belong in the vault, not in files.`)
+- Secrets belong in the vault, not in files.${projectLine}`)
 	}
 
 	// Semi-static: Channels — the agent's only way to start a conversation with its human.
@@ -216,6 +228,50 @@ Your working directory is \`${content.workspaceDir}\` — put every file you cre
 - Date: ${now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
 - Time: ${now.toLocaleTimeString('en-US', { hour12: true })}
 - Platform: ${process.platform}`)
+
+	// Dynamic: the project this task belongs to.
+	//
+	// Placement matters. Everything above is static or semi-static so providers can cache the
+	// prefix; project context changes whenever the agent switches projects, so it sits in the
+	// dynamic tail. Putting it above the tool list would re-cache tools and identity on every
+	// project switch.
+	//
+	// This is also the tier that removes the restart: identity files are read once at engine
+	// start and cached, so before this existed the only place to say what an agent was working
+	// on was AGENT.md — a file edit plus a restart. This arrives per task, via metadata.
+	if (metadata?.project && typeof metadata.project === 'object') {
+		const project = metadata.project as ProjectContextInfo
+		const lines = ['## Current Project']
+		lines.push(`- **${project.name}** (${project.kind}) — id \`${project.id}\``)
+		lines.push(
+			project.root
+				? `- Files: \`${project.root}\` — this is the project's own tree; work there, not in the workspace copy.`
+				: '- Files: self-contained — this project has no external root, so its folder below *is* the project.',
+		)
+		lines.push(`- Project folder (notes, drafts, state): \`${project.dir}\``)
+		if (project.task) {
+			lines.push(`- Current task: ${project.task.goal}`)
+			if (project.task.doneCriteria.length > 0) {
+				lines.push('- Done when **all** of these hold:')
+				for (const criterion of project.task.doneCriteria) {
+					lines.push(`  - ${criterion}`)
+				}
+				lines.push(
+					'  Check them yourself before reporting the task finished. If one does not hold, say which and stop — do not report success.',
+				)
+			}
+		}
+		if (project.context) {
+			lines.push('')
+			lines.push(project.context.trim())
+			lines.push('')
+			lines.push(
+				'_When you learn something about this project that a future run would need, update its CONTEXT.md — that file is how this section stays true._',
+			)
+		}
+		parts.push('')
+		parts.push(lines.join('\n'))
+	}
 
 	// Dynamic: VoleNet context
 	if (metadata?.volenet && typeof metadata.volenet === 'object') {

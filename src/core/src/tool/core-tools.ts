@@ -6,6 +6,7 @@ import type { MessageBus } from '../core/bus.js'
 import type { SchedulerStore } from '../core/scheduler.js'
 import type { TaskQueue } from '../core/task.js'
 import type { Vault } from '../core/vault.js'
+import { MANIFEST_NAME, RESERVED_BASENAMES } from '../project/store.js'
 import type { SkillRegistry } from '../skill/registry.js'
 import type { ToolRegistry } from './registry.js'
 import type { ToolDefinition } from './types.js'
@@ -62,6 +63,32 @@ export function createCoreTools(
 			return null
 		}
 		return resolved
+	}
+
+	/**
+	 * Project records live in the same tree as scratch files, so a stray workspace_write could
+	 * clobber a project manifest or its task log and make the project vanish from every listing.
+	 * Those files belong to the project tools; the scratch tools may read them but not write or
+	 * delete them.
+	 */
+	function isReservedProjectFile(resolved: string): boolean {
+		return RESERVED_BASENAMES.includes(path.basename(resolved))
+	}
+
+	const RESERVED_WRITE_ERROR =
+		`This file belongs to a project (${RESERVED_BASENAMES.join(', ')}) and is managed by the ` +
+		`project and task tools — use those instead of writing it directly.`
+
+	/** The workspace root, or any folder directly under it holding a project manifest. */
+	async function isProjectDirectory(resolved: string): Promise<boolean> {
+		if (resolved === workspaceDir) return true
+		if (path.dirname(resolved) !== workspaceDir) return false
+		try {
+			await fs.access(path.join(resolved, MANIFEST_NAME))
+			return true
+		} catch {
+			return false
+		}
 	}
 
 	return [
@@ -378,6 +405,9 @@ export function createCoreTools(
 				if (!resolved) {
 					return { ok: false, error: 'Invalid path — must stay inside workspace directory' }
 				}
+				if (isReservedProjectFile(resolved)) {
+					return { ok: false, error: RESERVED_WRITE_ERROR }
+				}
 				await fs.mkdir(path.dirname(resolved), { recursive: true })
 				await fs.writeFile(resolved, content, 'utf-8')
 				return { ok: true, path: relPath }
@@ -448,6 +478,20 @@ export function createCoreTools(
 				const resolved = resolveWorkspacePath(relPath)
 				if (!resolved) {
 					return { ok: false, error: 'Invalid path — must stay inside workspace directory' }
+				}
+				if (isReservedProjectFile(resolved)) {
+					return { ok: false, error: RESERVED_WRITE_ERROR }
+				}
+				// This delete is recursive, so the dangerous case isn't the manifest by name — it's
+				// removing the folder that contains one. Projects are direct children of the
+				// workspace, so refusing a project folder (and the workspace root itself) covers it.
+				if (await isProjectDirectory(resolved)) {
+					return {
+						ok: false,
+						error:
+							`"${relPath}" is a project folder — deleting it would remove the project and its ` +
+							`task history. Use project_archive to retire a project instead.`,
+					}
 				}
 				try {
 					await fs.rm(resolved, { recursive: true })

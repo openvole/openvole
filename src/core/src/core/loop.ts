@@ -5,6 +5,8 @@ import { createAgentContext } from '../context/types.js'
 import type { VoleIO } from '../io/types.js'
 import type { PawRegistry } from '../paw/registry.js'
 import type { AgentPlan, PlannedAction } from '../paw/types.js'
+import { narrowToolAccess } from '../project/context.js'
+import type { ProjectContextInfo } from '../project/types.js'
 import type { SkillRegistry } from '../skill/registry.js'
 import { buildActiveSkills } from '../skill/resolver.js'
 import type { ToolRegistry } from '../tool/registry.js'
@@ -35,6 +37,16 @@ export interface LoopDependencies {
 	rateLimiter?: RateLimiter
 	/** Cached system prompt content (loaded on engine start) */
 	systemPromptContent?: SystemPromptContent
+	/**
+	 * Resolve the project this task belongs to, if any. Called once per task — project context is
+	 * constant for a task's lifetime, unlike the per-iteration prompt rebuild.
+	 *
+	 * Injected rather than imported so the loop stays free of project storage, and so scope always
+	 * arrives *with the task* instead of from ambient state: tasks interleave (a heartbeat can
+	 * start mid-chat), and a global "current project" would hand one task another's context — the
+	 * same bug shape that filed brain replies under the wrong session.
+	 */
+	resolveProject?: (task: AgentTask) => Promise<ProjectContextInfo | null>
 }
 
 /**
@@ -94,6 +106,38 @@ export async function runAgentLoop(task: AgentTask, deps: LoopDependencies): Pro
 	}
 	if (task.source === 'heartbeat') {
 		context.metadata.heartbeat = true
+	}
+
+	// Project context — the tier that lets an agent switch what it works on without editing
+	// AGENT.md and restarting. Resolved once per task; a task with no project leaves the prompt
+	// exactly as it was before projects existed.
+	if (deps.resolveProject) {
+		try {
+			const project = await deps.resolveProject(task)
+			if (project) {
+				context.metadata.project = project
+				logger.info(
+					`Task ${task.id} scoped to project "${project.id}"${project.task ? ` — ${project.task.goal}` : ''}`,
+				)
+				// A project may restrict which tools this task can reach, never widen them, so an
+				// agent writing its own project manifests can't grant itself capability.
+				if (project.toolProfile) {
+					const narrowed = narrowToolAccess(
+						{
+							allow: context.metadata.allowTools as string[] | undefined,
+							deny: context.metadata.denyTools as string[] | undefined,
+						},
+						project.toolProfile,
+					)
+					context.metadata.allowTools = narrowed.allow
+					context.metadata.denyTools = narrowed.deny
+				}
+			}
+		} catch (err) {
+			// A missing or unreadable project must not kill the task: the agent simply runs
+			// without project context, which is the pre-projects behaviour.
+			logger.warn(`Could not resolve project for task ${task.id}: ${err}`)
+		}
 	}
 
 	// For sub-agents: inject parent context and agent instructions before the task input
