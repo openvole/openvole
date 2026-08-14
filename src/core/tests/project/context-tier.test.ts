@@ -106,6 +106,39 @@ describe('project context tier', () => {
 		expect(before.indexOf('## Available Tools')).toBeGreaterThan(0)
 	})
 
+	it('lists the agent’s projects so it can see and switch between them', () => {
+		const prompt = buildSystemPrompt(content, [], tools, {
+			projectRoster: [
+				{ id: 'openvole-4.17', name: 'OpenVole 4.17', kind: 'code', openTasks: 3 },
+				{ id: 'nart-chapter-9', name: 'Nart Ch. 9', kind: 'writing', openTasks: 1 },
+			],
+			project: project(),
+		})
+
+		expect(prompt).toContain('## Projects')
+		expect(prompt).toContain('`openvole-4.17`')
+		expect(prompt).toContain('3 open tasks')
+		expect(prompt).toContain('1 open task')
+		// The one being worked on is marked, so a switch is an explicit act.
+		expect(prompt).toMatch(/openvole-4\.17.*← current/)
+		expect(prompt).not.toMatch(/nart-chapter-9.*← current/)
+	})
+
+	it('tells the agent to set up work itself rather than asking for an AGENT.md edit', () => {
+		const prompt = buildSystemPrompt(content, [], tools, {
+			projectRoster: [{ id: 'a', name: 'A', kind: 'code', openTasks: 0 }],
+		})
+		expect(prompt).toContain('project_scan')
+		expect(prompt).toContain('never by asking your human to edit AGENT.md')
+	})
+
+	it('omits the roster entirely for an agent with no projects', () => {
+		expect(buildSystemPrompt(content, [], tools, {})).not.toContain('## Projects')
+		expect(buildSystemPrompt(content, [], tools, { projectRoster: [] })).not.toContain(
+			'## Projects',
+		)
+	})
+
 	it('points the default write target at the project folder', () => {
 		const prompt = buildSystemPrompt(content, [], tools, { project: project() })
 		expect(prompt).toContain('## Files & Workspace')

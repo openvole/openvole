@@ -48,7 +48,7 @@ export {
 	validateProjectRoot,
 } from './project/store.js'
 export { TaskStore } from './project/tasks.js'
-export { narrowToolAccess, resolveProjectContext } from './project/context.js'
+export { listProjectRoster, narrowToolAccess, resolveProjectContext } from './project/context.js'
 export {
 	ProjectError,
 	ProjectRootError,
@@ -136,7 +136,7 @@ import { runAgentLoop } from './core/loop.js'
 import { RateLimiter } from './core/rate-limiter.js'
 import { SchedulerStore } from './core/scheduler.js'
 import { type SystemPromptContent, loadSystemPromptContent } from './core/system-prompt.js'
-import { resolveProjectContext } from './project/context.js'
+import { listProjectRoster, resolveProjectContext } from './project/context.js'
 import { ProjectStore } from './project/store.js'
 import { TaskStore } from './project/tasks.js'
 import type { ProjectContextInfo } from './project/types.js'
@@ -258,6 +258,7 @@ export async function createEngine(
 		vault,
 		toolRegistry,
 		bus,
+		{ projects, tasks: projectTasks },
 	)
 	toolRegistry.register('__core__', coreTools, true)
 
@@ -311,6 +312,7 @@ export async function createEngine(
 			rateLimiter,
 			systemPromptContent: promptContent,
 			resolveProject,
+			listProjects: () => listProjectRoster(projects, projectTasks),
 		})
 	})
 

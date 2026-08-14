@@ -12,6 +12,7 @@ export default withMermaid(
 			{ text: 'Guide', link: '/getting-started' },
 			{ text: 'Use Cases', link: '/use-cases' },
 			{ text: 'Dashboard', link: '/dashboard' },
+			{ text: 'Projects', link: '/projects' },
 			{ text: 'Paws', link: '/paws' },
 			{ text: 'API', link: '/configuration' },
 			{ text: 'Changelog', link: '/changelog' },
@@ -32,6 +33,7 @@ export default withMermaid(
 				text: 'Core Concepts',
 				items: [
 					{ text: 'Architecture', link: '/architecture' },
+					{ text: 'Projects & Tasks', link: '/projects' },
 					{ text: 'Context Management', link: '/context' },
 					{ text: 'Skills', link: '/skills' },
 					{ text: 'Security', link: '/security' },

@@ -1,0 +1,174 @@
+# Projects & Tasks
+
+Projects are how an agent knows what it is working on. Each one is a folder in the agent's
+workspace holding its own context, notes, and task queue — so changing an agent's assignment is a
+conversation with the agent, not an edit to `AGENT.md` followed by a restart.
+
+## Why this exists
+
+An agent's instructions used to live in one file. `AGENT.md` is loaded once when the engine starts
+and cached, which made it the only place to say what the agent should work on — and meant every new
+piece of work was a file edit plus a restart, with identity ("you are a careful editor") tangled up
+with assignment ("finish chapter 3").
+
+Projects split those apart:
+
+| Tier | Holds | Edited by | Loaded |
+|------|-------|-----------|--------|
+| **Identity** — `AGENT.md`, `SOUL.md`, `USER.md` | who the agent is, standing rules | you, rarely | once, at start |
+| **Project** — `CONTEXT.md` | one body of work: where its files are, how to work in it | the agent | per task |
+| **Task** — `tasks.jsonl` | one unit of work: goal, done-criteria, budget | the agent, on your say-so | per task |
+
+An agent with no projects behaves exactly as it did before — nothing about the existing setup
+breaks.
+
+## Layout
+
+```
+your-agent/
+└── .openvole/
+    ├── AGENT.md                    identity — still yours, still rarely touched
+    └── workspace/
+        ├── openvole-4.17/          a project
+        │   ├── .project.json         manifest
+        │   ├── CONTEXT.md            what the agent knows about this project
+        │   ├── tasks.jsonl           task queue and full state history
+        │   └── notes/ drafts/        the project's own scratch space
+        ├── nart-chapter-9/
+        └── kid-channel-ep12/
+```
+
+A directory is a project exactly when it contains `.project.json`. The filesystem is the index, so
+there is nothing to keep in sync — and a project folder is portable: send one to another agent with
+VoleDrop, or sync it over VoleNet.
+
+## Two kinds of project
+
+`root` is the only difference between them.
+
+**Self-contained** — no `root`. The project *is* its folder: drafts, research, generated assets.
+
+**Attached** — `root` points at files elsewhere, like a git repo or a footage folder. The workspace
+folder still holds the manifest, context, tasks, and the agent's own notes; the work happens in the
+real tree.
+
+```bash
+vole project create nart-chapter-9 --kind writing
+vole project create openvole-4.17 --kind code --root ~/limnr/openvole
+```
+
+::: warning A project root cannot widen the sandbox
+An external `root` must already resolve inside `security.allowedPaths` (the agent's own directory
+always counts). If it does not, creation fails and names the path you would have to grant.
+
+This is deliberate: the **agent** writes project manifests, so a project that could grant filesystem
+access would be a way for an agent to expand its own reach. Granting a path stays a human edit to
+`vole.config.json`.
+:::
+
+## Setting up work by asking
+
+The intended flow is that you describe the work and the agent sets it up:
+
+> **you:** work on the openvole repo
+
+1. The agent runs `project_scan` on the path — read-only. It detects the stack (git, pnpm,
+   TypeScript, vitest…), suggests a kind, and lists the docs worth reading.
+2. It reads those docs and drafts a `CONTEXT.md` from what it actually found.
+3. It proposes the project and some opening tasks.
+4. On your go-ahead it calls `project_create` and `task_create`.
+
+You review a draft instead of writing one. Everything the agent learns later goes back into
+`CONTEXT.md`, so the next run starts informed rather than re-deriving it.
+
+## Tasks
+
+A task is a goal plus **done-criteria** — conditions that can actually be checked:
+
+```bash
+vole task add openvole-4.17 "Port paw-database off better-sqlite3" \
+  --criteria "pnpm -C src/core test passes" \
+  --criteria "no better-sqlite3 in any package.json"
+```
+
+The criteria are the point. A task moves `running → verifying → done`, and it cannot reach `done`
+without passing through `verifying`, where the agent checks its work against those conditions. If
+one does not hold, the task goes to **`blocked`** with a note saying which — rather than being
+reported as finished.
+
+### States
+
+| State | Meaning |
+|-------|---------|
+| `queued` | waiting to be picked up |
+| `running` | being worked on |
+| `verifying` | checking the done-criteria |
+| `blocked` | stopped and recoverable — criteria unmet, budget spent, or needs you. Carries a reason |
+| `done` | verified complete |
+| `failed` | gave up; can be requeued |
+| `cancelled` | called off |
+| `waiting_approval` | reserved for the approval gate (not yet active) |
+
+Tasks are stored append-only, so `tasks.jsonl` is also the history: how long something sat queued,
+what blocked it, how many times it was retried.
+
+### Budgets
+
+`--priority` orders the queue. A task can also carry an iteration budget; exhausting it moves the
+task to `blocked` with the reason, never a silent stop halfway.
+
+## Scheduled work
+
+A schedule can be scoped to a project, which turns a heartbeat from "wake up and do something" into
+"pick up this project's queued work". When a scoped schedule fires, the agent arrives already
+knowing the goal and its done-criteria.
+
+Selecting work does not claim it — a crashed run can never strand a task in `running`. A chat
+message never pulls queued work either: what you asked for is the instruction.
+
+## Narrowing tools per project
+
+A project may carry a `toolProfile` that restricts which tools are available while working on it:
+
+```json
+{ "toolProfile": { "deny": ["net_send_file"] } }
+```
+
+This can only ever narrow. Denials from the project and from the task are unioned, allowlists are
+intersected — so a project can never hand its agent a capability the agent did not already have.
+
+## Commands
+
+```bash
+vole project list [--all]              # projects in this workspace
+vole project scan <path>               # inspect a directory (read-only)
+vole project create <id> [--name <n>] [--kind <k>] [--root <path>]
+vole project open <id>                 # manifest, CONTEXT.md and open tasks
+vole project archive <id>              # retire it, keeping every file
+
+vole task list [projectId] [--state <s>]
+vole task add <projectId> <goal...> [--criteria "..."] [--priority <n>]
+vole task next [projectId]
+vole task update <projectId> <taskId> --state <s> [--note "..."]
+vole task cancel <projectId> <taskId>
+```
+
+These read the files directly, so they work with the agent stopped — which is usually when you want
+to look.
+
+## Moving an existing agent over
+
+Nothing forces this: an agent with no projects keeps working exactly as before.
+
+When you do want to split a crowded `AGENT.md`, ask the agent to propose the division — which parts
+are durable identity and which are the current assignment. It can create the project and write
+`CONTEXT.md` from the assignment half, then show you the lines to remove from `AGENT.md`.
+
+That last step stays yours on purpose. `AGENT.md` holds the standing rules an agent operates under,
+and an agent that could quietly rewrite its own rules is not one you can rely on. The agent proposes;
+you edit.
+
+## Tools the agent uses
+
+`project_scan`, `project_create`, `project_list`, `project_open`, `project_update`,
+`project_archive`, `task_create`, `task_list`, `task_update`, `task_next`.

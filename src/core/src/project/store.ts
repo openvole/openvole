@@ -126,6 +126,17 @@ export class ProjectStore {
 		await fs.mkdir(this.workspaceDir, { recursive: true })
 	}
 
+	/**
+	 * Roots a project may point at: the agent directory plus `security.allowedPaths`.
+	 *
+	 * Exposed so everything that resolves an external path — creating a project, scanning a
+	 * candidate directory — authorizes against the same set. Passing the list separately let the
+	 * two drift, which meant a directory you could turn into a project might refuse to be scanned.
+	 */
+	get allowedRoots(): string[] {
+		return [...this.allowed]
+	}
+
 	/** Absolute path of a project's own folder. */
 	dirFor(id: string): string {
 		if (!isValidProjectId(id)) throw new ProjectError(`invalid project id: "${id}"`)

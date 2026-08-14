@@ -66,6 +66,10 @@ async function main(): Promise<void> {
 			await handleToolCommand(args.slice(1), projectRoot)
 			break
 
+		case 'project':
+			await handleProjectCommand(args.slice(1), projectRoot)
+			break
+
 		case 'task':
 			await handleTaskCommand(args.slice(1), projectRoot)
 			break
@@ -152,6 +156,18 @@ Skill management:
   vole skill uninstall <name>            Remove a VoleHub skill
   vole skill publish [path]              Prepare a skill for VoleHub publishing
   vole skill hub                         List installed VoleHub skills
+
+Projects & tasks (what the agent is working on):
+  vole project list [--all]              List projects in this agent's workspace
+  vole project scan <path>               Inspect a directory before making it a project (read-only)
+  vole project create <id> [--name <n>] [--kind <k>] [--root <path>]
+  vole project open <id>                 Show a project, its CONTEXT.md and open tasks
+  vole project archive <id>              Retire a project (keeps all files and history)
+  vole task list [projectId] [--state <s>]         List work items (default: open)
+  vole task add <projectId> <goal...> [--criteria "..."] [--priority <n>]
+  vole task next [projectId]             Show the next queued task
+  vole task update <projectId> <taskId> --state <s> [--note "..."]
+  vole task cancel <projectId> <taskId>  Cancel a task
 
 Tool management:
   vole tool list                         List all registered tools (from manifests)
@@ -812,27 +828,254 @@ async function handleToolCommand(args: string[], projectRoot: string): Promise<v
 	}
 }
 
-async function handleTaskCommand(args: string[], _projectRoot: string): Promise<void> {
+/**
+ * Open this agent's project stores straight from disk.
+ *
+ * Deliberately not routed through a running engine: projects and their task queues are files, so
+ * `vole project list` works on a stopped agent — which is exactly when you want to look.
+ */
+async function openProjectStores(projectRoot: string) {
+	const { ProjectStore } = await import('./project/store.js')
+	const { TaskStore } = await import('./project/tasks.js')
+	const { loadConfig } = await import('./config/index.js')
+
+	let allowedPaths: string[] = []
+	try {
+		const config = await loadConfig(path.resolve(projectRoot, 'vole.config.json'))
+		allowedPaths = config.security?.allowedPaths ?? []
+	} catch {
+		// No config (or an unreadable one) only limits external roots, not listing.
+	}
+
+	const projects = new ProjectStore(path.resolve(projectRoot, '.openvole', 'workspace'), {
+		agentRoot: projectRoot,
+		allowedPaths,
+	})
+	await projects.init()
+	return { projects, tasks: new TaskStore(projects), allowedPaths }
+}
+
+/** Collect repeated `--flag value` occurrences. */
+function flagValues(args: string[], flag: string): string[] {
+	const out: string[] = []
+	for (let i = 0; i < args.length; i++) {
+		if (args[i] === flag && args[i + 1]) out.push(args[++i])
+	}
+	return out
+}
+
+function flagValue(args: string[], flag: string): string | undefined {
+	return flagValues(args, flag)[0]
+}
+
+async function handleProjectCommand(args: string[], projectRoot: string): Promise<void> {
 	const subcommand = args[0]
+	const { projects, tasks, allowedPaths } = await openProjectStores(projectRoot)
 
 	switch (subcommand) {
-		case 'list':
-			logger.info('Task list requires a running vole instance.')
+		case 'list': {
+			const status = args.includes('--all') ? ('all' as const) : undefined
+			const list = await projects.list(status ? { status } : undefined)
+			if (list.length === 0) {
+				logger.info('No projects yet. Create one with: vole project create <id> [--root <path>]')
+				break
+			}
+			for (const p of list) {
+				const where = p.root ?? '(self-contained)'
+				const open = (await tasks.list({ projectId: p.id })).length
+				logger.info(`${p.id}  [${p.kind}/${p.status}]  ${open} open  ${where}`)
+			}
 			break
+		}
 
-		case 'cancel': {
-			const id = args[1]
-			if (!id) {
-				logger.error('Usage: vole task cancel <id>')
+		case 'scan': {
+			const root = args[1]
+			if (!root) {
+				logger.error('Usage: vole project scan <path>')
 				process.exit(1)
 			}
-			logger.info('Task cancellation requires a running vole instance.')
+			const { scanProjectRoot } = await import('./project/scan.js')
+			try {
+				const result = await scanProjectRoot(root, allowedPaths)
+				logger.info(result.summary)
+				logger.info(`  root:  ${result.root}`)
+				logger.info(`  kind:  ${result.kind}`)
+				if (result.stack.length) logger.info(`  stack: ${result.stack.join(', ')}`)
+				if (result.readFirst.length) logger.info(`  docs:  ${result.readFirst.join(', ')}`)
+				for (const t of result.suggestedTasks) logger.info(`  task?  ${t}`)
+			} catch (err) {
+				logger.error(err instanceof Error ? err.message : String(err))
+				process.exit(1)
+			}
+			break
+		}
+
+		case 'create': {
+			const id = args[1]
+			if (!id) {
+				logger.error('Usage: vole project create <id> [--name <name>] [--kind <kind>] [--root <path>]')
+				process.exit(1)
+			}
+			try {
+				const created = await projects.create({
+					id,
+					name: flagValue(args, '--name'),
+					kind: flagValue(args, '--kind') as never,
+					root: flagValue(args, '--root'),
+				})
+				logger.info(`Created project "${created.id}" at ${projects.dirFor(created.id)}`)
+				if (created.root) logger.info(`  files: ${created.root}`)
+			} catch (err) {
+				logger.error(err instanceof Error ? err.message : String(err))
+				process.exit(1)
+			}
+			break
+		}
+
+		case 'open': {
+			const id = args[1]
+			if (!id) {
+				logger.error('Usage: vole project open <id>')
+				process.exit(1)
+			}
+			const manifest = await projects.get(id)
+			if (!manifest) {
+				logger.error(`No such project: ${id}`)
+				process.exit(1)
+			}
+			logger.info(`${manifest.name} [${manifest.kind}/${manifest.status}]`)
+			logger.info(`  folder: ${projects.dirFor(id)}`)
+			logger.info(`  files:  ${manifest.root ?? '(self-contained)'}`)
+			if (manifest.stack?.length) logger.info(`  stack:  ${manifest.stack.join(', ')}`)
+			const context = await projects.readContext(id)
+			logger.info(context ? `\n${context.trim()}\n` : '  (no CONTEXT.md yet)')
+			const open = await tasks.list({ projectId: id })
+			if (open.length === 0) logger.info('  no open tasks')
+			for (const t of open) logger.info(`  [${t.state}] ${t.id}  ${t.goal}`)
+			break
+		}
+
+		case 'archive': {
+			const id = args[1]
+			if (!id) {
+				logger.error('Usage: vole project archive <id>')
+				process.exit(1)
+			}
+			try {
+				await projects.archive(id)
+				logger.info(`Archived "${id}" — files and task history are kept.`)
+			} catch (err) {
+				logger.error(err instanceof Error ? err.message : String(err))
+				process.exit(1)
+			}
 			break
 		}
 
 		default:
-			logger.error(`Unknown task command: ${subcommand}`)
-			logger.info('Available: list, cancel')
+			logger.error(`Unknown project command: ${subcommand ?? '(none)'}`)
+			logger.info('Available: list, scan, create, open, archive')
+			process.exit(1)
+	}
+}
+
+/**
+ * Durable work items inside projects — not the in-memory run queue this command used to stub out
+ * (which only ever printed "requires a running vole instance"). These live in tasks.jsonl, so they
+ * are readable and editable with the agent stopped.
+ */
+async function handleTaskCommand(args: string[], projectRoot: string): Promise<void> {
+	const subcommand = args[0]
+	const { projects, tasks } = await openProjectStores(projectRoot)
+
+	const show = (t: { state: string; id: string; goal: string; projectId: string }) =>
+		logger.info(`[${t.state}] ${t.projectId}/${t.id}  ${t.goal}`)
+
+	switch (subcommand) {
+		case 'list': {
+			const projectId = args[1] && !args[1].startsWith('--') ? args[1] : undefined
+			const state = flagValue(args, '--state') as never
+			const list = await tasks.list({ projectId, state })
+			if (list.length === 0) {
+				logger.info('No matching tasks.')
+				break
+			}
+			for (const t of list) show(t)
+			break
+		}
+
+		case 'add': {
+			const projectId = args[1]
+			const goal = args.slice(2).filter((a, i, arr) => {
+				if (a.startsWith('--')) return false
+				return !(i > 0 && arr[i - 1].startsWith('--'))
+			})
+			if (!projectId || goal.length === 0) {
+				logger.error(
+					'Usage: vole task add <projectId> <goal...> [--criteria "..."] [--priority <n>]',
+				)
+				process.exit(1)
+			}
+			try {
+				const priority = Number(flagValue(args, '--priority') ?? 0)
+				const task = await tasks.create({
+					projectId,
+					goal: goal.join(' '),
+					doneCriteria: flagValues(args, '--criteria'),
+					priority: Number.isFinite(priority) ? priority : 0,
+				})
+				logger.info(`Added ${task.projectId}/${task.id}: ${task.goal}`)
+				if (task.doneCriteria.length === 0) {
+					logger.warn('No done-criteria — the agent cannot verify this task before finishing it.')
+				}
+			} catch (err) {
+				logger.error(err instanceof Error ? err.message : String(err))
+				process.exit(1)
+			}
+			break
+		}
+
+		case 'next': {
+			const task = await tasks.next(args[1])
+			if (!task) {
+				logger.info('No queued tasks.')
+				break
+			}
+			show(task)
+			for (const c of task.doneCriteria) logger.info(`   done when: ${c}`)
+			break
+		}
+
+		case 'update':
+		case 'cancel': {
+			const projectId = args[1]
+			const taskId = args[2]
+			if (!projectId || !taskId) {
+				logger.error(
+					subcommand === 'cancel'
+						? 'Usage: vole task cancel <projectId> <taskId>'
+						: 'Usage: vole task update <projectId> <taskId> --state <state> [--note "..."]',
+				)
+				process.exit(1)
+			}
+			try {
+				const state = subcommand === 'cancel' ? 'cancelled' : (flagValue(args, '--state') as never)
+				const note = flagValue(args, '--note')
+				const updated = await tasks.update(projectId, taskId, {
+					...(state ? { state } : {}),
+					...(note ? { note } : {}),
+				})
+				show(updated)
+			} catch (err) {
+				logger.error(err instanceof Error ? err.message : String(err))
+				process.exit(1)
+			}
+			break
+		}
+
+		default:
+			logger.error(`Unknown task command: ${subcommand ?? '(none)'}`)
+			logger.info('Available: list, add, next, update, cancel')
+			logger.info(`Projects: ${(await projects.list()).map((p) => p.id).join(', ') || '(none)'}`)
 			process.exit(1)
 	}
 }

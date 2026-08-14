@@ -1,5 +1,33 @@
 # Changelog
 
+## v4.17.0 (2026-08-15)
+
+> Ships as `openvole` 4.17.0 (`@openvole/dashboard-server` unchanged at 0.13.1). Projects and tasks — an agent can now be pointed at new work in conversation instead of by editing `AGENT.md`.
+
+### Added
+
+- **Projects.** Each is a folder in the agent's workspace holding its own `CONTEXT.md`, notes, and task queue. A directory is a project when it contains `.project.json`, so the filesystem is the index and a project folder stays portable. Set a `root` to attach one to files elsewhere (a repo, a footage folder), or leave it out for self-contained work such as drafts and research. See [Projects & Tasks](/projects).
+
+- **Project context loads per task.** `AGENT.md` and the other identity files are read once at engine start and cached, which made them the only place to record what an agent should work on — and meant every change of assignment was a file edit plus a restart. A project's `CONTEXT.md` is loaded for the task that names it, so switching projects is neither. Agents with no projects get a byte-identical prompt to before.
+
+- **Tasks with done-criteria.** A task carries checkable conditions and moves `running → verifying → done`; it cannot reach `done` without passing through verification. Unmet criteria send it to `blocked` with a note naming what failed, rather than being reported as finished. Stored append-only in `tasks.jsonl`, so the file is also the history. Iteration budgets block on exhaustion instead of stopping silently.
+
+- **Agent-driven setup.** Ten new tools — `project_scan`, `project_create`, `project_list`, `project_open`, `project_update`, `project_archive`, `task_create`, `task_list`, `task_update`, `task_next`. "Work on the openvole repo" becomes: scan the directory (read-only), draft a `CONTEXT.md` from what was actually found, propose the project and opening tasks, create them once you agree.
+
+- **Project-scoped schedules.** A schedule can name a project, turning a heartbeat from "wake up and do something" into "pick up this project's queued work" — the agent arrives knowing the goal and its criteria. Selecting work does not claim it, so a crashed run cannot strand a task in `running`. A chat message never pulls queued work: what you asked for is the instruction.
+
+- **`vole project` and `vole task` commands** — list, scan, create, open, archive; add, list, next, update, cancel. They read the project files directly, so they work with the agent stopped. `vole task` previously existed as a stub that only ever printed "requires a running vole instance"; it now manages real work items.
+
+- **`SchedulerStore.trigger(id)`** fires a schedule immediately without disturbing its cron.
+
+### Security
+
+- **A project root can never widen the sandbox.** An external `root` must already resolve inside `security.allowedPaths` (the agent's own directory always counts); creation is refused otherwise and names the path a human would have to grant. Symlinks are resolved before the check, so a link inside the workspace cannot smuggle access out of it. `project_scan` authorizes against the same set — scanning must not reach further than creating.
+
+- **A project's `toolProfile` narrows only.** Denials union and allowlists intersect, so a project cannot hand its agent a tool the agent did not already have. This matters because the agent writes its own project manifests.
+
+- **The scratch tools can no longer damage project records.** `workspace_write` and `workspace_delete` refuse `.project.json` and `tasks.jsonl`, and refuse to delete a project folder or the workspace root — `workspace_delete` is recursive, so the dangerous case was never the manifest by name but the folder containing it. Reads are unaffected.
+
 ## v4.16.2 (2026-08-06)
 
 > Ships as `openvole` 4.16.2 (`@openvole/dashboard-server` unchanged at 0.13.1). Tool-call validation fix, found by an agent field-testing the demo-studio skill.

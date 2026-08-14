@@ -47,6 +47,10 @@ export interface LoopDependencies {
 	 * same bug shape that filed brain replies under the wrong session.
 	 */
 	resolveProject?: (task: AgentTask) => Promise<ProjectContextInfo | null>
+	/** Every active project, so the agent can see and switch between them from any run. */
+	listProjects?: () => Promise<
+		Array<{ id: string; name: string; kind: string; openTasks: number }>
+	>
 }
 
 /**
@@ -106,6 +110,15 @@ export async function runAgentLoop(task: AgentTask, deps: LoopDependencies): Pro
 	}
 	if (task.source === 'heartbeat') {
 		context.metadata.heartbeat = true
+	}
+
+	if (deps.listProjects) {
+		try {
+			const roster = await deps.listProjects()
+			if (roster.length > 0) context.metadata.projectRoster = roster
+		} catch (err) {
+			logger.warn(`Could not list projects for task ${task.id}: ${err}`)
+		}
 	}
 
 	// Project context — the tier that lets an agent switch what it works on without editing

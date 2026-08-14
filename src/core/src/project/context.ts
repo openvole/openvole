@@ -27,6 +27,40 @@ export interface ProjectScope {
  * Never throws for missing data: an unknown project id or a deleted work item degrades to running
  * unscoped, because losing project context must not lose the task.
  */
+/** One line per project for the prompt's roster. */
+export interface ProjectRosterEntry {
+	id: string
+	name: string
+	kind: string
+	openTasks: number
+}
+
+/**
+ * Every active project with its open-task count.
+ *
+ * Without this an agent only learns its projects exist by calling project_list, which it has no
+ * reason to do mid-conversation — so "carry on with the openvole work" would find an agent that
+ * cannot see the openvole project. Cheap enough to build per task: a directory read plus one file
+ * per project.
+ */
+export async function listProjectRoster(
+	projects: ProjectStore,
+	tasks: TaskStore,
+): Promise<ProjectRosterEntry[]> {
+	const active = await projects.list({ status: 'active' })
+	const roster: ProjectRosterEntry[] = []
+	for (const project of active) {
+		const open = await tasks.list({ projectId: project.id })
+		roster.push({
+			id: project.id,
+			name: project.name,
+			kind: project.kind,
+			openTasks: open.length,
+		})
+	}
+	return roster
+}
+
 export interface ResolveOptions {
 	/**
 	 * When the scope names a project but no specific work item, pull the project's highest-priority

@@ -7,6 +7,7 @@ import type { SchedulerStore } from '../core/scheduler.js'
 import type { TaskQueue } from '../core/task.js'
 import type { Vault } from '../core/vault.js'
 import { MANIFEST_NAME, RESERVED_BASENAMES } from '../project/store.js'
+import { type ProjectToolDeps, createProjectTools } from '../project/tools.js'
 import type { SkillRegistry } from '../skill/registry.js'
 import type { ToolRegistry } from './registry.js'
 import type { ToolDefinition } from './types.js'
@@ -52,6 +53,8 @@ export function createCoreTools(
 	toolRegistry?: ToolRegistry,
 	/** Message bus — without it the dashboard chat channel (`chat_send`) is not registered. */
 	bus?: MessageBus,
+	/** Project stores — without them the project and task tools are not registered. */
+	projectDeps?: ProjectToolDeps,
 ): ToolDefinition[] {
 	const heartbeatPath = path.resolve(projectRoot, '.openvole', 'HEARTBEAT.md')
 	const workspaceDir = path.resolve(projectRoot, '.openvole', 'workspace')
@@ -1274,6 +1277,11 @@ export function createCoreTools(
 					} as ToolDefinition,
 				]
 			: []),
+
+		// Project and task tools — how the agent sets up and works through its own projects.
+		// Absent when no stores are wired (an embedder using createCoreTools directly), which
+		// leaves the agent exactly as it was before projects existed.
+		...(projectDeps ? createProjectTools(projectDeps) : []),
 	]
 }
 

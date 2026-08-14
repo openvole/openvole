@@ -229,6 +229,30 @@ Your working directory is \`${content.workspaceDir}\` — put every file you cre
 - Time: ${now.toLocaleTimeString('en-US', { hour12: true })}
 - Platform: ${process.platform}`)
 
+	// Dynamic: what projects exist at all. Without this the agent can only discover its own
+	// projects by calling project_list, which it has no reason to do mid-conversation — so
+	// "carry on with the openvole work" would reach an agent that cannot see that project.
+	if (Array.isArray(metadata?.projectRoster) && metadata.projectRoster.length > 0) {
+		const roster = metadata.projectRoster as Array<{
+			id: string
+			name: string
+			kind: string
+			openTasks: number
+		}>
+		const activeId = (metadata?.project as ProjectContextInfo | undefined)?.id
+		const lines = ['## Projects']
+		lines.push(
+			'Your work is organized into projects, each with its own context and task queue. Open one with `project_open`, or set up new work with `project_scan` then `project_create` — never by asking your human to edit AGENT.md.',
+		)
+		for (const entry of roster) {
+			const current = entry.id === activeId ? ' ← current' : ''
+			const work = entry.openTasks === 1 ? '1 open task' : `${entry.openTasks} open tasks`
+			lines.push(`- \`${entry.id}\` — ${entry.name} (${entry.kind}, ${work})${current}`)
+		}
+		parts.push('')
+		parts.push(lines.join('\n'))
+	}
+
 	// Dynamic: the project this task belongs to.
 	//
 	// Placement matters. Everything above is static or semi-static so providers can cache the
