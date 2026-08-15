@@ -2989,8 +2989,14 @@ function renderTaskRow(projectId, t) {
   if (t.note) html += '<div class="task-note">' + esc(t.note) + '</div>';
 
   var moves = TASK_MOVES[t.state] || [];
-  if (moves.length) {
+  var runnable = t.state === 'queued' || t.state === 'blocked';
+  if (moves.length || runnable) {
     html += '<div class="task-actions">';
+    // Run now is the primary action: a queued task otherwise waits for the agent's heartbeat,
+    // and "I added a task and nothing happened" is the first thing anyone hits.
+    if (runnable) {
+      html += '<button class="btn-primary" onclick="runTaskNow(\\'' + esc(projectId) + '\\',\\'' + esc(t.id) + '\\')">Run now</button>';
+    }
     for (var m = 0; m < moves.length; m++) {
       html += '<button class="btn-subtle" onclick="moveTask(\\'' + esc(projectId) + '\\',\\'' + esc(t.id) + '\\',\\'' + moves[m] + '\\')">' + esc(moves[m].replace('_', ' ')) + '</button>';
     }
@@ -3006,6 +3012,28 @@ function moveTask(projectId, taskId, state) {
   sendCommand('task_update', { projectId: projectId, taskId: taskId, patch: { state: state, note: note || undefined } })
     .then(function() { openProject(projectId); })
     .catch(function(err) { showToast(String(err && err.message || err), 'error'); });
+}
+
+/**
+ * Hand a queued task to the agent right now.
+ *
+ * Queued work is otherwise picked up by the agent's heartbeat, which may be an hour away — this
+ * is the "do it now" path. The agent moves the task through running/verifying itself, so the
+ * board updates as it goes rather than from here.
+ */
+function runTaskNow(projectId, taskId) {
+  if (!agentIsRunning()) {
+    showToast('Start the agent first — it has to be running to work on a task.', 'error');
+    return;
+  }
+  sendCommand('task_run', { projectId: projectId, taskId: taskId }).then(function(res) {
+    if (res && res.ok === false) {
+      showToast(String(res.error || 'Could not start the task'), 'error');
+      return;
+    }
+    showToast('Handed to the agent — watch Live Events', 'success');
+    setTimeout(function() { openProject(projectId); }, 1200);
+  }).catch(function(err) { showToast(String(err && err.message || err), 'error'); });
 }
 
 function archiveProject(id) {

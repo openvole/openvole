@@ -105,6 +105,8 @@ export class ControlPlane {
 				projectUpdate: (agentId, id, patch) => this.projectUpdate(agentId, id, patch),
 				projectArchive: (agentId, id) => this.projectArchive(agentId, id),
 				taskAdd: (agentId, input) => this.taskAdd(agentId, input),
+				taskRun: (agentId, projectId, taskId) =>
+					this.callAgent(agentId, 'project_task_run', { projectId, taskId }),
 				taskUpdate: (agentId, projectId, taskId, patch) =>
 					this.taskUpdate(agentId, projectId, taskId, patch),
 				removeAgent: (id) => this.removeAgent(id),

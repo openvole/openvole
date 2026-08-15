@@ -218,6 +218,38 @@ export function installControlAdapter(engine: VoleEngine, projectRoot: string): 
 						),
 					}
 					break
+				/**
+				 * Run a queued project task now, without waiting for the heartbeat.
+				 *
+				 * The metadata is built here from the task itself rather than accepted from the
+				 * caller — the dashboard must be able to say *which* task to run, not to hand the
+				 * loop arbitrary metadata (allowTools and maxIterations live in the same bag).
+				 *
+				 * No sessionId: this is work, not conversation, so it never lands in chat or
+				 * bumps the unread badge.
+				 */
+				case 'project_task_run': {
+					const projectId = params.projectId as string
+					const taskId = params.taskId as string
+					const task = await current.projectTasks.get(projectId, taskId)
+					if (!task) {
+						result = { ok: false, error: `No such task "${taskId}" in project "${projectId}"` }
+						break
+					}
+					const criteria = task.doneCriteria.length
+						? `\n\nDone when all of these hold:\n${task.doneCriteria.map((c) => `- ${c}`).join('\n')}`
+						: ''
+					result = {
+						ok: true,
+						taskId: current.run(
+							`Work on this task now: ${task.goal}${criteria}\n\nIts project context is in your Current Project section. Mark it running with task_update before you start, check the criteria yourself when you believe it is finished, and only then mark it done — if one does not hold, mark it blocked with the reason.`,
+							'user',
+							undefined,
+							{ projectId, projectTaskId: taskId },
+						),
+					}
+					break
+				}
 				case 'task_status': {
 					// Result readback for orchestrators polling a delegated task (clipped for LLM context).
 					const t = current.taskQueue.get(params.taskId as string)

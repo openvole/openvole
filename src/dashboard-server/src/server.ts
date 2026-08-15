@@ -53,6 +53,8 @@ export interface DashboardCallbacks {
 	) => Promise<unknown>
 	projectArchive?: (agentId: string, id: string) => Promise<unknown>
 	taskAdd?: (agentId: string, input: Record<string, unknown>) => Promise<unknown>
+	/** Hand a queued task to the agent now, instead of waiting for its heartbeat. */
+	taskRun?: (agentId: string, projectId: string, taskId: string) => Promise<unknown>
 	taskUpdate?: (
 		agentId: string,
 		projectId: string,
@@ -703,6 +705,11 @@ export function createDashboardServer(
 				case 'task_add': {
 					const p = cmd.params as { task: Record<string, unknown> }
 					respond(await callbacks.taskAdd?.(sel() ?? '', p?.task ?? {}))
+					break
+				}
+				case 'task_run': {
+					const p = cmd.params as { projectId: string; taskId: string }
+					respond(await callbacks.taskRun?.(sel() ?? '', p?.projectId, p?.taskId))
 					break
 				}
 				case 'task_update': {

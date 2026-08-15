@@ -171,6 +171,8 @@ export interface VoleEngine {
 		input: string,
 		source?: 'user' | 'schedule' | 'heartbeat' | 'paw' | 'agent',
 		sessionId?: string,
+		/** Task metadata — notably `projectId`/`projectTaskId` to scope the run to a project. */
+		metadata?: Record<string, unknown>,
 	): string
 	/** Graceful shutdown */
 	shutdown(): Promise<void>
@@ -450,11 +452,34 @@ export async function createEngine(
 								// No HEARTBEAT.md — use default prompt
 							}
 
-							const input = heartbeatContent
-								? `Heartbeat wake-up. Review your HEARTBEAT.md jobs and act on what is needed:\n\n${heartbeatContent}`
-								: 'Heartbeat wake-up. Check active skills and decide if any actions are needed.'
+							// The heartbeat is the recurring trigger, so it is what turns a queued task
+							// into work actually being done. Without this a task sits in `queued`
+							// forever unless a human asks for it in chat, which defeats the point of a
+							// queue. HEARTBEAT.md jobs still run: both go in, and the agent decides.
+							const queued = await projectTasks.next().catch(() => null)
 
-							taskQueue.enqueue(input, 'heartbeat')
+							const parts: string[] = []
+							if (heartbeatContent) {
+								parts.push(
+									`Review your HEARTBEAT.md jobs and act on what is needed:\n\n${heartbeatContent}`,
+								)
+							}
+							if (queued) {
+								parts.push(
+									`You have queued project work. The next task is "${queued.goal}" in project "${queued.projectId}" — its context and done-criteria are in your Current Project section. Mark it running with task_update before you start, check the criteria yourself when you think it is finished, and only then mark it done. If a criterion does not hold, mark it blocked with the reason instead.`,
+								)
+							}
+							if (parts.length === 0) {
+								parts.push('Check active skills and decide if any actions are needed.')
+							}
+
+							taskQueue.enqueue(
+								`Heartbeat wake-up. ${parts.join('\n\n')}`,
+								'heartbeat',
+								queued
+									? { metadata: { projectId: queued.projectId, projectTaskId: queued.id } }
+									: undefined,
+							)
 						},
 						undefined,
 						config.heartbeat.runOnStart ?? false,
@@ -493,8 +518,11 @@ export async function createEngine(
 			)
 		},
 
-		run(input, source = 'user', sessionId?) {
-			return taskQueue.enqueue(input, source, sessionId ? { sessionId } : undefined).id
+		run(input, source = 'user', sessionId?, metadata?) {
+			return taskQueue.enqueue(input, source, {
+				...(sessionId ? { sessionId } : {}),
+				...(metadata ? { metadata } : {}),
+			}).id
 		},
 
 		async shutdown() {

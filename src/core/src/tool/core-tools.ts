@@ -108,17 +108,36 @@ export function createCoreTools(
 					.describe(
 						'Cron expression in UTC (minute hour day month weekday). Examples: "0 13 * * *" for daily 1 PM, "*/30 * * * *" for every 30 min',
 					),
+				projectId: z
+					.string()
+					.optional()
+					.describe(
+						'Scope this schedule to a project. Each run then carries that project’s context and picks up its next queued task.',
+					),
 			}),
 			async execute(params) {
-				const { id, input, cron } = params as {
+				const { id, input, cron, projectId } = params as {
 					id: string
 					input: string
 					cron: string
+					projectId?: string
 				}
 				try {
-					scheduler.add(id, input, cron, () => {
-						taskQueue.enqueue(input, 'schedule')
-					})
+					scheduler.add(
+						id,
+						input,
+						cron,
+						() => {
+							taskQueue.enqueue(
+								input,
+								'schedule',
+								projectId ? { metadata: { projectId } } : undefined,
+							)
+						},
+						undefined,
+						false,
+						projectId,
+					)
 					const schedules = scheduler.list()
 					const entry = schedules.find((s) => s.id === id)
 					return { ok: true, id, cron, nextRun: entry?.nextRun }
