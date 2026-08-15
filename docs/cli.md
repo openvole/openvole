@@ -82,6 +82,26 @@ An agent flagged as **orchestrator** gets a set of `agent_*` tools when it runs 
 - Detached agents (`vole agent start`) have no control channel — orchestrator tools require `vole serve`.
 - Creating (or granting) an orchestrator **seeds an orchestrator `AGENT.md` brief** — unless you've already customized the identity, which is never overwritten. The system prompt also states the authority whenever the `agent_*` tools are registered, so the agent always knows what it is.
 
+## Upgrading
+
+```bash
+vole upgrade
+```
+
+Run at a **vole server root** — the directory holding `agents.json` — it upgrades the openvole
+packages in every registered agent and prints a per-agent summary. Run inside a single **agent
+directory**, it upgrades just that agent.
+
+This matters because paws are installed per agent: a fix published to npm reaches an agent only
+when someone upgrades that directory, so on a multi-agent server it was easy to end up with agents
+quietly running old paws — which looks like a live bug rather than a missed upgrade.
+
+Paws load when an engine starts, so **restart the server** for running agents to pick up an
+upgrade.
+
+A customized `BRAIN.md` is never overwritten. If the package ships a newer default, it is written
+alongside as `BRAIN.md.dist` and your prompt is left as-is.
+
 ## Projects & Tasks
 
 What the agent is working on. See [Projects & Tasks](/projects) for the full model.

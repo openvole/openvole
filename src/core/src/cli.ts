@@ -139,6 +139,7 @@ OpenVole — Micro Agent Core
 
 Usage:
   vole serve                             Start the control-plane dashboard — manage all agents (main entrypoint)
+  vole upgrade                           Upgrade openvole packages — every agent when run at a server root, otherwise the current agent
 
 Paw management:
   vole paw create <name>                 Scaffold a new Paw in paws/
@@ -217,7 +218,23 @@ Options:
 `)
 }
 
-async function handleUpgrade(projectRoot: string): Promise<void> {
+interface UpgradeResult {
+	/** Lines like "@openvole/paw-session: ^2.3.0 → ^2.3.2". */
+	upgraded: string[]
+	unchanged: string[]
+	/** Scaffolding notes — new files written, prompts left alone. */
+	notes: string[]
+	/** Set when this directory could not be upgraded at all. */
+	error?: string
+}
+
+/**
+ * Upgrade every openvole package in one agent directory.
+ *
+ * Returns what changed instead of exiting, so a whole server can be walked and summarised —
+ * one agent failing to resolve must not abandon the rest.
+ */
+async function upgradeAgentDir(projectRoot: string): Promise<UpgradeResult> {
 	const fs = await import('node:fs/promises')
 	const { execa: execaFn } = await import('execa')
 
@@ -227,8 +244,7 @@ async function handleUpgrade(projectRoot: string): Promise<void> {
 	try {
 		pkgJson = JSON.parse(await fs.readFile(pkgPath, 'utf-8'))
 	} catch {
-		logger.error('package.json not found — run "npm init" first')
-		process.exit(1)
+		return { upgraded: [], unchanged: [], notes: [], error: 'no package.json' }
 	}
 
 	const deps = (pkgJson.dependencies ?? {}) as Record<string, string>
@@ -241,8 +257,7 @@ async function handleUpgrade(projectRoot: string): Promise<void> {
 	)
 
 	if (packages.length === 0) {
-		logger.info('No openvole packages found in package.json')
-		return
+		return { upgraded: [], unchanged: [], notes: [] }
 	}
 
 	// Record versions before upgrade
@@ -251,39 +266,55 @@ async function handleUpgrade(projectRoot: string): Promise<void> {
 		beforeVersions[pkg] = allDeps[pkg]
 	}
 
-	logger.info(`Upgrading ${packages.length} package(s) to latest...`)
-
 	// Install all packages @latest in a single command to resolve peer deps together
 	const installArgs = packages.map((pkg) => `${pkg}@latest`)
-	logger.info(`  npm install ${installArgs.join(' ')}`)
-	await execaFn('npm', ['install', ...installArgs], {
-		cwd: projectRoot,
-		stdio: 'inherit',
-	})
+	try {
+		await execaFn('npm', ['install', ...installArgs], { cwd: projectRoot, stdio: 'inherit' })
+	} catch (err) {
+		return {
+			upgraded: [],
+			unchanged: [],
+			notes: [],
+			error: `npm install failed: ${err instanceof Error ? err.message.split('\n')[0] : err}`,
+		}
+	}
 
 	// Ensure paw data directories exist and scaffold BRAIN.md for brain paws
+	const notes: string[] = []
 	const pawPackages = packages.filter((p) => p.startsWith('@openvole/paw-'))
 	for (const pkg of pawPackages) {
 		const pawName = pkg.replace('@openvole/', '')
 		const pawDataDir = path.join(projectRoot, '.openvole', 'paws', pawName)
 		await fs.mkdir(pawDataDir, { recursive: true })
 
-		// Scaffold BRAIN.md for brain paws
+		// Scaffold BRAIN.md for brain paws.
+		//
+		// BRAIN.md is the agent's system prompt and the most likely file to have been hand-tuned,
+		// so an upgrade must never overwrite one that exists. It used to move the local copy to
+		// BRAIN.md.old and write the package version over it — survivable for one agent, but this
+		// command now walks a whole server, which would replace every customized prompt at once.
+		// A changed default is offered alongside instead, and the running prompt is left alone.
 		const pkgBrainPath = path.join(projectRoot, 'node_modules', pkg, 'BRAIN.md')
 		try {
 			const brainContent = await fs.readFile(pkgBrainPath, 'utf-8')
 			if (brainContent.trim()) {
 				const localBrainPath = path.join(pawDataDir, 'BRAIN.md')
+				let existing: string | null = null
 				try {
-					await fs.access(localBrainPath)
-					// Existing BRAIN.md — back it up and replace with new version
-					await fs.rename(localBrainPath, path.join(pawDataDir, 'BRAIN.md.old'))
-					logger.info(`  Backed up ${pawName}/BRAIN.md → BRAIN.md.old`)
+					existing = await fs.readFile(localBrainPath, 'utf-8')
 				} catch {
-					// No existing BRAIN.md
+					/* none yet */
 				}
-				await fs.writeFile(localBrainPath, brainContent, 'utf-8')
-				logger.info(`  Scaffolded ${pawName}/BRAIN.md`)
+				if (existing === null) {
+					await fs.writeFile(localBrainPath, brainContent, 'utf-8')
+					notes.push(`scaffolded ${pawName}/BRAIN.md`)
+				} else if (existing !== brainContent) {
+					const distPath = path.join(pawDataDir, 'BRAIN.md.dist')
+					await fs.writeFile(distPath, brainContent, 'utf-8')
+					notes.push(
+						`${pawName}/BRAIN.md kept (yours); new default written to BRAIN.md.dist`,
+					)
+				}
 			}
 		} catch {
 			// No BRAIN.md in package — not a brain paw
@@ -304,24 +335,129 @@ async function handleUpgrade(projectRoot: string): Promise<void> {
 		const before = beforeVersions[pkg]
 		const after = updatedDeps[pkg]
 		if (before !== after) {
-			upgraded.push(`  ${pkg}: ${before} → ${after}`)
+			upgraded.push(`${pkg}: ${before} → ${after}`)
 		} else {
 			unchanged.push(pkg)
 		}
 	}
 
-	if (upgraded.length > 0) {
-		logger.info(`\nUpgraded:`)
-		for (const line of upgraded) {
-			logger.info(line)
+	return { upgraded, unchanged, notes }
+}
+
+/**
+ * `vole upgrade` — one agent, or every agent on a server.
+ *
+ * Run inside an agent directory it upgrades that agent. Run at a vole server root (the directory
+ * holding `agents.json`) it walks every registered agent instead.
+ *
+ * The server form exists because paws are installed per agent: a fix published to npm reaches an
+ * agent only when someone upgrades *that* directory, so on a multi-agent server the natural
+ * outcome was agents silently sitting on old paws — and a stale paw looks like a live bug, not a
+ * missed upgrade.
+ */
+async function handleUpgrade(projectRoot: string): Promise<void> {
+	const fs = await import('node:fs/promises')
+
+	const registryPath = await findAgentRegistry(projectRoot)
+	if (!registryPath) {
+		// A plain agent directory — upgrade it and report as before.
+		const result = await upgradeAgentDir(projectRoot)
+		if (result.error) {
+			logger.error(
+				result.error === 'no package.json'
+					? 'package.json not found — run "npm init" first'
+					: result.error,
+			)
+			process.exit(1)
+		}
+		if (result.upgraded.length > 0) {
+			logger.info('\nUpgraded:')
+			for (const line of result.upgraded) logger.info(`  ${line}`)
+		}
+		for (const note of result.notes) logger.info(`  ${note}`)
+		if (result.unchanged.length > 0) logger.info(`\nAlready latest: ${result.unchanged.join(', ')}`)
+		if (result.upgraded.length === 0) logger.info('\nAll packages are already up to date.')
+		return
+	}
+
+	const registry = JSON.parse(await fs.readFile(registryPath, 'utf-8')) as {
+		agents?: Array<{ id: string; name: string; path: string }>
+		spaces?: Array<{ id: string; name: string; path: string }>
+	}
+	const agents = registry.agents ?? registry.spaces ?? []
+	if (agents.length === 0) {
+		logger.info('No agents registered on this server.')
+		return
+	}
+
+	logger.info(`Upgrading ${agents.length} agent(s) on this server…\n`)
+
+	const changed: string[] = []
+	const current: string[] = []
+	const failed: string[] = []
+
+	for (const agent of agents) {
+		logger.info(`── ${agent.name || agent.id}`)
+		const result = await upgradeAgentDir(agent.path)
+		if (result.error) {
+			logger.error(`   ${result.error}`)
+			failed.push(`${agent.name || agent.id} (${result.error})`)
+			continue
+		}
+		for (const note of result.notes) logger.info(`   ${note}`)
+		if (result.upgraded.length > 0) {
+			for (const line of result.upgraded) logger.info(`   ${line}`)
+			changed.push(agent.name || agent.id)
+		} else {
+			logger.info('   already up to date')
+			current.push(agent.name || agent.id)
 		}
 	}
-	if (unchanged.length > 0) {
-		logger.info(`\nAlready latest: ${unchanged.join(', ')}`)
+
+	logger.info('')
+	if (changed.length > 0) {
+		logger.info(`Upgraded: ${changed.join(', ')}`)
+		// Paws are loaded when an engine starts, so nothing changes for a running agent until it
+		// is restarted — which is exactly how an upgrade appears to have done nothing.
+		logger.info('Restart the server for running agents to pick these up.')
 	}
-	if (upgraded.length === 0) {
-		logger.info('\nAll packages are already up to date.')
+	if (current.length > 0) logger.info(`Already latest: ${current.join(', ')}`)
+	if (failed.length > 0) logger.error(`Failed: ${failed.join(', ')}`)
+}
+
+/**
+ * The agent registry governing this directory, if any.
+ *
+ * Checked in the order that matches intent: the directory you are standing in, then VOLE_HOME,
+ * so `vole upgrade` at a server root always means "this server" even when VOLE_HOME points
+ * somewhere else.
+ */
+export async function findAgentRegistry(cwd: string): Promise<string | null> {
+	const fs = await import('node:fs/promises')
+	const os = await import('node:os')
+
+	const candidates = [cwd]
+	if (process.env.VOLE_HOME) candidates.push(process.env.VOLE_HOME)
+	else candidates.push(path.join(os.homedir(), '.openvole'))
+
+	for (const dir of candidates) {
+		// An agent directory wins over any registry: standing inside one means that agent.
+		try {
+			await fs.access(path.join(dir, 'vole.config.json'))
+			return null
+		} catch {
+			/* not an agent dir */
+		}
+		for (const name of ['agents.json', 'spaces.json']) {
+			try {
+				await fs.access(path.join(dir, name))
+				return path.join(dir, name)
+			} catch {
+				/* keep looking */
+			}
+		}
 	}
+	return null
 }
 
 async function handlePawCommand(args: string[], projectRoot: string): Promise<void> {
