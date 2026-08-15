@@ -138,6 +138,23 @@ describe('dashboard projects UI', () => {
 		expect(block).not.toMatch(/onclick="browseDir\('/)
 	})
 
+	it('keeps drafting traffic out of the chat transcript and unread badge', async () => {
+		const source = await readUi()
+		// Drafts run as real agent tasks, so without this they would toast "the agent replied",
+		// bump the unread count, and appear as a session you could open.
+		expect(source).toContain('sessionId === DRAFT_SESSION')
+		expect((source.match(/=== DRAFT_SESSION\) continue/g) ?? []).length).toBe(2)
+	})
+
+	it('never writes a draft to disk on the human’s behalf', async () => {
+		const source = await readUi()
+		const start = source.indexOf('function draftOnTaskEvent(')
+		const block = source.substring(start, source.indexOf('function stripDraftFence(', start))
+		// A draft fills the editor and stops there — identity you have not read is not identity.
+		expect(block).not.toContain('write_identity')
+		expect(block).not.toContain('project_update')
+	})
+
 	it('guards renders against a mid-flight agent switch', async () => {
 		const source = await readUi()
 		const start = source.indexOf('function loadProjects()')

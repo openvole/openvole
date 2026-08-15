@@ -423,6 +423,10 @@ export function getDashboardHtml(wsPort: number): string {
   .dir-up { color: var(--text-dim); }
   .dir-grant { margin-top: 10px; font-size: 11px; padding: 8px 10px; border-radius: 6px; border: 1px solid var(--orange); background: rgba(219,109,40,.08); }
   .dir-ok { margin-top: 10px; font-size: 11px; color: var(--green); }
+  .draft-row { display: flex; gap: 6px; margin: 10px 0 6px; }
+  .draft-row .form-input { flex: 1; min-width: 0; }
+  .draft-help { font-size: 11px; color: var(--text-dim); margin-bottom: 8px; min-height: 14px; }
+  .draft-help.bad { color: var(--orange); }
   @media (max-width: 760px) {
     .proj-layout { grid-template-columns: 1fr; }
     .proj-list-pane { order: -1; }
@@ -1668,6 +1672,11 @@ export function getDashboardHtml(wsPort: number): string {
         <button class="identity-file-btn" data-file="BRAIN.md" onclick="switchIdentityFile('BRAIN.md')">BRAIN.md</button>
       </div>
       <div class="identity-description" id="identity-description">Agent personality, tone, and identity. Shapes how the agent communicates.</div>
+      <div class="draft-row">
+        <input class="form-input" id="identity-draft-prompt" placeholder="Describe it in a sentence and let the agent write the file&hellip;">
+        <button class="btn-subtle btn-sm" id="identity-draft-btn" onclick="draftIdentityFile()">Draft</button>
+      </div>
+      <div class="draft-help" id="identity-draft-help"></div>
       <textarea class="identity-textarea" id="identity-editor" spellcheck="false"></textarea>
       <div class="identity-save-row">
         <button class="btn-primary" id="btn-save-identity" onclick="saveIdentity()">Save File</button>
@@ -2129,6 +2138,8 @@ function loadChatSessions() {
         var s = res.sessions[i];
         if (seen[s.sessionId]) continue;
         if (s.sessionId.indexOf('volenet:') === 0) continue;
+        // Drafting runs are agent work, not a conversation to open.
+        if (s.sessionId === DRAFT_SESSION) continue;
         seen[s.sessionId] = true;
         chatNoteTs(currentAgentId, s.sessionId, s.lastActive);
         var unread = (chatUnreadFor(currentAgentId)[s.sessionId] || 0);
@@ -2393,6 +2404,12 @@ function sendChat() {
   });
 }
 function chatOnTaskEvent(event, data, agentId) {
+  // Drafts are agent work, not conversation: they must not appear as chat or bump the unread
+  // badge. Claim them here so the accounting below never sees them.
+  if (data && data.sessionId === DRAFT_SESSION) {
+    draftOnTaskEvent(event, data);
+    return;
+  }
   // Unread accounting FIRST: a reply can land while you're on another tab or agent, and
   // there may be no pending bubble at all (page reloaded, or a different agent). Only
   // sessioned tasks are chat — heartbeat and schedule runs carry no sessionId.
@@ -2645,6 +2662,7 @@ function recountChatFromTranscripts() {
     for (var i = 0; i < sessions.length; i++) {
       var s = sessions[i];
       if (!s.sessionId || s.sessionId.indexOf('volenet:') === 0) continue;
+      if (s.sessionId === DRAFT_SESSION) continue;
       // Sessions opened by machines (an orchestrator brief, a channel paw) are visible in the
       // dropdown but are not your unread mail.
       if (s.source && s.source !== 'user') continue;
@@ -3195,10 +3213,178 @@ function openCreateProjectAgain() {
   openCreateProject();
 }
 
+/* === Brain-drafted files ============================================================
+ *
+ * Writing SOUL.md or a project CONTEXT.md from a blank page is the step people skip, and a
+ * missing CONTEXT.md is what quietly sends an agent back to re-deriving the same things every
+ * run. So: describe it in a sentence and let the agent write the file.
+ *
+ * Drafts run as a normal task under a reserved session id, which keeps them out of the chat
+ * transcript and the unread badge while still being real, logged agent work. The result fills
+ * the editor — it is never saved for you, because a draft you have not read is not identity.
+ */
+
+var DRAFT_SESSION = '__draft__';
+var pendingDrafts = {}; // taskId -> { fill, btn, help, timer }
+
+/** What each file is for, so the agent writes the right kind of thing. */
+var DRAFT_BRIEFS = {
+  'SOUL.md': 'your own personality, voice and manner — how you come across when you talk',
+  'USER.md': 'a profile of the human you work for: who they are, how they work, what they prefer',
+  'AGENT.md': 'your standing operating rules and constraints — the things you always or never do',
+  'HEARTBEAT.md': 'the recurring jobs you should carry out each time you wake on a heartbeat',
+  'BRAIN.md': 'your complete system prompt, which replaces the default one entirely'
+};
+
+function agentIsRunning() {
+  var list = lastAgents || [];
+  for (var i = 0; i < list.length; i++) {
+    if (list[i].id === currentAgentId) return list[i].state === 'running';
+  }
+  return false;
+}
+
+/**
+ * Ask the agent to write a file and hand the text back.
+ *
+ * opts.fill receives the finished text. Everything else here is about being honest while waiting:
+ * a stopped agent has no brain to ask, and a draft can take a while, so the button stays
+ * disabled and the help line says what is happening.
+ */
+function requestDraft(opts) {
+  var help = document.getElementById(opts.helpId);
+  var btn = document.getElementById(opts.btnId);
+
+  if (!agentIsRunning()) {
+    help.className = 'draft-help bad';
+    help.textContent = 'Start the agent first — drafting needs its brain.';
+    return;
+  }
+
+  var prompt = (document.getElementById(opts.promptId).value || '').trim();
+  if (!prompt) {
+    help.className = 'draft-help bad';
+    help.textContent = 'Say what it should cover, even roughly.';
+    return;
+  }
+
+  btn.disabled = true;
+  var started = Date.now();
+  help.className = 'draft-help';
+  help.textContent = 'Drafting…';
+  var timer = setInterval(function() {
+    help.textContent = 'Drafting… ' + Math.round((Date.now() - started) / 1000) + 's';
+  }, 1000);
+
+  var epoch = viewEpoch;
+  sendCommand('submit', { input: opts.instruction(prompt), sessionId: DRAFT_SESSION })
+    .then(function(res) {
+      if (viewChanged(epoch)) { clearInterval(timer); btn.disabled = false; return; }
+      if (res && res.taskId) {
+        pendingDrafts[res.taskId] = { fill: opts.fill, btn: btn, help: help, timer: timer };
+      } else {
+        clearInterval(timer);
+        btn.disabled = false;
+        help.className = 'draft-help bad';
+        help.textContent = 'The agent did not accept the request.';
+      }
+    })
+    .catch(function(err) {
+      clearInterval(timer);
+      btn.disabled = false;
+      help.className = 'draft-help bad';
+      help.textContent = String(err && err.message || err);
+    });
+}
+
+/** Completion handler, called from the same task event stream chat uses. */
+function draftOnTaskEvent(event, data) {
+  var d = data && data.taskId ? pendingDrafts[data.taskId] : null;
+  if (!d) return false;
+  if (event === 'task:started') return true;
+
+  clearInterval(d.timer);
+  d.btn.disabled = false;
+  delete pendingDrafts[data.taskId];
+
+  if (event === 'task:completed') {
+    var text = stripDraftFence(String(data.result || ''));
+    if (!text) {
+      d.help.className = 'draft-help bad';
+      d.help.textContent = 'The agent returned nothing.';
+      return true;
+    }
+    d.fill(text);
+    d.help.className = 'draft-help';
+    d.help.textContent = 'Draft ready — read it, edit it, then save.';
+  } else {
+    d.help.className = 'draft-help bad';
+    d.help.textContent = (data && (data.error || data.result)) ? String(data.error || data.result) : 'Drafting failed.';
+  }
+  return true;
+}
+
+/** Models like to wrap a whole file in a fence even when told not to. Unwrap one if present. */
+function stripDraftFence(text) {
+  var trimmed = text.trim();
+  // \\x60 is a backtick: writing one literally would close the template literal this file is.
+  var fence = trimmed.match(/^\\x60{3}[a-z]*\\n([\\s\\S]*?)\\n?\\x60{3}$/i);
+  return (fence ? fence[1] : trimmed).trim();
+}
+
+function draftIdentityFile() {
+  var file = currentIdentityFile;
+  requestDraft({
+    promptId: 'identity-draft-prompt',
+    btnId: 'identity-draft-btn',
+    helpId: 'identity-draft-help',
+    instruction: function(prompt) {
+      return 'Write the full contents of ' + file + ' for yourself. This file holds ' +
+        (DRAFT_BRIEFS[file] || 'this part of your configuration') + '.\\n\\n' +
+        'What it should say: ' + prompt + '\\n\\n' +
+        'Return ONLY the markdown for the file itself — no preamble, no explanation, no code fence. ' +
+        'Write it in the second person addressed to yourself, concise and concrete. ' +
+        'Do not save it anywhere; just return the text.';
+    },
+    fill: function(text) {
+      var editor = document.getElementById('identity-editor');
+      if (editor.value.trim() && !confirm('Replace the current contents of ' + file + ' with the draft?')) return;
+      editor.value = text;
+      identityFiles[file] = text;
+    }
+  });
+}
+
+function draftProjectContext(projectId) {
+  requestDraft({
+    promptId: 'pc-draft-prompt',
+    btnId: 'pc-draft-btn',
+    helpId: 'pc-draft-help',
+    instruction: function(prompt) {
+      return 'Write the full contents of CONTEXT.md for the project "' + projectId + '".\\n\\n' +
+        'First call project_open on "' + projectId + '" to see what it is. If it has a root, look at ' +
+        'the real files — read its README, CLAUDE.md or equivalent — so what you write is grounded ' +
+        'in what is actually there rather than guessed.\\n\\n' +
+        'What it should cover: ' + prompt + '\\n\\n' +
+        'CONTEXT.md is what a future run of you reads to understand this project: what it is, how to ' +
+        'work in it, conventions, commands that matter, anything you would otherwise re-derive. ' +
+        'Return ONLY the markdown for the file — no preamble, no code fence. Do not save it; just return the text.';
+    },
+    fill: function(text) {
+      var box = document.getElementById('pc-body');
+      if (box.value.trim() && !confirm('Replace the current CONTEXT.md with the draft?')) return;
+      box.value = text;
+    }
+  });
+}
+
 function openEditContext(projectId) {
   sendCommand('project_open', { id: projectId }).then(function(res) {
     openModal('<div class="modal-title">CONTEXT.md</div>' +
       '<div class="modal-sub">What a future run reads to understand this project. The agent keeps this current too.</div>' +
+      '<div class="draft-row"><input class="form-input" id="pc-draft-prompt" placeholder="Describe the project and let the agent write this&hellip;">' +
+      '<button class="btn-subtle btn-sm" id="pc-draft-btn" onclick="draftProjectContext(\\'' + esc(projectId) + '\\')">Draft</button></div>' +
+      '<div class="draft-help" id="pc-draft-help"></div>' +
       '<div class="form-field"><textarea class="form-textarea" id="pc-body" rows="14">' + esc(res.context || '') + '</textarea></div>' +
       '<div class="modal-actions">' +
       '<button class="btn-subtle" onclick="closeModal()">Cancel</button>' +

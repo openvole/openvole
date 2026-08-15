@@ -147,6 +147,12 @@ Buttons move a task to whatever states are legal from where it is, so `done` is 
 after `verifying`. Blocking asks for a reason, because a board full of blocked tasks with no notes
 is unreadable a week later.
 
+Both `CONTEXT.md` and the identity files have a **Draft** button: describe what the file should
+cover in a sentence and the agent writes it. For `CONTEXT.md` it opens the project and reads the
+real files first, so what it writes is grounded rather than guessed. The draft fills the editor and
+stops there — you read it and save it yourself. Drafting needs the agent running, and does not
+appear in its chat.
+
 **New** creates a project. **Browse…** opens a directory picker that walks the filesystem of the
 machine the agent runs on — a browser cannot hand back an absolute path, so the listing is served
 by the control plane. It says whether the folder you land on is inside the agent's allowed paths,
