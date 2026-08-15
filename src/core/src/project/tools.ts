@@ -281,7 +281,7 @@ export function createProjectTools(deps: ProjectToolDeps): ToolDefinition[] {
 		},
 		{
 			name: 'task_update',
-			description: `Move a task through its lifecycle or record what happened. The path to finishing is running → verifying → done: you must check the done-criteria in \`verifying\` and may only then set \`done\`. If a criterion does not hold, set \`blocked\` with a note saying which one and why — never report success you cannot back up. Legal moves: ${LEGAL_MOVES}`,
+			description: `Move a task through its lifecycle or record what happened. If you hand the work to another agent, delegating is NOT finishing: set assignee and delegatedTaskId, leave the task running, and when that agent reports back record its artifacts and outcome here before you verify and close it — otherwise the project has no record that any of it happened. The path to finishing is running → verifying → done: you must check the done-criteria in \`verifying\` and may only then set \`done\`. If a criterion does not hold, set \`blocked\` with a note saying which one and why — never report success you cannot back up. Legal moves: ${LEGAL_MOVES}`,
 			parameters: z.object({
 				projectId: z.string().describe('Project the task belongs to'),
 				taskId: z.string().describe('Task id'),

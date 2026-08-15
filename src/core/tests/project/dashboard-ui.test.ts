@@ -73,10 +73,9 @@ describe('dashboard projects UI', () => {
 			// The UI may omit a move it has no button for, but must never offer one the store
 			// rejects — that is the failure the operator would see as a broken dashboard.
 			for (const move of uiMoves) {
-				expect(
-					allowed,
-					`ui.ts offers ${state} → ${move}, which core rejects`,
-				).toContain(move as never)
+				expect(allowed, `ui.ts offers ${state} → ${move}, which core rejects`).toContain(
+					move as never,
+				)
 			}
 		}
 	})
@@ -115,7 +114,10 @@ describe('dashboard projects UI', () => {
 		// ui.ts is itself a template literal: a lone \' collapses to ' before the browser parses
 		// the script, breaking every onclick it appears in. They must be doubled in source.
 		const lone = block.match(/(?<!\\)\\(?!\\)/g) ?? []
-		expect(lone, `found ${lone.length} single backslashes that the template literal will eat`).toEqual([])
+		expect(
+			lone,
+			`found ${lone.length} single backslashes that the template literal will eat`,
+		).toEqual([])
 	})
 
 	it('wires the tab, its loader, and the commands it depends on', async () => {
@@ -155,6 +157,28 @@ describe('dashboard projects UI', () => {
 		expect(block).not.toContain('project_update')
 	})
 
+	it('keeps project conversations off the central chat tab', async () => {
+		const source = await readUi()
+		// The complaint this answers: a flat list of unlabelled sessions. Project talk belongs to
+		// the project page, so it must not appear as an openable session or bump that badge.
+		expect(source).toContain("data.sessionId.indexOf('project:') === 0")
+		expect((source.match(/sessionId\.indexOf\('project:'\) === 0\) continue/g) ?? []).length).toBe(
+			2,
+		)
+	})
+
+	it('names the project chat session so the run carries its scope', async () => {
+		const source = await readUi()
+		expect(source).toContain("return 'project:' + projectId")
+		// The adapter derives projectId from this prefix, which is what loads CONTEXT.md into
+		// the prompt — if the two ever disagree the chat silently runs unscoped.
+		const adapter = await fs.readFile(
+			path.resolve(path.dirname(UI_PATH), '../../core/src/agent/control-adapter.ts'),
+			'utf-8',
+		)
+		expect(adapter).toMatch(/\^project:/)
+	})
+
 	it('guards renders against a mid-flight agent switch', async () => {
 		const source = await readUi()
 		const start = source.indexOf('function loadProjects()')
@@ -167,10 +191,7 @@ describe('dashboard projects UI', () => {
 	})
 
 	it('handles every command it sends in the server', async () => {
-		const server = await fs.readFile(
-			path.resolve(path.dirname(UI_PATH), 'server.ts'),
-			'utf-8',
-		)
+		const server = await fs.readFile(path.resolve(path.dirname(UI_PATH), 'server.ts'), 'utf-8')
 		for (const command of DASHBOARD_COMMANDS) {
 			expect(server, `server.ts has no case for ${command}`).toContain(`case '${command}'`)
 		}

@@ -89,6 +89,17 @@ export interface ProjectTask {
 	note?: string | null
 	/** Paths (workspace-relative or absolute) this task produced. */
 	artifacts?: string[]
+	/**
+	 * The agent doing this work, when it is not the one that owns the project.
+	 *
+	 * A project belongs to whoever owns the *outcome*, not whoever does the labor — a channel
+	 * project sits with the coordinator while editing, thumbnails and publishing land on
+	 * different siblings. Without this a delegated task reads as abandoned: nobody is visibly
+	 * holding it while the work actually happens somewhere else.
+	 */
+	assignee?: string
+	/** The run id in the assignee's queue, so its status can be polled and recorded back. */
+	delegatedTaskId?: string
 	/** Iterations consumed so far, against `budget.maxIterations`. */
 	iterationsUsed?: number
 	createdAt: number

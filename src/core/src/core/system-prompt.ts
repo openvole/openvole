@@ -284,6 +284,13 @@ Your working directory is \`${content.workspaceDir}\` — put every file you cre
 					'  Check them yourself before reporting the task finished. If one does not hold, say which and stop — do not report success.',
 				)
 			}
+			// Delegation is where a project silently loses its history: the work happens in another
+			// agent, the coordinator moves on, and the task still reads as untouched afterwards.
+			if (availableTools.some((t) => t.pawName === '__orchestrate__')) {
+				lines.push(
+					'- If this work belongs to a sibling agent, delegating it is **not** finishing it: record `assignee` and `delegatedTaskId` with task_update and leave the task running. When that agent reports back, write its outcome and artifact paths onto the task before you verify and close it. This project is the only record that any of it happened.',
+				)
+			}
 		}
 		if (project.context) {
 			lines.push('')

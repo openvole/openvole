@@ -427,6 +427,16 @@ export function getDashboardHtml(wsPort: number): string {
   .draft-row .form-input { flex: 1; min-width: 0; }
   .draft-help { font-size: 11px; color: var(--text-dim); margin-bottom: 8px; min-height: 14px; }
   .draft-help.bad { color: var(--orange); }
+  .proj-subtabs { display: flex; gap: 4px; margin: 14px 0 12px; border-bottom: 1px solid var(--border); }
+  .proj-subtab { background: none; border: none; border-bottom: 2px solid transparent; color: var(--text-dim); font-size: 12px; padding: 6px 12px; cursor: pointer; }
+  .proj-subtab:hover { color: var(--text); }
+  .proj-subtab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .pchat { display: flex; flex-direction: column; height: 46vh; min-height: 280px; }
+  .pchat-messages { flex: 1; overflow-y: auto; padding: 4px 2px; display: flex; flex-direction: column; gap: 8px; }
+  .pchat-composer { display: flex; gap: 6px; margin-top: 10px; }
+  .pchat-composer textarea { flex: 1; resize: none; min-height: 40px; max-height: 140px; }
+  .pchat-hint { font-size: 11px; color: var(--text-dim); margin-top: 6px; }
+  .task-assignee { display: inline-block; font-size: 10px; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--accent-line, var(--border)); color: var(--accent); margin-left: 6px; }
   @media (max-width: 760px) {
     .proj-layout { grid-template-columns: 1fr; }
     .proj-list-pane { order: -1; }
@@ -2140,6 +2150,8 @@ function loadChatSessions() {
         if (s.sessionId.indexOf('volenet:') === 0) continue;
         // Drafting runs are agent work, not a conversation to open.
         if (s.sessionId === DRAFT_SESSION) continue;
+        // Project conversations live on the project page.
+        if (s.sessionId.indexOf('project:') === 0) continue;
         seen[s.sessionId] = true;
         chatNoteTs(currentAgentId, s.sessionId, s.lastActive);
         var unread = (chatUnreadFor(currentAgentId)[s.sessionId] || 0);
@@ -2410,6 +2422,12 @@ function chatOnTaskEvent(event, data, agentId) {
     draftOnTaskEvent(event, data);
     return;
   }
+  // Project conversations belong to the project page, not the central Chat tab: they must not
+  // appear as sessions there or bump its unread badge.
+  if (data && typeof data.sessionId === 'string' && data.sessionId.indexOf('project:') === 0) {
+    pchatOnTaskEvent(event, data);
+    return;
+  }
   // Unread accounting FIRST: a reply can land while you're on another tab or agent, and
   // there may be no pending bubble at all (page reloaded, or a different agent). Only
   // sessioned tasks are chat — heartbeat and schedule runs carry no sessionId.
@@ -2663,6 +2681,7 @@ function recountChatFromTranscripts() {
       var s = sessions[i];
       if (!s.sessionId || s.sessionId.indexOf('volenet:') === 0) continue;
       if (s.sessionId === DRAFT_SESSION) continue;
+      if (s.sessionId.indexOf('project:') === 0) continue;
       // Sessions opened by machines (an orchestrator brief, a channel paw) are visible in the
       // dropdown but are not your unread mail.
       if (s.source && s.source !== 'user') continue;
@@ -2970,13 +2989,29 @@ function renderProjectDetail(res) {
     for (var t = 0; t < group.length; t++) board += renderTaskRow(p.id, group[t]);
     board += '</div>';
   }
-  html += '<div class="proj-board">' + (board || '<div class="empty">No tasks yet.</div>') + '</div>';
+  html += '<div class="proj-subtabs">' +
+    '<button class="proj-subtab' + (projSubtab === 'board' ? ' active' : '') + '" onclick="switchProjSubtab(\\'board\\')">Board</button>' +
+    '<button class="proj-subtab' + (projSubtab === 'chat' ? ' active' : '') + '" onclick="switchProjSubtab(\\'chat\\')">Chat</button>' +
+    '</div>';
+
+  html += '<div id="proj-board-view" style="display:' + (projSubtab === 'board' ? '' : 'none') + '">' +
+    '<div class="proj-board">' + (board || '<div class="empty">No tasks yet — describe what you want in Chat and the agent will set them up.</div>') + '</div></div>';
+
+  html += '<div id="proj-chat-view" style="display:' + (projSubtab === 'chat' ? '' : 'none') + '">' +
+    '<div class="pchat"><div class="pchat-messages" id="pchat-messages"></div>' +
+    '<div class="pchat-composer">' +
+    '<textarea class="form-textarea" id="pchat-input" rows="2" placeholder="Talk about this project&hellip;" onkeydown="pchatKey(event)"></textarea>' +
+    '<button class="btn-primary" onclick="pchatSend()">Send</button></div>' +
+    '<div class="pchat-hint">This conversation runs in the project\\'s own context — its CONTEXT.md and open tasks are already loaded, and the agent can create and update tasks from here.</div>' +
+    '</div></div>';
 
   document.getElementById('proj-detail').innerHTML = html;
+  if (projSubtab === 'chat') loadProjectChat(p.id);
 }
 
 function renderTaskRow(projectId, t) {
-  var html = '<div class="task-row"><div class="task-goal">' + esc(t.goal) + '</div>';
+  var html = '<div class="task-row"><div class="task-goal">' + esc(t.goal) +
+    (t.assignee ? '<span class="task-assignee">' + esc(t.assignee) + '</span>' : '') + '</div>';
   var meta = [];
   if (t.priority) meta.push('priority ' + t.priority);
   if (t.budget && t.budget.maxIterations) meta.push((t.iterationsUsed || 0) + '/' + t.budget.maxIterations + ' iterations');
@@ -3003,6 +3038,139 @@ function renderTaskRow(projectId, t) {
     html += '</div>';
   }
   return html + '</div>';
+}
+
+/* --- Per-project chat ---------------------------------------------------------------
+ *
+ * Each project talks in its own session named project:<id>, which does two things: the run
+ * arrives already carrying that project's CONTEXT.md and open tasks, and these conversations
+ * stay out of the central Chat tab — one flat list of unlabelled sessions is exactly the mess
+ * this avoids.
+ *
+ * The point is that you should not have to fill in a task form: say what you want here and the
+ * agent creates and updates the tasks itself. The board refreshes when a reply lands so they
+ * appear without switching views.
+ */
+
+var projSubtab = 'board';
+var pchatPending = {}; // taskId -> { el, projectId }
+
+function projectSessionId(projectId) {
+  return 'project:' + projectId;
+}
+
+function switchProjSubtab(name) {
+  projSubtab = name;
+  var board = document.getElementById('proj-board-view');
+  var chat = document.getElementById('proj-chat-view');
+  if (board) board.style.display = name === 'board' ? '' : 'none';
+  if (chat) chat.style.display = name === 'chat' ? '' : 'none';
+  var btns = document.querySelectorAll('.proj-subtab');
+  for (var i = 0; i < btns.length; i++) {
+    btns[i].classList.toggle('active', btns[i].textContent.toLowerCase() === name);
+  }
+  if (name === 'chat' && currentProjectId) loadProjectChat(currentProjectId);
+}
+
+function loadProjectChat(projectId) {
+  var box = document.getElementById('pchat-messages');
+  if (!box) return;
+  var epoch = viewEpoch;
+  sendCommand('chat_history', { sessionId: projectSessionId(projectId) }).then(function(res) {
+    if (viewChanged(epoch) || currentProjectId !== projectId) return;
+    var target = document.getElementById('pchat-messages');
+    if (!target) return;
+    var history = (res && res.history) || [];
+    if (!history.length) {
+      target.innerHTML = '<div class="empty">Nothing yet. Describe what you want done and the agent will work out the tasks.</div>';
+      return;
+    }
+    target.innerHTML = '';
+    for (var i = 0; i < history.length; i++) {
+      var m = history[i];
+      if (m.role !== 'user' && m.role !== 'brain') continue;
+      appendProjectMessage(m.role, m.content);
+    }
+    target.scrollTop = target.scrollHeight;
+  }).catch(function() {
+    var target = document.getElementById('pchat-messages');
+    if (target) target.innerHTML = '<div class="empty">Could not load this conversation.</div>';
+  });
+}
+
+function appendProjectMessage(role, text) {
+  var box = document.getElementById('pchat-messages');
+  if (!box) return null;
+  var empty = box.querySelector('.empty');
+  if (empty) box.innerHTML = '';
+  var el = document.createElement('div');
+  el.className = 'chat-msg ' + (role === 'user' ? 'chat-msg-user' : 'chat-msg-brain');
+  if (role === 'brain') setBubbleMarkdown(el, text);
+  else el.textContent = text;
+  box.appendChild(el);
+  box.scrollTop = box.scrollHeight;
+  return el;
+}
+
+function pchatKey(event) {
+  if (event.key === 'Enter' && !event.shiftKey) {
+    event.preventDefault();
+    pchatSend();
+  }
+}
+
+function pchatSend() {
+  var input = document.getElementById('pchat-input');
+  var text = (input.value || '').trim();
+  if (!text) return;
+  var projectId = currentProjectId;
+  if (!projectId) return;
+  if (!agentIsRunning()) {
+    showToast('Start the agent first.', 'error');
+    return;
+  }
+
+  appendProjectMessage('user', text);
+  input.value = '';
+  var pending = appendProjectMessage('brain', 'Thinking…');
+  if (pending) pending.classList.add('chat-msg-pending');
+
+  var epoch = viewEpoch;
+  sendCommand('submit', { input: text, sessionId: projectSessionId(projectId) }).then(function(res) {
+    if (viewChanged(epoch)) return;
+    if (res && res.taskId) {
+      pchatPending[res.taskId] = { el: pending, projectId: projectId };
+    } else if (pending) {
+      pending.classList.remove('chat-msg-pending');
+      pending.textContent = '(submitted)';
+    }
+  }).catch(function(err) {
+    if (pending) {
+      pending.className = 'chat-msg chat-msg-error';
+      pending.textContent = String(err && err.message || err);
+    }
+  });
+}
+
+/** Completion handler, claimed before the central chat sees the event. */
+function pchatOnTaskEvent(event, data) {
+  var p = data && data.taskId ? pchatPending[data.taskId] : null;
+  if (!p) return false;
+  if (event === 'task:started') return true;
+
+  delete pchatPending[data.taskId];
+  if (p.el) {
+    p.el.classList.remove('chat-msg-pending');
+    if (event === 'task:completed') {
+      setBubbleMarkdown(p.el, data.result || '(no response)');
+    } else {
+      p.el.className = 'chat-msg chat-msg-error';
+      p.el.textContent = String((data && (data.result || data.error)) || 'Task failed');
+    }
+  }
+  // Tasks the agent just created or moved should show up without switching views.
+  if (currentProjectId === p.projectId) openProject(p.projectId);
+  return true;
 }
 
 function moveTask(projectId, taskId, state) {

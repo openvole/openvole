@@ -205,7 +205,13 @@ export function installControlAdapter(engine: VoleEngine, projectRoot: string): 
 					)
 					break
 				}
-				case 'submit':
+				case 'submit': {
+					const sessionId = params.sessionId as string | undefined
+					// A project chat names its scope in the session id (`project:<id>`), so the run
+					// arrives with that project's CONTEXT.md and open tasks already in the prompt.
+					// Deriving it here rather than accepting metadata keeps the browser from
+					// handing the loop arbitrary metadata — allowTools lives in the same bag.
+					const scoped = sessionId?.match(/^project:(.+)$/)
 					result = {
 						ok: true,
 						taskId: current.run(
@@ -214,10 +220,12 @@ export function installControlAdapter(engine: VoleEngine, projectRoot: string): 
 							// for an orchestrator's brief so sibling-to-sibling work is not mistaken
 							// for a human message (chat badges, tool profiles, memory scoping).
 							(params.source as 'user' | 'agent') === 'agent' ? 'agent' : 'user',
-							params.sessionId as string | undefined,
+							sessionId,
+							scoped ? { projectId: scoped[1] } : undefined,
 						),
 					}
 					break
+				}
 				/**
 				 * Run a queued project task now, without waiting for the heartbeat.
 				 *

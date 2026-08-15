@@ -137,11 +137,31 @@ A project may carry a `toolProfile` that restricts which tools are available whi
 This can only ever narrow. Denials from the project and from the task are unioned, allowlists are
 intersected — so a project can never hand its agent a capability the agent did not already have.
 
+## Delegated work
+
+A project belongs to whoever owns the **outcome**, not whoever does the labor. A channel that
+spans editing, thumbnails and publishing belongs with the coordinator; work that lives entirely in
+one agent belongs to that agent.
+
+When a coordinator hands a task to a sibling, delegating is not finishing. The task carries an
+`assignee` (shown on the board, so it doesn't read as abandoned) and a `delegatedTaskId` — the run
+id from `agent_submit`, which `agent_task_status` can poll. When the sibling reports back, the
+coordinator records its artifacts and outcome on the task before verifying and closing it.
+
+**One writer per project ledger.** The worker reports; the owner records. Letting a sibling write
+into another agent's workspace would cross the isolation boundary and put two writers on the same
+`tasks.jsonl`.
+
 ## In the dashboard
 
 The agent view has a **Projects** tab: projects on the left, and for the selected one its
 `CONTEXT.md` and a task board grouped by state — running, verifying, blocked, queued, done — with
 each task's done-criteria and, when blocked, the reason.
+
+The **Chat** sub-tab talks to the agent in that project's own context — its `CONTEXT.md` and open
+tasks are already loaded, so you can describe what you want instead of filling in a task form and
+the agent creates and updates the tasks itself. These conversations live on the project page and
+stay out of the central Chat tab, which keeps that list from filling with unlabelled sessions.
 
 Buttons move a task to whatever states are legal from where it is, so `done` is only ever offered
 after `verifying`. Blocking asks for a reason, because a board full of blocked tasks with no notes
