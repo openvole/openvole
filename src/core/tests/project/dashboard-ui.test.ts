@@ -32,6 +32,7 @@ const DASHBOARD_COMMANDS = [
 	'task_update',
 	'list_directories',
 	'grant_path',
+	'project_files',
 ]
 
 async function readUi(): Promise<string> {
@@ -195,5 +196,81 @@ describe('dashboard projects UI', () => {
 		for (const command of DASHBOARD_COMMANDS) {
 			expect(server, `server.ts has no case for ${command}`).toContain(`case '${command}'`)
 		}
+	})
+
+	describe('the project file manager', () => {
+		it('wires the Files sub-tab to its loader', async () => {
+			const source = await readUi()
+			expect(source).toContain(`projSubtab === 'files'`)
+			expect(source).toContain('>Files</button>')
+			expect(source).toContain(`id="proj-files-view"`)
+			// Both entry points: switching sub-tabs, and landing on a project with Files already
+			// selected. Wiring only the first leaves an empty pane after any board refresh.
+			expect(source).toContain(`if (name === 'files' && currentProjectId) loadProjectFiles`)
+			expect(source).toContain(`if (projSubtab === 'files') loadProjectFiles(p.id)`)
+		})
+
+		it('addresses entries by index, never by interpolating a filename', async () => {
+			const source = await readUi()
+			const start = source.indexOf('function pfRenderList(')
+			const block = source.substring(start, source.indexOf('function pfUp(', start))
+			// A filename may contain a quote or a backslash, and this file is a template literal
+			// that eats escapes — an integer index cannot break the handler it lands in. The tell
+			// for the wrong version is a quoted argument: onclick="pfEnter(\'" + name + "\')".
+			expect(block).toContain(`onclick="pfEnter(' + i + ')"`)
+			expect(block).not.toMatch(/onclick="pf[A-Za-z]+\(\\'/)
+		})
+
+		it('puts file content in the textarea through .value, not innerHTML', async () => {
+			const source = await readUi()
+			const start = source.indexOf('function pfRenderEditor(')
+			const block = source.substring(start, source.indexOf('function pfMarkDirty(', start))
+			// The file being edited is arbitrary text: built by concatenation, one closing
+			// </textarea> inside a file would end the element and inject the rest as markup.
+			expect(block).toContain(`document.getElementById('pf-content').value = file.content`)
+			expect(block).not.toMatch(/<\/textarea>'\s*\+/)
+		})
+
+		it('guards its renders against a mid-flight agent switch', async () => {
+			const source = await readUi()
+			const start = source.indexOf('function pfBrowse(')
+			const block = source.substring(start, source.indexOf('function pfRenderRoots(', start))
+			expect(block).toContain('var epoch = viewEpoch')
+			expect(block).toContain('viewChanged(epoch)')
+		})
+
+		it('sends only operations the control plane implements', async () => {
+			const source = await readUi()
+			const start = source.indexOf('function loadProjectFiles(')
+			const block = source.substring(start, source.indexOf('function moveTask(', start))
+
+			const ops = [...block.matchAll(/op: '([a-z]+)'/g)].map((m) => m[1])
+			expect(ops.length, 'the file manager sends no operations at all').toBeGreaterThan(0)
+
+			const plane = await fs.readFile(
+				path.resolve(path.dirname(UI_PATH), '../../core/src/agent/control-plane.ts'),
+				'utf-8',
+			)
+			const dispatch = plane.substring(plane.indexOf('async projectFiles('))
+			for (const op of new Set(ops)) {
+				expect(dispatch, `the control plane has no case for op "${op}"`).toContain(`case '${op}'`)
+			}
+		})
+
+		it('asks before discarding an unsaved edit', async () => {
+			const source = await readUi()
+			const start = source.indexOf('function loadProjectFiles(')
+			const block = source.substring(start, source.indexOf('function moveTask(', start))
+			// Every navigation away from the editor goes through the same check — clicking a folder
+			// and silently losing what you typed is the worst thing a file manager can do.
+			expect(block).toContain('function pfCheckDirty()')
+			for (const navigator of ['pfUp', 'pfCrumbTo', 'pfSwitchRoot']) {
+				const fn = block.substring(block.indexOf(`function ${navigator}(`))
+				expect(
+					fn.substring(0, fn.indexOf('\n}')),
+					`${navigator} discards edits silently`,
+				).toContain('pfCheckDirty()')
+			}
+		})
 	})
 })

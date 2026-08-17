@@ -1,8 +1,8 @@
 # Changelog
 
-## v4.17.0 (2026-08-15)
+## v4.17.0 (2026-08-18)
 
-> Ships as `openvole` 4.17.0 (`@openvole/dashboard-server` unchanged at 0.13.1). Projects and tasks — an agent can now be pointed at new work in conversation instead of by editing `AGENT.md`.
+> Ships as `openvole` 4.17.0 alongside `@openvole/dashboard-server` 0.14.0. Projects and tasks — an agent can now be pointed at new work in conversation instead of by editing `AGENT.md`.
 
 ### Added
 
@@ -23,6 +23,8 @@
 - **Delegated work stays visible.** A task carries an `assignee` and a `delegatedTaskId`, so a task handed to a sibling agent shows who holds it rather than reading as abandoned, and the coordinator can poll it with `agent_task_status` and record the outcome and artifacts back onto the task. A project belongs to whoever owns the outcome, not whoever does the labor; the worker reports and the owner records, keeping one writer per ledger.
 
 - **A Projects tab in the dashboard.** Projects with their open-task counts, the selected project's `CONTEXT.md`, and a task board grouped by state with done-criteria and block reasons. Task buttons offer only the moves that are legal from the current state, and blocking prompts for a reason. Create a project from the UI, with a **directory picker** for choosing its files: browsers withhold absolute paths from `webkitdirectory` and the File System Access API, so the listing is served by the control plane from the machine the agent runs on. It reports whether the chosen folder is inside `security.allowedPaths` and offers to grant it, noting that a running agent needs a restart to pick the grant up. Scanning a path fills in the project's kind and stack. Served from the agent's files, so it works while the agent is stopped.
+
+- **A file browser and editor on the project page.** The **Files** sub-tab browses both places a project's files can live — its folder in the agent workspace and the root it is attached to — and edits them: open, save, create, rename, move, delete. Seeing what the agent actually wrote previously meant ssh-ing to the machine it runs on. It is bounded by the project's own roots rather than by `security.allowedPaths`, deliberately: a surface that writes and deletes should not wander the whole grant. `.project.json` and `tasks.jsonl` open read-only, since both have proper editors and the task log is append-only and concurrently written.
 
 - **`vole project` and `vole task` commands** — list, scan, create, open, archive; add, list, next, update, cancel. They read the project files directly, so they work with the agent stopped. `vole task` previously existed as a stub that only ever printed "requires a running vole instance"; it now manages real work items.
 

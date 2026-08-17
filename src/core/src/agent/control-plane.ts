@@ -10,6 +10,7 @@ import {
 import { execa } from 'execa'
 import { loadConfig } from '../config/index.js'
 import { createLogger } from '../core/logger.js'
+import { type FileRootKey, ProjectFiles } from '../project/files.js'
 import { scanProjectRoot } from '../project/scan.js'
 import { ProjectStore } from '../project/store.js'
 import { TaskStore } from '../project/tasks.js'
@@ -104,6 +105,7 @@ export class ControlPlane {
 				projectCreate: (agentId, input) => this.projectCreate(agentId, input),
 				projectUpdate: (agentId, id, patch) => this.projectUpdate(agentId, id, patch),
 				projectArchive: (agentId, id) => this.projectArchive(agentId, id),
+				projectFiles: (agentId, id, op, args) => this.projectFiles(agentId, id, op, args),
 				taskAdd: (agentId, input) => this.taskAdd(agentId, input),
 				taskRun: (agentId, projectId, taskId) =>
 					this.callAgent(agentId, 'project_task_run', { projectId, taskId }),
@@ -436,6 +438,54 @@ export class ControlPlane {
 	async projectArchive(agentId: string, id: string) {
 		const { projects } = await this.projectStoresFor(agentId)
 		return { ok: true as const, project: await projects.archive(id) }
+	}
+
+	/**
+	 * The project file browser and manager — one entry point, dispatching on `op`.
+	 *
+	 * Kept as a single method rather than nine callbacks because every operation takes the same
+	 * (agent, project, root, path) address and differs only in verb; splitting them multiplied the
+	 * plumbing without separating anything. `ProjectFiles` holds the boundary — this only routes.
+	 */
+	async projectFiles(
+		agentId: string,
+		projectId: string,
+		op: string,
+		args: Record<string, unknown> = {},
+	) {
+		const { projects } = await this.projectStoresFor(agentId)
+		const files = new ProjectFiles(projects)
+		const root = (args.root as FileRootKey) || 'workspace'
+		const rel = typeof args.path === 'string' ? args.path : ''
+
+		switch (op) {
+			case 'roots':
+				return { ok: true as const, roots: await files.roots(projectId) }
+			case 'list':
+				return {
+					ok: true as const,
+					roots: await files.roots(projectId),
+					listing: await files.list(projectId, root, rel),
+				}
+			case 'read':
+				return { ok: true as const, file: await files.read(projectId, root, rel) }
+			case 'write':
+				return {
+					ok: true as const,
+					...(await files.write(projectId, root, rel, String(args.content ?? ''))),
+				}
+			case 'mkdir':
+				return { ok: true as const, ...(await files.mkdir(projectId, root, rel)) }
+			case 'delete':
+				return { ok: true as const, ...(await files.remove(projectId, root, rel)) }
+			case 'rename':
+				return {
+					ok: true as const,
+					...(await files.rename(projectId, root, rel, String(args.to ?? ''))),
+				}
+			default:
+				throw new Error(`Unknown file operation: "${op}"`)
+		}
 	}
 
 	async taskAdd(agentId: string, input: Record<string, unknown>) {

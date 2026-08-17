@@ -46,12 +46,20 @@ export interface DashboardCallbacks {
 	/** Add a directory to the agent's security.allowedPaths. A human action, not an agent one. */
 	grantPath?: (agentId: string, dirPath: string) => Promise<unknown>
 	projectCreate?: (agentId: string, input: Record<string, unknown>) => Promise<unknown>
-	projectUpdate?: (
-		agentId: string,
-		id: string,
-		patch: Record<string, unknown>,
-	) => Promise<unknown>
+	projectUpdate?: (agentId: string, id: string, patch: Record<string, unknown>) => Promise<unknown>
 	projectArchive?: (agentId: string, id: string) => Promise<unknown>
+	/**
+	 * Browse and edit a project's files — `op` is list/read/write/mkdir/delete/rename/roots.
+	 *
+	 * One callback for the whole verb set: they share an address (agent, project, root, path) and
+	 * the boundary lives in core, so splitting them would only widen this interface.
+	 */
+	projectFiles?: (
+		agentId: string,
+		projectId: string,
+		op: string,
+		args: Record<string, unknown>,
+	) => Promise<unknown>
 	taskAdd?: (agentId: string, input: Record<string, unknown>) => Promise<unknown>
 	/** Hand a queued task to the agent now, instead of waiting for its heartbeat. */
 	taskRun?: (agentId: string, projectId: string, taskId: string) => Promise<unknown>
@@ -700,6 +708,15 @@ export function createDashboardServer(
 				case 'project_archive': {
 					const p = cmd.params as { id: string }
 					respond(await callbacks.projectArchive?.(sel() ?? '', p?.id))
+					break
+				}
+				case 'project_files': {
+					const p = cmd.params as {
+						id: string
+						op: string
+						args?: Record<string, unknown>
+					}
+					respond(await callbacks.projectFiles?.(sel() ?? '', p?.id, p?.op, p?.args ?? {}))
 					break
 				}
 				case 'task_add': {

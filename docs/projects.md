@@ -167,6 +167,26 @@ Buttons move a task to whatever states are legal from where it is, so `done` is 
 after `verifying`. Blocking asks for a reason, because a board full of blocked tasks with no notes
 is unreadable a week later.
 
+The **Files** sub-tab is a file browser and editor for the project's own files. A project has at
+most two places files live, and this browses both: its folder in the agent workspace, and the root
+it is attached to when it has one. Switch between them with the pills at the top; with no attached
+root there is only the one and the pills are hidden.
+
+Click a folder to go into it, a file to open it. Text opens in an editor with a **Save** button;
+binary files and anything over 512 KB say so rather than filling a textarea with noise. **New
+file** takes a path, so `docs/notes.md` creates the folder on the way. **rename** also moves —
+give it a path with slashes. Navigating away from unsaved changes asks first.
+
+`.project.json` and `tasks.jsonl` show as *managed* and open read-only. They have proper editors
+elsewhere — the project form and the task board — and `tasks.jsonl` is an append-only log the agent
+may be writing to right now, so hand-editing it in a text box is how a project's history gets lost.
+
+This is bounded by the project's own two roots, which is tighter than `security.allowedPaths` on
+purpose: a browser that writes and deletes should not wander the whole grant. Paths that climb out
+with `..`, absolute paths, and symlinks pointing outside are each refused. An attached root that is
+no longer inside `allowedPaths` simply disappears from the pills rather than erroring on every
+click.
+
 Both `CONTEXT.md` and the identity files have a **Draft** button: describe what the file should
 cover in a sentence and the agent writes it. For `CONTEXT.md` it opens the project and reads the
 real files first, so what it writes is grounded rather than guessed. The draft fills the editor and

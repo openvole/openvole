@@ -437,9 +437,39 @@ export function getDashboardHtml(wsPort: number): string {
   .pchat-composer textarea { flex: 1; resize: none; min-height: 40px; max-height: 140px; }
   .pchat-hint { font-size: 11px; color: var(--text-dim); margin-top: 6px; }
   .task-assignee { display: inline-block; font-size: 10px; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--accent-line, var(--border)); color: var(--accent); margin-left: 6px; }
+  .pf-roots { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+  .pf-root { background: none; border: 1px solid var(--border); border-radius: 999px; color: var(--text-dim); font-size: 11px; padding: 3px 10px; cursor: pointer; }
+  .pf-root.active { color: var(--accent); border-color: var(--accent); }
+  .pf-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+  .pf-crumb { flex: 1; min-width: 0; font-family: var(--mono); font-size: 11px; color: var(--text-dim); overflow-wrap: anywhere; }
+  .pf-crumb a { color: var(--accent); cursor: pointer; text-decoration: none; }
+  .pf-crumb a:hover { text-decoration: underline; }
+  .pf-abs { font-family: var(--mono); font-size: 10px; color: var(--text-dim); opacity: .7; margin-bottom: 8px; overflow-wrap: anywhere; }
+  .pf-grid { display: grid; grid-template-columns: 1.1fr 1.4fr; gap: 12px; align-items: start; }
+  .pf-list { border: 1px solid var(--border); border-radius: 6px; max-height: 52vh; overflow-y: auto; }
+  .pf-row { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--border); font-size: 12px; }
+  .pf-row:last-child { border-bottom: none; }
+  .pf-row:hover { background: var(--surface-hover, rgba(127,127,127,.08)); }
+  .pf-name { flex: 1; min-width: 0; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pf-name.dir { color: var(--accent); }
+  .pf-name.open { font-weight: 600; }
+  .pf-size { font-family: var(--mono); font-size: 10px; color: var(--text-dim); flex-shrink: 0; }
+  .pf-row-actions { display: flex; gap: 4px; opacity: 0; flex-shrink: 0; }
+  .pf-row:hover .pf-row-actions { opacity: 1; }
+  .pf-row-actions button { background: none; border: none; color: var(--text-dim); cursor: pointer; font-size: 11px; padding: 0 3px; }
+  .pf-row-actions button:hover { color: var(--text); }
+  .pf-lock { font-size: 10px; color: var(--text-dim); flex-shrink: 0; }
+  .pf-edit { border: 1px solid var(--border); border-radius: 6px; padding: 10px; }
+  .pf-edit-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+  .pf-edit-name { flex: 1; min-width: 0; font-family: var(--mono); font-size: 11px; overflow-wrap: anywhere; }
+  .pf-edit textarea { width: 100%; min-height: 44vh; font-family: var(--mono); font-size: 12px; resize: vertical; }
+  .pf-dirty { color: var(--orange); font-size: 10px; }
   @media (max-width: 760px) {
     .proj-layout { grid-template-columns: 1fr; }
     .proj-list-pane { order: -1; }
+    .pf-grid { grid-template-columns: 1fr; }
+    .pf-list { max-height: 34vh; }
+    .pf-row-actions { opacity: 1; }
   }
   footer {
     background: var(--surface);
@@ -2992,6 +3022,7 @@ function renderProjectDetail(res) {
   html += '<div class="proj-subtabs">' +
     '<button class="proj-subtab' + (projSubtab === 'board' ? ' active' : '') + '" onclick="switchProjSubtab(\\'board\\')">Board</button>' +
     '<button class="proj-subtab' + (projSubtab === 'chat' ? ' active' : '') + '" onclick="switchProjSubtab(\\'chat\\')">Chat</button>' +
+    '<button class="proj-subtab' + (projSubtab === 'files' ? ' active' : '') + '" onclick="switchProjSubtab(\\'files\\')">Files</button>' +
     '</div>';
 
   html += '<div id="proj-board-view" style="display:' + (projSubtab === 'board' ? '' : 'none') + '">' +
@@ -3005,8 +3036,23 @@ function renderProjectDetail(res) {
     '<div class="pchat-hint">This conversation runs in the project\\'s own context — its CONTEXT.md and open tasks are already loaded, and the agent can create and update tasks from here.</div>' +
     '</div></div>';
 
+  html += '<div id="proj-files-view" style="display:' + (projSubtab === 'files' ? '' : 'none') + '">' +
+    '<div class="pf-roots" id="pf-roots"></div>' +
+    '<div class="pf-bar">' +
+    '<div class="pf-crumb" id="pf-crumb">Loading&hellip;</div>' +
+    '<button class="btn-subtle btn-sm" onclick="pfNewFile()">New file</button>' +
+    '<button class="btn-subtle btn-sm" onclick="pfNewFolder()">New folder</button>' +
+    '<button class="btn-subtle btn-sm" onclick="pfRefresh()">Refresh</button>' +
+    '</div>' +
+    '<div class="pf-abs" id="pf-abs"></div>' +
+    '<div class="pf-grid">' +
+    '<div class="pf-list" id="pf-list"></div>' +
+    '<div class="pf-edit" id="pf-edit"><div class="empty" style="padding:14px">Select a file to view or edit it.</div></div>' +
+    '</div></div>';
+
   document.getElementById('proj-detail').innerHTML = html;
   if (projSubtab === 'chat') loadProjectChat(p.id);
+  if (projSubtab === 'files') loadProjectFiles(p.id);
 }
 
 function renderTaskRow(projectId, t) {
@@ -3063,13 +3109,16 @@ function switchProjSubtab(name) {
   projSubtab = name;
   var board = document.getElementById('proj-board-view');
   var chat = document.getElementById('proj-chat-view');
+  var files = document.getElementById('proj-files-view');
   if (board) board.style.display = name === 'board' ? '' : 'none';
   if (chat) chat.style.display = name === 'chat' ? '' : 'none';
+  if (files) files.style.display = name === 'files' ? '' : 'none';
   var btns = document.querySelectorAll('.proj-subtab');
   for (var i = 0; i < btns.length; i++) {
     btns[i].classList.toggle('active', btns[i].textContent.toLowerCase() === name);
   }
   if (name === 'chat' && currentProjectId) loadProjectChat(currentProjectId);
+  if (name === 'files' && currentProjectId) loadProjectFiles(currentProjectId);
 }
 
 function loadProjectChat(projectId) {
@@ -3171,6 +3220,289 @@ function pchatOnTaskEvent(event, data) {
   // Tasks the agent just created or moved should show up without switching views.
   if (currentProjectId === p.projectId) openProject(p.projectId);
   return true;
+}
+
+/**
+ * The project file browser and manager.
+ *
+ * A project has at most two places its files live — its own folder in the agent workspace, and the
+ * root it is attached to when there is one — and this browses both. Without it, seeing what the
+ * agent actually wrote means ssh-ing to the machine it runs on, which is the wrong shape for a
+ * dashboard that otherwise runs the whole project.
+ *
+ * Entries are addressed by index into the last listing rather than by path. Paths interpolated
+ * into onclick handlers have to survive two layers of escaping and a quote in a filename breaks
+ * them; an integer cannot.
+ */
+
+var pfProject = null;
+var pfRoots = [];
+var pfRoot = 'workspace';
+var pfPath = '';
+var pfEntries = [];
+var pfListing = null; // the last listing, kept so the list can re-render without refetching
+var pfOpen = null; // { root, rel, name, dirty }
+
+function loadProjectFiles(projectId) {
+  // Switching projects starts at the top; coming back to the same one keeps your place.
+  if (pfProject !== projectId) { pfRoot = 'workspace'; pfPath = ''; pfOpen = null; }
+  // The whole detail pane is rebuilt whenever the project re-renders, which takes the editor with
+  // it. pfOpen surviving that points at a textarea no longer on the page — Save would then read
+  // nothing and quietly do nothing, which is worse than the button being absent.
+  if (!document.getElementById('pf-dirty')) pfOpen = null;
+  pfProject = projectId;
+  pfBrowse(pfRoot, pfPath);
+}
+
+function pfJoin(base, name) {
+  return base ? base + '/' + name : name;
+}
+
+/** Refuse to navigate away from an edit in progress without saying so. */
+function pfCheckDirty() {
+  if (!pfOpen || !pfOpen.dirty) return true;
+  return confirm('Discard unsaved changes to ' + pfOpen.rel + '?');
+}
+
+function pfRefresh() { pfBrowse(pfRoot, pfPath); }
+
+function pfBrowse(root, relPath) {
+  var list = document.getElementById('pf-list');
+  if (!list || !pfProject) return;
+  var epoch = viewEpoch;
+
+  sendCommand('project_files', { id: pfProject, op: 'list', args: { root: root, path: relPath || '' } })
+    .then(function(res) {
+      if (viewChanged(epoch)) return;
+      var listing = res.listing || {};
+      pfRoots = res.roots || [];
+      pfRoot = listing.root || root;
+      pfPath = listing.rel || '';
+      pfEntries = listing.entries || [];
+      pfListing = listing;
+
+      pfRenderRoots();
+      pfRenderCrumb(listing);
+      pfRenderList();
+    })
+    .catch(function(err) {
+      if (viewChanged(epoch)) return;
+      list.innerHTML = '<div class="empty" style="padding:14px">' + esc(String(err && err.message || err)) + '</div>';
+    });
+}
+
+function pfRenderRoots() {
+  var box = document.getElementById('pf-roots');
+  if (!box) return;
+  if (pfRoots.length < 2) { box.innerHTML = ''; return; }
+  var html = '';
+  for (var i = 0; i < pfRoots.length; i++) {
+    html += '<button class="pf-root' + (pfRoots[i].key === pfRoot ? ' active' : '') + '" onclick="pfSwitchRoot(' + i + ')">' +
+      esc(pfRoots[i].label) + '</button>';
+  }
+  box.innerHTML = html;
+}
+
+function pfSwitchRoot(index) {
+  var root = pfRoots[index];
+  if (!root || root.key === pfRoot) return;
+  if (!pfCheckDirty()) return;
+  pfOpen = null;
+  pfClearEditor('Select a file to view or edit it.');
+  pfBrowse(root.key, '');
+}
+
+function pfRenderCrumb(listing) {
+  var crumb = document.getElementById('pf-crumb');
+  var abs = document.getElementById('pf-abs');
+  if (!crumb) return;
+
+  var label = 'root';
+  for (var r = 0; r < pfRoots.length; r++) if (pfRoots[r].key === pfRoot) label = pfRoots[r].label;
+
+  var html = '<a onclick="pfCrumbTo(0)">' + esc(label) + '</a>';
+  var parts = pfPath ? pfPath.split('/') : [];
+  for (var i = 0; i < parts.length; i++) {
+    html += ' / ' + (i === parts.length - 1
+      ? esc(parts[i])
+      : '<a onclick="pfCrumbTo(' + (i + 1) + ')">' + esc(parts[i]) + '</a>');
+  }
+  crumb.innerHTML = html;
+  if (abs) abs.textContent = listing.path || '';
+}
+
+function pfCrumbTo(depth) {
+  if (!pfCheckDirty()) return;
+  var parts = pfPath ? pfPath.split('/') : [];
+  pfBrowse(pfRoot, parts.slice(0, depth).join('/'));
+}
+
+function pfRenderList() {
+  var box = document.getElementById('pf-list');
+  var listing = pfListing;
+  if (!box || !listing) return;
+
+  var html = '';
+  if (listing.parent !== null && listing.parent !== undefined) {
+    html += '<div class="pf-row"><span class="pf-name dir" onclick="pfUp()">&#8593; ..</span></div>';
+  }
+
+  for (var i = 0; i < pfEntries.length; i++) {
+    var e = pfEntries[i];
+    var isOpen = pfOpen && pfOpen.root === pfRoot && pfOpen.rel === pfJoin(pfPath, e.name);
+    html += '<div class="pf-row">' +
+      '<span class="pf-name' + (e.kind === 'dir' ? ' dir' : '') + (isOpen ? ' open' : '') + '" onclick="pfEnter(' + i + ')">' +
+      (e.kind === 'dir' ? '&#128193; ' : '&#128196; ') + esc(e.name) + (e.link ? ' &#8599;' : '') + '</span>' +
+      '<span class="pf-size">' + (e.kind === 'dir' ? '' : humanBytes(e.size)) + '</span>' +
+      (e.reserved
+        ? '<span class="pf-lock" title="Managed by the project — edited through the project form and the task board">managed</span>'
+        : '<div class="pf-row-actions">' +
+          '<button onclick="pfRename(' + i + ')" title="Rename or move">rename</button>' +
+          '<button onclick="pfDelete(' + i + ')" title="Delete">delete</button></div>') +
+      '</div>';
+  }
+
+  if (!pfEntries.length) html += '<div class="empty" style="padding:14px">Empty folder.</div>';
+  if (listing.truncated) html += '<div class="empty" style="padding:8px">Listing truncated — this folder has more entries than can be shown.</div>';
+  box.innerHTML = html;
+}
+
+function pfUp() {
+  if (!pfCheckDirty()) return;
+  var parts = pfPath ? pfPath.split('/') : [];
+  parts.pop();
+  pfBrowse(pfRoot, parts.join('/'));
+}
+
+function pfEnter(index) {
+  var e = pfEntries[index];
+  if (!e) return;
+  if (e.kind === 'dir') {
+    if (!pfCheckDirty()) return;
+    pfBrowse(pfRoot, pfJoin(pfPath, e.name));
+    return;
+  }
+  pfOpenFile(index);
+}
+
+function pfOpenFile(index) {
+  var e = pfEntries[index];
+  if (!e || !pfCheckDirty()) return;
+  var rel = pfJoin(pfPath, e.name);
+  var epoch = viewEpoch;
+
+  sendCommand('project_files', { id: pfProject, op: 'read', args: { root: pfRoot, path: rel } })
+    .then(function(res) {
+      if (viewChanged(epoch)) return;
+      pfOpen = { root: pfRoot, rel: rel, name: e.name, dirty: false };
+      pfRenderEditor(res.file || {}, !!e.reserved);
+      // Re-render so the open file reads as selected. No refetch — the listing has not changed.
+      pfRenderList();
+    })
+    .catch(function(err) {
+      if (viewChanged(epoch)) return;
+      showToast(String(err && err.message || err), 'error');
+    });
+}
+
+function pfClearEditor(message) {
+  var box = document.getElementById('pf-edit');
+  if (box) box.innerHTML = '<div class="empty" style="padding:14px">' + esc(message) + '</div>';
+}
+
+function pfRenderEditor(file, reserved) {
+  var box = document.getElementById('pf-edit');
+  if (!box) return;
+
+  var head = '<div class="pf-edit-head"><div class="pf-edit-name">' + esc(file.rel || '') + '</div>' +
+    '<span class="pf-dirty" id="pf-dirty"></span>';
+
+  if (file.binary || file.tooLarge) {
+    box.innerHTML = head + '</div><div class="empty" style="padding:14px">' +
+      (file.binary
+        ? 'Binary file (' + humanBytes(file.size || 0) + ') — nothing sensible to show in an editor.'
+        : 'Too large to edit here (' + humanBytes(file.size || 0) + ').') +
+      '</div>';
+    return;
+  }
+
+  box.innerHTML = head +
+    (reserved
+      ? '<span class="pf-lock">read-only</span>'
+      : '<button class="btn-primary btn-sm" onclick="pfSave()">Save</button>') +
+    '</div><textarea id="pf-content" spellcheck="false"' + (reserved ? ' readonly' : ' oninput="pfMarkDirty()"') + '></textarea>';
+
+  // Set through .value, never innerHTML: file contents are arbitrary text and a textarea built by
+  // string concatenation is one "</textarea>" in a file away from breaking the page.
+  document.getElementById('pf-content').value = file.content || '';
+}
+
+function pfMarkDirty() {
+  if (pfOpen) pfOpen.dirty = true;
+  var flag = document.getElementById('pf-dirty');
+  if (flag) flag.textContent = 'unsaved';
+}
+
+function pfSave() {
+  var el = document.getElementById('pf-content');
+  if (!el || !pfOpen) return;
+
+  sendCommand('project_files', { id: pfProject, op: 'write', args: { root: pfOpen.root, path: pfOpen.rel, content: el.value } })
+    .then(function() {
+      pfOpen.dirty = false;
+      var flag = document.getElementById('pf-dirty');
+      if (flag) flag.textContent = 'saved';
+      showToast('Saved ' + pfOpen.rel, 'success');
+      pfBrowse(pfRoot, pfPath);
+    })
+    .catch(function(err) { showToast(String(err && err.message || err), 'error'); });
+}
+
+function pfNewFile() {
+  var name = prompt('New file name (a path with / creates folders too):');
+  if (!name) return;
+  var rel = pfJoin(pfPath, name.trim());
+  sendCommand('project_files', { id: pfProject, op: 'write', args: { root: pfRoot, path: rel, content: '' } })
+    .then(function() { pfBrowse(pfRoot, pfPath); })
+    .catch(function(err) { showToast(String(err && err.message || err), 'error'); });
+}
+
+function pfNewFolder() {
+  var name = prompt('New folder name:');
+  if (!name) return;
+  sendCommand('project_files', { id: pfProject, op: 'mkdir', args: { root: pfRoot, path: pfJoin(pfPath, name.trim()) } })
+    .then(function() { pfBrowse(pfRoot, pfPath); })
+    .catch(function(err) { showToast(String(err && err.message || err), 'error'); });
+}
+
+function pfRename(index) {
+  var e = pfEntries[index];
+  if (!e) return;
+  var name = prompt('Rename ' + e.name + ' to:', e.name);
+  if (!name || name.trim() === e.name) return;
+
+  var from = pfJoin(pfPath, e.name);
+  sendCommand('project_files', { id: pfProject, op: 'rename', args: { root: pfRoot, path: from, to: pfJoin(pfPath, name.trim()) } })
+    .then(function() {
+      if (pfOpen && pfOpen.rel === from) { pfOpen = null; pfClearEditor('Select a file to view or edit it.'); }
+      pfBrowse(pfRoot, pfPath);
+    })
+    .catch(function(err) { showToast(String(err && err.message || err), 'error'); });
+}
+
+function pfDelete(index) {
+  var e = pfEntries[index];
+  if (!e) return;
+  var what = e.kind === 'dir' ? 'folder ' + e.name + ' and everything in it' : e.name;
+  if (!confirm('Delete ' + what + '? This cannot be undone.')) return;
+
+  var rel = pfJoin(pfPath, e.name);
+  sendCommand('project_files', { id: pfProject, op: 'delete', args: { root: pfRoot, path: rel } })
+    .then(function() {
+      if (pfOpen && pfOpen.rel === rel) { pfOpen = null; pfClearEditor('Select a file to view or edit it.'); }
+      pfBrowse(pfRoot, pfPath);
+    })
+    .catch(function(err) { showToast(String(err && err.message || err), 'error'); });
 }
 
 function moveTask(projectId, taskId, state) {

@@ -147,6 +147,18 @@ The Chat tab is a channel, not just a reply box. The agent can [message you firs
 
 Unread counts survive a reload and a closed browser: the dashboard keeps a per-chat read watermark and recounts from the agent's session transcripts on reconnect, so a message sent at 3am is still marked unread when you open the page.
 
+## Projects Tab
+
+Projects on the left, and for the selected one three sub-tabs:
+
+- **Board** — tasks grouped by state with their done-criteria, and buttons for only the moves that are legal from where each task is
+- **Chat** — a conversation in that project's own context, so you describe what you want and the agent works out the tasks
+- **Files** — a browser and editor for the project's files, covering both its workspace folder and the root it is attached to
+
+**New** creates a project, with a directory picker that walks the filesystem of the machine the agent runs on and offers to grant a path that is not yet in `security.allowedPaths`.
+
+This tab is served from the agent's files rather than over IPC, so it works while the agent is stopped — which is when queueing work up is most useful. See [Projects & Tasks](/projects) for the model behind it.
+
 ## Config Tab
 
 The Config tab is a fully **structured form** — no raw-JSON textareas. Edit every section of `vole.config.json` with typed fields:
