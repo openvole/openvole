@@ -322,7 +322,7 @@ export class ControlPlane {
 			ok: true as const,
 			project,
 			dir: projects.dirFor(id),
-			context: (await projects.readContext(id)) ?? null,
+			contextFiles: (await projects.readContextFiles(id, project.contextFiles)).inlined,
 			tasks: await tasks.list({ projectId: id, state: 'all' }),
 		}
 	}

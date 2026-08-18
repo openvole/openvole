@@ -2,7 +2,7 @@
  * The project and task tools — how an agent sets up its own work.
  *
  * The point of this file is that a human should never have to hand-edit AGENT.md to change what an
- * agent is working on. "Work on the openvole repo" becomes: scan the root, draft a CONTEXT.md from
+ * agent is working on. "Work on the openvole repo" becomes: scan the root, draft a VOLE.md from
  * what was actually found, propose a project and some opening tasks, and create them once the human
  * agrees. The agent writes its own setup; the human reviews it.
  *
@@ -74,7 +74,7 @@ const ROOT_PARAM = z
 	.enum(['root', 'workspace'])
 	.optional()
 	.describe(
-		"Which of the project's places to act in. 'root' is the attached files — the repo or folder the project points at. 'workspace' is the project's own folder, holding CONTEXT.md and its notes. Defaults to 'root' when the project has one.",
+		"Which of the project's places to act in. 'root' is the attached files — the repo or folder the project points at. 'workspace' is the project's own folder, holding VOLE.md and its notes. Defaults to 'root' when the project has one.",
 	)
 
 export function createProjectTools(deps: ProjectToolDeps): ToolDefinition[] {
@@ -238,7 +238,7 @@ export function createProjectTools(deps: ProjectToolDeps): ToolDefinition[] {
 					.string()
 					.optional()
 					.describe(
-						'Initial CONTEXT.md — what this project is, how to work in it, anything a future run would need. Write it from what you actually found.',
+						'Initial VOLE.md — what this project is, how to work in it, anything a future run would need. Write it from what you actually found.',
 					),
 				stack: z.array(z.string()).optional().describe('Detected technologies (informational)'),
 				tags: z.array(z.string()).optional(),
@@ -285,7 +285,7 @@ export function createProjectTools(deps: ProjectToolDeps): ToolDefinition[] {
 		{
 			name: 'project_open',
 			description:
-				'Read everything about one project: its manifest, its CONTEXT.md, and its open tasks. Use this when you start working on a project you did not set up in this run.',
+				'Read everything about one project: its manifest, its context docs, and its open tasks. Use this when you start working on a project you did not set up in this run.',
 			parameters: z.object({
 				id: z.string().describe('Project id'),
 			}),
@@ -298,7 +298,7 @@ export function createProjectTools(deps: ProjectToolDeps): ToolDefinition[] {
 						ok: true,
 						project: manifest,
 						dir: projects.dirFor(id),
-						context: (await projects.readContext(id)) ?? null,
+						contextFiles: (await projects.readContextFiles(id, manifest.contextFiles)).inlined,
 						tasks: await tasks.list({ projectId: id }),
 					}
 				} catch (err) {
@@ -309,7 +309,7 @@ export function createProjectTools(deps: ProjectToolDeps): ToolDefinition[] {
 		{
 			name: 'project_update',
 			description:
-				'Update a project: rename it, change its kind or status, repoint its root, or rewrite CONTEXT.md. Keep CONTEXT.md current — it is what a future run reads to understand this project, and a stale one silently misleads.',
+				'Update a project: rename it, change its kind or status, repoint its root, or rewrite its VOLE.md. Keep it current — every markdown file in the project folder is loaded into the prompt of a future run, and a stale one silently misleads.',
 			parameters: z.object({
 				id: z.string().describe('Project id'),
 				name: z.string().optional(),
@@ -321,7 +321,7 @@ export function createProjectTools(deps: ProjectToolDeps): ToolDefinition[] {
 					.describe('New root. Re-checked against allowed paths — this is not a way around them.'),
 				stack: z.array(z.string()).optional(),
 				tags: z.array(z.string()).optional(),
-				context: z.string().optional().describe('Replaces CONTEXT.md entirely'),
+				context: z.string().optional().describe('Replaces the project VOLE.md entirely'),
 			}),
 			async execute(params) {
 				const { id, context, ...patch } = params as {

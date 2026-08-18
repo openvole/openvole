@@ -46,11 +46,11 @@ describe('resolveProjectContext', () => {
 		expect(await resolveProjectContext(projects, tasks, { projectId: 42 })).toBeNull()
 	})
 
-	it('resolves manifest plus CONTEXT.md', async () => {
+	it('resolves manifest plus its context docs', async () => {
 		const info = await resolveProjectContext(projects, tasks, { projectId: 'openvole' })
 		expect(info?.name).toBe('OpenVole')
 		expect(info?.kind).toBe('code')
-		expect(info?.context).toContain('Biome uses tabs')
+		expect(info?.contextFiles?.map((f) => f.body).join()).toContain('Biome uses tabs')
 		expect(info?.dir).toBe(path.join(dir, '.openvole', 'workspace', 'openvole'))
 		expect(info?.task).toBeUndefined()
 	})
@@ -97,8 +97,8 @@ describe('resolveProjectContext', () => {
 			resolveProjectContext(projects, tasks, { projectId: 'nart' }),
 		])
 
-		expect(a?.context).toContain('Biome')
-		expect(b?.context).toContain('third-person')
+		expect(a?.contextFiles?.map((f) => f.body).join()).toContain('Biome')
+		expect(b?.contextFiles?.map((f) => f.body).join()).toContain('third-person')
 		expect(a?.id).toBe('openvole')
 		expect(b?.id).toBe('nart')
 	})
@@ -134,7 +134,7 @@ describe('resolveProjectContext', () => {
 
 		const chat = await resolveProjectContext(projects, tasks, { projectId: 'openvole' })
 		expect(chat?.task).toBeUndefined()
-		expect(chat?.context).toContain('Biome')
+		expect(chat?.contextFiles?.map((f) => f.body).join()).toContain('Biome')
 	})
 
 	it('an explicit work item wins over auto-selection', async () => {

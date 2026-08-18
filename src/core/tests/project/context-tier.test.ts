@@ -36,7 +36,12 @@ function project(over: Partial<ProjectContextInfo> = {}): ProjectContextInfo {
 		kind: 'code',
 		root: '/Users/k/limnr/openvole',
 		dir: '/agent/.openvole/workspace/openvole-4.17',
-		context: '# OpenVole\n\nBuild with pnpm. Biome uses tabs and single quotes.',
+		contextFiles: [
+			{
+				name: 'VOLE.md',
+				body: '# OpenVole\n\nBuild with pnpm. Biome uses tabs and single quotes.',
+			},
+		],
 		task: {
 			id: 't_1',
 			goal: 'Port paw-database off better-sqlite3',
@@ -47,7 +52,7 @@ function project(over: Partial<ProjectContextInfo> = {}): ProjectContextInfo {
 }
 
 describe('project context tier', () => {
-	it('renders the project, its task, and CONTEXT.md verbatim', () => {
+	it('renders the project, its task, and its context docs verbatim', () => {
 		const prompt = buildSystemPrompt(content, [], tools, { project: project() })
 
 		expect(prompt).toContain('## Current Project')
@@ -79,7 +84,9 @@ describe('project context tier', () => {
 				name: 'Nart Ch. 9',
 				kind: 'writing',
 				root: undefined,
-				context: '# Nart Sagas\n\nThe narrator is third-person past.',
+				contextFiles: [
+					{ name: 'VOLE.md', body: '# Nart Sagas\n\nThe narrator is third-person past.' },
+				],
 				task: { id: 't_2', goal: 'Draft chapter 9', doneCriteria: [] },
 			}),
 		})

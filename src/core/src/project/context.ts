@@ -101,8 +101,9 @@ export async function resolveProjectContext(
 		...(manifest.toolProfile ? { toolProfile: manifest.toolProfile } : {}),
 	}
 
-	const context = await projects.readContext(manifest.id)
-	if (context) info.context = context
+	const docs = await projects.readContextFiles(manifest.id, manifest.contextFiles)
+	if (docs.inlined.length > 0) info.contextFiles = docs.inlined
+	if (docs.listed.length > 0) info.otherFiles = docs.listed
 
 	const projectTaskId = scope?.projectTaskId
 	if (typeof projectTaskId === 'string' && projectTaskId) {

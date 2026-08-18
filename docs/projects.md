@@ -16,7 +16,7 @@ Projects split those apart:
 | Tier | Holds | Edited by | Loaded |
 |------|-------|-----------|--------|
 | **Identity** — `AGENT.md`, `SOUL.md`, `USER.md` | who the agent is, standing rules | you, rarely | once, at start |
-| **Project** — `CONTEXT.md` | one body of work: where its files are, how to work in it | the agent | per task |
+| **Project** — `VOLE.md` | one body of work: where its files are, how to work in it | the agent | per task |
 | **Task** — `tasks.jsonl` | one unit of work: goal, done-criteria, budget | the agent, on your say-so | per task |
 
 An agent with no projects behaves exactly as it did before — nothing about the existing setup
@@ -31,7 +31,7 @@ your-agent/
     └── workspace/
         ├── openvole-4.17/          a project
         │   ├── .project.json         manifest
-        │   ├── CONTEXT.md            what the agent knows about this project
+        │   ├── VOLE.md               what the agent knows about this project
         │   ├── tasks.jsonl           task queue and full state history
         │   └── notes/ drafts/        the project's own scratch space
         ├── nart-chapter-9/
@@ -41,6 +41,33 @@ your-agent/
 A directory is a project exactly when it contains `.project.json`. The filesystem is the index, so
 there is nothing to keep in sync — and a project folder is portable: send one to another agent with
 VoleDrop, or sync it over VoleNet.
+
+## Context: VOLE.md
+
+In the `CLAUDE.md` idiom: a markdown file written for the agent, kept beside the work. It is
+loaded into the system prompt of every task in that project, so what it says is what a run knows
+before it starts.
+
+Two places it can live, and both are read:
+
+- **`VOLE.md` at the project's root** — for an attached project this belongs in the repo, checked
+  in, so it travels with the code and every agent that picks the project up gets the same
+  briefing. This one is loaded first.
+- **`VOLE.md` in the project folder** — this agent's own accumulated notes about the work, private
+  to it.
+
+The filename is a convention, not a rule: **every markdown file at the top of the project folder
+is loaded**, `VOLE.md` first, then `CONTEXT.md` if the project has one from before, then the rest
+alphabetically. Split things up as it suits the project — `CONVENTIONS.md`, `GLOSSARY.md`, a brief
+per workstream — and they all arrive in the prompt.
+
+There is a total budget (20,000 characters). Anything past it is named in the prompt rather than
+inlined, so the agent knows it exists and can read it with `project_file_read`. A project that has
+outgrown the budget can name the files worth spending it on:
+
+```json
+{ "contextFiles": ["VOLE.md", "CONVENTIONS.md"] }
+```
 
 ## Two kinds of project
 
@@ -74,12 +101,12 @@ The intended flow is that you describe the work and the agent sets it up:
 
 1. The agent runs `project_scan` on the path — read-only. It detects the stack (git, pnpm,
    TypeScript, vitest…), suggests a kind, and lists the docs worth reading.
-2. It reads those docs and drafts a `CONTEXT.md` from what it actually found.
+2. It reads those docs and drafts a `VOLE.md` from what it actually found.
 3. It proposes the project and some opening tasks.
 4. On your go-ahead it calls `project_create` and `task_create`.
 
 You review a draft instead of writing one. Everything the agent learns later goes back into
-`CONTEXT.md`, so the next run starts informed rather than re-deriving it.
+`VOLE.md`, so the next run starts informed rather than re-deriving it.
 
 ## Tasks
 
@@ -126,7 +153,7 @@ out are each refused. A `root` argument picks which of the project's two places 
 | `root` | Where |
 |--------|-------|
 | `root` *(default when the project has one)* | the attached files — the repo or folder the project points at |
-| `workspace` | the project's own folder: `CONTEXT.md`, notes, drafts |
+| `workspace` | the project's own folder: `VOLE.md`, notes, drafts |
 
 A self-contained project has only the second, so the choice collapses.
 
@@ -185,14 +212,14 @@ The agent view has a **Projects** tab: projects on the left, and for the selecte
 board grouped by state — running, verifying, blocked, queued, done — with
 each task's done-criteria and, when blocked, the reason.
 
-The **Chat** sub-tab talks to the agent in that project's own context — its `CONTEXT.md` and open
+The **Chat** sub-tab talks to the agent in that project's own context — its docs and open
 tasks are already loaded, so you can describe what you want instead of filling in a task form and
 the agent creates and updates the tasks itself. These conversations live on the project page and
 stay out of the central Chat tab, which keeps that list from filling with unlabelled sessions.
 
-`CONTEXT.md` sits above the board as a single collapsed line showing its first line; click to
-expand, or use **Context** to edit it. It is written for the agent to read, so it stays out of the
-way of the board by default.
+The project's context docs sit above the board as a single collapsed line naming them; click to
+expand, or use **Context** to edit. They are written for the agent to read, so they stay out of
+the way of the board by default.
 
 Buttons move a task to whatever states are legal from where it is, so `done` is only ever offered
 after `verifying`. Blocking asks for a reason, because a board full of blocked tasks with no notes
@@ -224,8 +251,8 @@ with `..`, absolute paths, and symlinks pointing outside are each refused. An at
 no longer inside `allowedPaths` simply disappears from the pills rather than erroring on every
 click.
 
-Both `CONTEXT.md` and the identity files have a **Draft** button: describe what the file should
-cover in a sentence and the agent writes it. For `CONTEXT.md` it opens the project and reads the
+Both the project's context doc and the identity files have a **Draft** button: describe what the
+file should cover in a sentence and the agent writes it. For the context doc it opens the project and reads the
 real files first, so what it writes is grounded rather than guessed. The draft fills the editor and
 stops there — you read it and save it yourself. Drafting needs the agent running, and does not
 appear in its chat.
@@ -243,7 +270,7 @@ which is when queueing work up is most useful.
 vole project list [--all]              # projects in this workspace
 vole project scan <path>               # inspect a directory (read-only)
 vole project create <id> [--name <n>] [--kind <k>] [--root <path>]
-vole project open <id>                 # manifest, CONTEXT.md and open tasks
+vole project open <id>                 # manifest, context docs and open tasks
 vole project archive <id>              # retire it, keeping every file
 
 vole task list [projectId] [--state <s>]
@@ -262,7 +289,7 @@ Nothing forces this: an agent with no projects keeps working exactly as before.
 
 When you do want to split a crowded `AGENT.md`, ask the agent to propose the division — which parts
 are durable identity and which are the current assignment. It can create the project and write
-`CONTEXT.md` from the assignment half, then show you the lines to remove from `AGENT.md`.
+`VOLE.md` from the assignment half, then show you the lines to remove from `AGENT.md`.
 
 That last step stays yours on purpose. `AGENT.md` holds the standing rules an agent operates under,
 and an agent that could quietly rewrite its own rules is not one you can rely on. The agent proposes;

@@ -33,6 +33,13 @@ export interface ProjectManifest {
 	stack?: string[]
 	/** Narrows the agent's tool profile for this project. Can never widen it. */
 	toolProfile?: { allow?: string[]; deny?: string[] }
+	/**
+	 * Which markdown files in the project folder are inlined into the prompt, in order.
+	 *
+	 * Absent means all of them, CONTEXT.md first. Set it when a project accumulates docs that are
+	 * worth keeping but not worth spending prompt on every task.
+	 */
+	contextFiles?: string[]
 	tags?: string[]
 	createdAt: number
 	updatedAt: number
@@ -117,8 +124,10 @@ export interface ProjectContextInfo {
 	dir: string
 	/** Narrows tool access for the duration of this task. Never rendered into the prompt. */
 	toolProfile?: { allow?: string[]; deny?: string[] }
-	/** CONTEXT.md verbatim (already capped by the store). */
-	context?: string
+	/** The project's markdown docs, inlined into the prompt (already capped by the store). */
+	contextFiles?: Array<{ name: string; body: string }>
+	/** Docs that exist but did not fit the budget — named so the agent can read them on purpose. */
+	otherFiles?: string[]
 	task?: { id: string; goal: string; doneCriteria: string[] }
 }
 

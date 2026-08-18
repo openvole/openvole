@@ -56,10 +56,10 @@ describe('scanProjectRoot', () => {
 		expect(result.summary).toContain('openvole')
 	})
 
-	it('always suggests writing CONTEXT.md first', async () => {
+	it('always suggests writing VOLE.md first', async () => {
 		await fs.writeFile(path.join(repo, 'README.md'), '# thing', 'utf-8')
 		const result = await scanProjectRoot(repo, [dir])
-		expect(result.suggestedTasks[0]).toMatch(/CONTEXT\.md/)
+		expect(result.suggestedTasks[0]).toMatch(/VOLE\.md/)
 		expect(result.suggestedTasks[0]).toContain('README.md')
 	})
 

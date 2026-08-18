@@ -103,18 +103,61 @@ describe('ProjectStore', () => {
 
 		expect((await store.list()).map((p) => p.id)).toEqual([])
 		expect((await store.list({ status: 'all' })).map((p) => p.id)).toEqual(['old-work'])
-		expect(await store.readContext('old-work')).toContain('must survive')
+		expect((await store.readContextFiles('old-work')).inlined[0].body).toContain('must survive')
 	})
 
-	it('round-trips CONTEXT.md and caps a pathological one', async () => {
+	it('round-trips its context doc and caps a pathological one', async () => {
 		await store.create({ id: 'ctx' })
 		await store.writeContext('ctx', '# Project\n\nThe build runs with pnpm.')
-		expect(await store.readContext('ctx')).toContain('pnpm')
+
+		// VOLE.md is the name a new project gets — CONTEXT.md is only kept for ones that have it.
+		const docs = await store.readContextFiles('ctx')
+		expect(docs.inlined.map((f) => f.name)).toEqual(['VOLE.md'])
+		expect(docs.inlined[0].body).toContain('pnpm')
 
 		await store.writeContext('ctx', 'A'.repeat(25_000))
-		const capped = await store.readContext('ctx')
-		expect(capped?.length).toBeLessThan(21_000)
+		const capped = (await store.readContextFiles('ctx')).inlined[0].body
+		expect(capped.length).toBeLessThan(21_000)
 		expect(capped).toContain('[... truncated]')
+	})
+
+	it('loads every markdown file in the project folder, conventional names first', async () => {
+		// The folder is the context: one hardcoded filename could not hold a project that wants
+		// conventions and a glossary alongside its overview.
+		await store.create({ id: 'many' })
+		const dir = store.dirFor('many')
+		await fs.writeFile(path.join(dir, 'GLOSSARY.md'), 'terms')
+		await fs.writeFile(path.join(dir, 'VOLE.md'), 'overview')
+		await fs.writeFile(path.join(dir, 'CONVENTIONS.md'), 'rules')
+		await fs.writeFile(path.join(dir, 'notes.txt'), 'not markdown')
+
+		const docs = await store.readContextFiles('many')
+		expect(docs.inlined.map((f) => f.name)).toEqual(['VOLE.md', 'CONVENTIONS.md', 'GLOSSARY.md'])
+	})
+
+	it('an explicit contextFiles list restricts and orders what is loaded', async () => {
+		await store.create({ id: 'picky' })
+		const dir = store.dirFor('picky')
+		await fs.writeFile(path.join(dir, 'VOLE.md'), 'overview')
+		await fs.writeFile(path.join(dir, 'HUGE.md'), 'not this one')
+
+		const docs = await store.readContextFiles('picky', ['VOLE.md'])
+		expect(docs.inlined.map((f) => f.name)).toEqual(['VOLE.md'])
+		// Left out of the prompt, but named so the agent knows it can go and read it.
+		expect(docs.listed).toContain('HUGE.md')
+	})
+
+	it('reads VOLE.md from an attached root, where it is checked in and shared', async () => {
+		const repo = path.join(dir, 'repo')
+		await fs.mkdir(repo, { recursive: true })
+		await fs.writeFile(path.join(repo, 'VOLE.md'), 'how to work in this repo')
+		await store.create({ id: 'attached', kind: 'code', root: repo })
+		await store.writeContext('attached', 'this agent\u2019s own notes')
+
+		const docs = await store.readContextFiles('attached')
+		// The repo's copy leads: it is shared and checked in, so it outranks private notes.
+		expect(docs.inlined.map((f) => f.name)).toEqual(['VOLE.md (project root)', 'VOLE.md'])
+		expect(docs.inlined[0].body).toContain('how to work in this repo')
 	})
 
 	it('rejects an unknown kind on create and update', async () => {

@@ -1820,9 +1820,57 @@ var lastStateSchedules = [];
 var lastStateVolenet = { enabled: false };
 var drawerSection = null; // which section's detail drawer is open (null = closed)
 
+/*
+ * Where you were, remembered across a reload.
+ *
+ * The page reloads itself when the websocket drops (sleep, a network blip, a server restart), and
+ * without this every one of those dumped you back on the agents list — reading as "the dashboard
+ * randomly went home" rather than as a reconnect. sessionStorage rather than localStorage so two
+ * browser tabs can sit on different agents without fighting over one slot.
+ */
+var VIEW_KEY = 'voleView';
+var viewRestored = false;
+
+function saveView() {
+  try {
+    if (!currentAgentId) { sessionStorage.removeItem(VIEW_KEY); return; }
+    sessionStorage.setItem(VIEW_KEY, JSON.stringify({
+      agentId: currentAgentId,
+      tab: currentTab,
+      projectId: currentProjectId || null
+    }));
+  } catch (e) { /* private mode, or a full quota — not worth failing the click over */ }
+}
+
+function readSavedView() {
+  try { return JSON.parse(sessionStorage.getItem(VIEW_KEY) || 'null'); } catch (e) { return null; }
+}
+
+/**
+ * Put the page back where it was. Called once the agent list has loaded, since a saved agent that
+ * has since been deleted must fall back to the launcher rather than opening a dead view.
+ */
+function restoreView(agents) {
+  var saved = readSavedView();
+  if (!saved || !saved.agentId) return false;
+  var exists = (agents || []).some(function(a) { return a.id === saved.agentId; });
+  if (!exists) { saveViewClear(); return false; }
+
+  showDashboardView();
+  selectAgent(saved.agentId);
+  switchTab(saved.tab || 'overview');
+  if (saved.tab === 'projects' && saved.projectId) openProject(saved.projectId);
+  return true;
+}
+
+function saveViewClear() {
+  try { sessionStorage.removeItem(VIEW_KEY); } catch (e) {}
+}
+
 /* ── View switching: agents launcher  <->  selected-agent dashboard ── */
 function showAgentsView() {
   currentAgentId = null;
+  saveViewClear();
   document.body.dataset.view = 'agents';
   sendCommand('list_agents').then(renderAgents).catch(function() {});
 }
@@ -1833,6 +1881,7 @@ function openAgent(id) {
   showDashboardView();
   selectAgent(id);
   switchTab('overview');
+  saveView();
 }
 
 /* ── Agents launcher (cards) ── */
@@ -2989,6 +3038,7 @@ function renderProjectList(projects) {
 
 function openProject(id) {
   currentProjectId = id;
+  saveView();
   var epoch = viewEpoch;
   sendCommand('project_open', { id: id }).then(function(res) {
     if (viewChanged(epoch) || currentProjectId !== id) return;
@@ -3015,19 +3065,20 @@ function renderProjectDetail(res) {
     (p.status === 'archived' ? '' : '<button class="btn-subtle btn-sm" onclick="archiveProject(\\'' + esc(p.id) + '\\')">Archive</button>') +
     '</div></div>';
 
-  // CONTEXT.md is written once and read by the agent, not by you — an always-open preview cost
-  // half the screen above the board you actually came for. Collapsed to one line, with the first
-  // line of it as the gist so the summary is still worth reading.
-  if (res.context) {
-    var gist = res.context.split('\\n').filter(function(l) { return l.trim(); })[0] || '';
+  // The docs are written for the agent, not for you — an always-open preview cost half the screen
+  // above the board you actually came for. One line naming what is loaded, expandable.
+  var docs = res.contextFiles || [];
+  if (docs.length) {
+    var names = docs.map(function(d) { return d.name; }).join(', ');
+    var body = docs.map(function(d) { return '# ' + d.name + '\\n\\n' + d.body.trim(); }).join('\\n\\n');
     html += '<div class="proj-context-line" onclick="toggleProjContext()">' +
       '<span class="proj-context-caret" id="proj-context-caret">' + (projContextOpen ? '&#9662;' : '&#9656;') + '</span>' +
-      '<span>CONTEXT.md</span>' +
-      '<span class="proj-context-gist">' + esc(gist.replace(/^#+\\s*/, '')) + '</span></div>' +
+      '<span>Context</span>' +
+      '<span class="proj-context-gist">' + esc(names) + '</span></div>' +
       '<div class="proj-context" id="proj-context" style="display:' + (projContextOpen ? '' : 'none') + '">' +
-      esc(res.context) + '</div>';
+      esc(body) + '</div>';
   } else {
-    html += '<div class="proj-context-none">No CONTEXT.md yet — this is what a future run reads to understand the project.</div>';
+    html += '<div class="proj-context-none">No context docs yet — add a <strong>VOLE.md</strong> to this project and every run reads it. Any .md file in the project folder is loaded.</div>';
   }
 
   var byState = {};
@@ -3059,7 +3110,7 @@ function renderProjectDetail(res) {
     '<div class="pchat-composer">' +
     '<textarea class="form-textarea" id="pchat-input" rows="2" placeholder="Talk about this project&hellip;" onkeydown="pchatKey(event)"></textarea>' +
     '<button class="btn-primary" onclick="pchatSend()">Send</button></div>' +
-    '<div class="pchat-hint">This conversation runs in the project\\'s own context — its CONTEXT.md and open tasks are already loaded, and the agent can create and update tasks from here.</div>' +
+    '<div class="pchat-hint">This conversation runs in the project\\'s own context — its docs and open tasks are already loaded, and the agent can create and update tasks from here.</div>' +
     '</div></div>';
 
   html += '<div id="proj-files-view" style="display:' + (projSubtab === 'files' ? '' : 'none') + '">' +
@@ -3129,7 +3180,7 @@ function renderTaskRow(projectId, t) {
  */
 
 var projSubtab = 'board';
-/** CONTEXT.md preview starts collapsed, and stays however you last left it. */
+/** The context preview starts collapsed, and stays however you last left it. */
 var projContextOpen = false;
 
 function toggleProjContext() {
@@ -4788,6 +4839,7 @@ var identityLoaded = false;
 
 function switchTab(tabName) {
   currentTab = tabName;
+  saveView();
   var tabs = document.querySelectorAll('.tab-btn');
   for (var i = 0; i < tabs.length; i++) {
     tabs[i].classList.toggle('active', tabs[i].getAttribute('data-tab') === tabName);
@@ -6098,6 +6150,13 @@ ws.onmessage = function(evt) {
 
   if (msg.type === 'agents') {
     renderAgents(msg.data || []);
+    // First list after a load is the moment to put the page back where it was. It has to wait for
+    // the list: an agent that has since been deleted must fall back to the launcher, not open a
+    // view of something that is gone.
+    if (!viewRestored) {
+      viewRestored = true;
+      restoreView(msg.data || []);
+    }
     return;
   }
 

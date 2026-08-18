@@ -297,12 +297,25 @@ Your working directory is \`${content.workspaceDir}\` — put every file you cre
 				)
 			}
 		}
-		if (project.context) {
-			lines.push('')
-			lines.push(project.context.trim())
+		// The project's own docs, each under its filename so the agent can tell them apart and knows
+		// which one to update. Any markdown file in the project folder lands here — the folder is
+		// the context, rather than one hardcoded filename being the context.
+		if (project.contextFiles?.length) {
+			for (const doc of project.contextFiles) {
+				lines.push('')
+				lines.push(`### ${doc.name}`)
+				lines.push(doc.body.trim())
+			}
 			lines.push('')
 			lines.push(
-				'_When you learn something about this project that a future run would need, update its CONTEXT.md — that file is how this section stays true._',
+				`_When you learn something about this project that a future run would need, write it into one of these files with project_file_write (root \`workspace\`) — they are how this section stays true. A new .md file in the project folder joins them._`,
+			)
+		}
+		// Named but not inlined: the agent should know they exist rather than work without them.
+		if (project.otherFiles?.length) {
+			lines.push('')
+			lines.push(
+				`- Other docs in this project's folder, not included above — read them with project_file_read (root \`workspace\`) if relevant: ${project.otherFiles.join(', ')}`,
 			)
 		}
 		parts.push('')

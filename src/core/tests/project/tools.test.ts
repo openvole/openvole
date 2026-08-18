@@ -108,7 +108,7 @@ describe('project and task tools', () => {
 		expect(task.ok).toBe(true)
 
 		const opened = await call('project_open', { id: 'thing' })
-		expect(opened.context).toContain('Built with vitest')
+		expect((opened.contextFiles as Array<{ body: string }>)[0].body).toContain('Built with vitest')
 		expect((opened.tasks as unknown[]).length).toBe(1)
 	})
 
@@ -144,7 +144,9 @@ describe('project and task tools', () => {
 			context: '# Alpha\n\nrewritten',
 		})
 		expect(updated.ok).toBe(true)
-		expect((await call('project_open', { id: 'alpha' })).context).toContain('rewritten')
+		expect(JSON.stringify((await call('project_open', { id: 'alpha' })).contextFiles)).toContain(
+			'rewritten',
+		)
 		expect(((await call('project_open', { id: 'alpha' })).project as { name: string }).name).toBe(
 			'Alpha Renamed',
 		)
@@ -154,12 +156,18 @@ describe('project and task tools', () => {
 		expect((await call('project_list', { status: 'all' })).count).toBe(2)
 	})
 
-	it('project_update can rewrite only CONTEXT.md', async () => {
+	it('project_update can rewrite only the context doc', async () => {
 		await call('project_create', { id: 'ctx', name: 'Keep' })
 		const res = await call('project_update', { id: 'ctx', context: 'just the context' })
 		expect(res.ok).toBe(true)
 		expect((res.project as { name: string }).name).toBe('Keep')
-		expect((await call('project_open', { id: 'ctx' })).context).toBe('just the context')
+		const docs = (await call('project_open', { id: 'ctx' })).contextFiles as Array<{
+			name: string
+			body: string
+		}>
+		// A new project's context doc is VOLE.md — the CLAUDE.md idiom, not a bespoke filename.
+		expect(docs.map((d) => d.name)).toEqual(['VOLE.md'])
+		expect(docs[0].body).toBe('just the context')
 	})
 
 	it('walks a task through its lifecycle and refuses illegal jumps as a result', async () => {

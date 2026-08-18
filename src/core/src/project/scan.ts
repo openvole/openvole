@@ -3,7 +3,7 @@
  *
  * This is what turns "work on the openvole repo" into a project without the human filling in a
  * form: the agent points scan at a directory, gets back what the place actually is, and drafts a
- * manifest and CONTEXT.md from evidence rather than guesswork.
+ * manifest and VOLE.md from evidence rather than guesswork.
  *
  * Two rules hold it in place. It **never writes** — a scan of someone's repo must not leave a
  * trace. And it is bounded by the same `allowedPaths` check as project creation, because a scan
@@ -29,7 +29,7 @@ export interface ScanResult {
 	stack: string[]
 	/** Tools worth having for this kind of work. A *suggestion*, never a grant. */
 	suggestedTools: string[]
-	/** Files worth reading before writing CONTEXT.md. */
+	/** Files worth reading before writing VOLE.md. */
 	readFirst: string[]
 	/** Opening tasks, phrased so the agent can adopt or replace them. */
 	suggestedTasks: string[]
@@ -163,8 +163,8 @@ export async function scanProjectRoot(root: string, allowedPaths: string[]): Pro
 	// then write down what was learned so the next run starts informed instead of re-deriving it.
 	suggestedTasks.unshift(
 		readFirst.length > 0
-			? `Read ${readFirst.slice(0, 3).join(', ')}, then write CONTEXT.md for this project`
-			: 'Explore the project, then write CONTEXT.md describing what it is and how to work in it',
+			? `Read ${readFirst.slice(0, 3).join(', ')}, then write VOLE.md for this project`
+			: 'Explore the project, then write VOLE.md describing what it is and how to work in it',
 	)
 
 	const dedupedTools = [...new Set(suggestedTools)]

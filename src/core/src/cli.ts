@@ -162,7 +162,7 @@ Projects & tasks (what the agent is working on):
   vole project list [--all]              List projects in this agent's workspace
   vole project scan <path>               Inspect a directory before making it a project (read-only)
   vole project create <id> [--name <n>] [--kind <k>] [--root <path>]
-  vole project open <id>                 Show a project, its CONTEXT.md and open tasks
+  vole project open <id>                 Show a project, its context docs and open tasks
   vole project archive <id>              Retire a project (keeps all files and history)
   vole task list [projectId] [--state <s>]         List work items (default: open)
   vole task add <projectId> <goal...> [--criteria "..."] [--priority <n>]
@@ -1083,8 +1083,10 @@ async function handleProjectCommand(args: string[], projectRoot: string): Promis
 			logger.info(`  folder: ${projects.dirFor(id)}`)
 			logger.info(`  files:  ${manifest.root ?? '(self-contained)'}`)
 			if (manifest.stack?.length) logger.info(`  stack:  ${manifest.stack.join(', ')}`)
-			const context = await projects.readContext(id)
-			logger.info(context ? `\n${context.trim()}\n` : '  (no CONTEXT.md yet)')
+			const docs = await projects.readContextFiles(id)
+			if (docs.inlined.length === 0)
+				logger.info('  (no context docs yet — VOLE.md is the one to write)')
+			for (const doc of docs.inlined) logger.info(`\n--- ${doc.name} ---\n${doc.body.trim()}\n`)
 			const open = await tasks.list({ projectId: id })
 			if (open.length === 0) logger.info('  no open tasks')
 			for (const t of open) logger.info(`  [${t.state}] ${t.id}  ${t.goal}`)

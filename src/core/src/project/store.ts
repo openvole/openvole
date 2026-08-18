@@ -21,6 +21,13 @@ import {
 const logger = createLogger('project')
 
 export const MANIFEST_NAME = '.project.json'
+/**
+ * The conventional context file, in the CLAUDE.md idiom: written for the agent, kept beside the
+ * work. For an attached project it belongs at the repo root, checked in, so it travels with the
+ * code rather than living in one agent's private folder.
+ */
+export const VOLE_NAME = 'VOLE.md'
+/** The name this used to have. Still read, so projects that have one keep working. */
 export const CONTEXT_NAME = 'CONTEXT.md'
 export const TASKS_NAME = 'tasks.jsonl'
 
@@ -271,24 +278,96 @@ export class ProjectStore {
 		return this.update(id, { status: 'archived' })
 	}
 
-	async readContext(id: string): Promise<string | undefined> {
-		try {
-			const raw = await fs.readFile(path.join(this.dirFor(id), CONTEXT_NAME), 'utf-8')
-			if (!raw.trim()) return undefined
-			if (raw.length > MAX_CONTEXT_CHARS) {
-				logger.warn(`${id}/CONTEXT.md truncated: ${raw.length} → ${MAX_CONTEXT_CHARS} chars`)
-				return `${raw.substring(0, MAX_CONTEXT_CHARS)}\n\n[... truncated]`
+	/**
+	 * The project's context documents — every markdown file at the top of its folder.
+	 *
+	 * `CONTEXT.md` used to be the only file with any standing, which made it arbitrary: a project
+	 * that wants CONVENTIONS.md and GLOSSARY.md alongside it had nowhere to put them. The folder
+	 * is the context now, and CONTEXT.md is merely the conventional first file rather than a
+	 * hardcoded one.
+	 *
+	 * They are *inlined into the system prompt*, which is the whole reason this is a push rather
+	 * than leaving the agent to read them: an overnight run that never got round to opening the
+	 * docs is the failure mode projects exist to prevent. So there is a total budget, and anything
+	 * past it comes back under `listed` — named in the prompt, for the agent to read on purpose.
+	 */
+	async readContextFiles(
+		id: string,
+		only?: string[],
+	): Promise<{ inlined: Array<{ name: string; body: string }>; listed: string[] }> {
+		const dir = this.dirFor(id)
+		const inlined: Array<{ name: string; body: string }> = []
+		const listed: string[] = []
+		let budget = MAX_CONTEXT_CHARS
+
+		const take = async (label: string, file: string): Promise<void> => {
+			if (budget <= 0) {
+				listed.push(label)
+				return
 			}
-			return raw
-		} catch {
-			return undefined
+			let raw: string
+			try {
+				raw = await fs.readFile(file, 'utf-8')
+			} catch {
+				return
+			}
+			if (raw.length > budget) {
+				logger.warn(`${id}/${label} truncated: ${raw.length} → ${budget} chars`)
+				inlined.push({ name: label, body: `${raw.substring(0, budget)}\n\n[... truncated]` })
+				budget = 0
+				return
+			}
+			inlined.push({ name: label, body: raw })
+			budget -= raw.length
 		}
+
+		// The repo's own VOLE.md comes first: it is checked in and shared, so it outranks whatever
+		// this particular agent has accumulated in its private folder.
+		const manifest = await this.get(id)
+		if (manifest?.root && !only) {
+			try {
+				const root = await validateProjectRoot(manifest.root, this.allowed)
+				await take(`${VOLE_NAME} (project root)`, path.join(root, VOLE_NAME))
+			} catch {
+				// An unreadable or no-longer-granted root simply contributes nothing.
+			}
+		}
+
+		let names: string[]
+		try {
+			names = (await fs.readdir(dir, { withFileTypes: true }))
+				.filter((e) => e.isFile() && e.name.toLowerCase().endsWith('.md'))
+				.map((e) => e.name)
+		} catch {
+			return { inlined, listed }
+		}
+
+		// An explicit list orders and restricts; otherwise the conventional names lead and the rest
+		// follow alphabetically, so the prompt is stable across runs rather than in readdir order.
+		const rank = (n: string) => (n === VOLE_NAME ? 0 : n === CONTEXT_NAME ? 1 : 2)
+		const ordered = only
+			? only.filter((n) => names.includes(n))
+			: names.sort((a, b) => rank(a) - rank(b) || a.localeCompare(b))
+
+		for (const name of ordered) await take(name, path.join(dir, name))
+
+		// Files the agent can read on purpose but that are not in the prompt.
+		for (const name of names) {
+			if (!inlined.some((f) => f.name === name) && !listed.includes(name)) listed.push(name)
+		}
+
+		return { inlined, listed }
 	}
 
 	async writeContext(id: string, body: string): Promise<void> {
 		const dir = this.dirFor(id)
 		await fs.mkdir(dir, { recursive: true })
-		await fs.writeFile(path.join(dir, CONTEXT_NAME), body, 'utf-8')
+		// Keep editing whichever file the project already has, so nothing silently forks into two.
+		const existing = await fs
+			.stat(path.join(dir, CONTEXT_NAME))
+			.then(() => CONTEXT_NAME)
+			.catch(() => VOLE_NAME)
+		await fs.writeFile(path.join(dir, existing), body, 'utf-8')
 		// Touch the manifest so "recently worked on" ordering reflects context edits too.
 		const current = await this.get(id)
 		if (current) await this.writeManifest({ ...current, updatedAt: Date.now() })
