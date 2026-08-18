@@ -1,6 +1,19 @@
 import type { ZodSchema } from 'zod'
 
 /** Agent context passed to hooks and the Brain */
+/** Per-call context the host may pass to an in-process tool. Mirrors core's ToolContext. */
+export interface PawToolContext {
+	project?: {
+		id: string
+		name: string
+		kind: string
+		/** Absolute external root, or undefined for a self-contained project. */
+		root?: string
+		/** Absolute path of the project's own folder in the workspace. */
+		dir: string
+	}
+}
+
 export interface AgentContext {
 	taskId: string
 	messages: AgentMessage[]
@@ -72,7 +85,11 @@ export interface ToolDefinition {
 	name: string
 	description: string
 	parameters: ZodSchema
-	execute: (params: unknown) => Promise<unknown>
+	/**
+	 * `ctx` is passed only to tools running in the host process. Over the IPC boundary a paw
+	 * receives params alone, so treat it as absent unless your paw is in-process.
+	 */
+	execute: (params: unknown, ctx?: PawToolContext) => Promise<unknown>
 }
 
 /** Bootstrap hook — called once when a task starts */

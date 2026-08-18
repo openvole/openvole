@@ -273,6 +273,11 @@ Your working directory is \`${content.workspaceDir}\` — put every file you cre
 				: '- Files: self-contained — this project has no external root, so its folder below *is* the project.',
 		)
 		lines.push(`- Project folder (notes, drafts, state): \`${project.dir}\``)
+		// Without this the model reaches for shell or a filesystem paw and hits the sandbox, or
+		// works in the wrong tree entirely — the scoped tools are the shortest correct path.
+		lines.push(
+			`- Use the \`project_file_*\` tools for these files: their paths are relative to this project and cannot address anything outside it. \`root\` means the files above; \`workspace\` means the project folder.`,
+		)
 		if (project.task) {
 			lines.push(`- Current task: ${project.task.goal}`)
 			if (project.task.doneCriteria.length > 0) {

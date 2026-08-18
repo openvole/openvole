@@ -12,7 +12,8 @@
  */
 
 import { z } from 'zod'
-import type { ToolDefinition } from '../tool/types.js'
+import type { ToolContext, ToolDefinition } from '../tool/types.js'
+import { type FileRootKey, ProjectFiles } from './files.js'
 import { scanProjectRoot } from './scan.js'
 import type { ProjectStore } from './store.js'
 import type { TaskStore } from './tasks.js'
@@ -50,10 +51,153 @@ export interface ProjectToolDeps {
 	tasks: TaskStore
 }
 
+/** What the file tools say when they are called outside a project. */
+const NO_SCOPE =
+	'No project is in scope for this task. These tools act on the project the task belongs to — run the task from a project, or use workspace_* for scratch files that belong to no project.'
+
+/**
+ * Which of the project's roots a call addresses.
+ *
+ * Defaults to the attached root when there is one, because that is where the work is; a
+ * self-contained project has only its workspace folder, so the choice collapses.
+ */
+function scopeFor(
+	ctx: ToolContext | undefined,
+	requested?: FileRootKey,
+): { id: string; key: FileRootKey } | null {
+	const project = ctx?.project
+	if (!project) return null
+	return { id: project.id, key: requested ?? (project.root ? 'root' : 'workspace') }
+}
+
+const ROOT_PARAM = z
+	.enum(['root', 'workspace'])
+	.optional()
+	.describe(
+		"Which of the project's places to act in. 'root' is the attached files — the repo or folder the project points at. 'workspace' is the project's own folder, holding CONTEXT.md and its notes. Defaults to 'root' when the project has one.",
+	)
+
 export function createProjectTools(deps: ProjectToolDeps): ToolDefinition[] {
 	const { projects, tasks } = deps
+	const files = new ProjectFiles(projects)
+
+	/** Turn a thrown boundary error into a tool result, the way the rest of this file does. */
+	const failed = (err: unknown) => ({
+		ok: false as const,
+		error: err instanceof Error ? err.message : String(err),
+	})
 
 	return [
+		{
+			name: 'project_file_list',
+			description:
+				'List a folder in the current project. Use this to find your way around the files the project actually points at, rather than guessing paths. Paths are relative to the project — never absolute, and never outside it.',
+			parameters: z.object({
+				path: z.string().optional().describe('Folder relative to the project root (empty = top)'),
+				root: ROOT_PARAM,
+			}),
+			async execute(params, ctx) {
+				const p = params as { path?: string; root?: FileRootKey }
+				const scope = scopeFor(ctx, p.root)
+				if (!scope) return { ok: false, error: NO_SCOPE }
+				try {
+					const listing = await files.list(scope.id, scope.key, p.path ?? '')
+					return {
+						ok: true,
+						path: listing.rel,
+						truncated: listing.truncated,
+						entries: listing.entries.map((e) => ({ name: e.name, kind: e.kind, size: e.size })),
+					}
+				} catch (err) {
+					return failed(err)
+				}
+			},
+		},
+		{
+			name: 'project_file_read',
+			description:
+				'Read a file in the current project. Returns text; binary files and very large files are reported as such rather than returned as noise.',
+			parameters: z.object({
+				path: z.string().describe('File relative to the project root'),
+				root: ROOT_PARAM,
+			}),
+			async execute(params, ctx) {
+				const p = params as { path: string; root?: FileRootKey }
+				const scope = scopeFor(ctx, p.root)
+				if (!scope) return { ok: false, error: NO_SCOPE }
+				try {
+					const file = await files.read(scope.id, scope.key, p.path)
+					if (file.binary) return { ok: false, error: `binary file (${file.size} bytes)` }
+					if (file.tooLarge)
+						return { ok: false, error: `file too large to read (${file.size} bytes)` }
+					return { ok: true, path: file.rel, size: file.size, content: file.content }
+				} catch (err) {
+					return failed(err)
+				}
+			},
+		},
+		{
+			name: 'project_file_write',
+			description:
+				'Write a file in the current project, creating parent folders as needed. Overwrites — read first if you mean to edit rather than replace. The project ledger files are refused; they have their own tools.',
+			parameters: z.object({
+				path: z.string().describe('File relative to the project root'),
+				content: z.string().describe('Full new contents of the file'),
+				root: ROOT_PARAM,
+			}),
+			async execute(params, ctx) {
+				const p = params as { path: string; content: string; root?: FileRootKey }
+				const scope = scopeFor(ctx, p.root)
+				if (!scope) return { ok: false, error: NO_SCOPE }
+				try {
+					const written = await files.write(scope.id, scope.key, p.path, p.content)
+					return { ok: true, path: written.rel, size: written.size }
+				} catch (err) {
+					return failed(err)
+				}
+			},
+		},
+		{
+			name: 'project_file_move',
+			description:
+				'Rename or move a file or folder within the current project. Both paths stay inside the project.',
+			parameters: z.object({
+				path: z.string().describe('Existing file or folder, relative to the project root'),
+				to: z.string().describe('New path, relative to the project root'),
+				root: ROOT_PARAM,
+			}),
+			async execute(params, ctx) {
+				const p = params as { path: string; to: string; root?: FileRootKey }
+				const scope = scopeFor(ctx, p.root)
+				if (!scope) return { ok: false, error: NO_SCOPE }
+				try {
+					const moved = await files.rename(scope.id, scope.key, p.path, p.to)
+					return { ok: true, path: moved.rel }
+				} catch (err) {
+					return failed(err)
+				}
+			},
+		},
+		{
+			name: 'project_file_delete',
+			description:
+				'Delete a file, or a folder and everything in it, within the current project. Deleting a folder is recursive and cannot be undone — list it first. The project root itself and the ledger files are refused.',
+			parameters: z.object({
+				path: z.string().describe('File or folder relative to the project root'),
+				root: ROOT_PARAM,
+			}),
+			async execute(params, ctx) {
+				const p = params as { path: string; root?: FileRootKey }
+				const scope = scopeFor(ctx, p.root)
+				if (!scope) return { ok: false, error: NO_SCOPE }
+				try {
+					const removed = await files.remove(scope.id, scope.key, p.path)
+					return { ok: true, path: p.path, kind: removed.kind }
+				} catch (err) {
+					return failed(err)
+				}
+			},
+		},
 		{
 			name: 'project_scan',
 			description:

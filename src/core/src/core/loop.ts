@@ -10,6 +10,7 @@ import type { ProjectContextInfo } from '../project/types.js'
 import type { SkillRegistry } from '../skill/registry.js'
 import { buildActiveSkills } from '../skill/resolver.js'
 import type { ToolRegistry } from '../tool/registry.js'
+import type { ToolContext } from '../tool/types.js'
 import type { MessageBus } from './bus.js'
 import { ContextBudgetManager } from './context-budget.js'
 import { CostTracker } from './cost-tracker.js'
@@ -809,16 +810,22 @@ async function runAct(
 		await pawRegistry.runLazyPerceive(pawName, context)
 	}
 
+	// Built per batch from this task's context, never held in a module-level "current project" —
+	// tasks can run concurrently and a shared ref would answer for the wrong one.
+	const toolCtx: ToolContext = {
+		project: context.metadata.project as ProjectContextInfo | undefined,
+	}
+
 	if (execution === 'parallel') {
 		return Promise.all(
-			actions.map((action) => executeSingleAction(action, toolRegistry, pawRegistry)),
+			actions.map((action) => executeSingleAction(action, toolRegistry, pawRegistry, toolCtx)),
 		)
 	}
 
 	// Sequential execution
 	const results: ActionResult[] = []
 	for (const action of actions) {
-		const result = await executeSingleAction(action, toolRegistry, pawRegistry)
+		const result = await executeSingleAction(action, toolRegistry, pawRegistry, toolCtx)
 		results.push(result)
 	}
 	return results
@@ -829,6 +836,7 @@ async function executeSingleAction(
 	action: PlannedAction,
 	toolRegistry: ToolRegistry,
 	pawRegistry: PawRegistry,
+	toolCtx?: ToolContext,
 ): Promise<ActionResult> {
 	const startTime = Date.now()
 	const tool = toolRegistry.get(action.tool)
@@ -867,7 +875,7 @@ async function executeSingleAction(
 			tool.parameters.parse(action.params)
 		}
 
-		const output = await tool.execute(action.params)
+		const output = await tool.execute(action.params, toolCtx)
 		return successResult(action.tool, tool.pawName, output, Date.now() - startTime)
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err)

@@ -117,6 +117,33 @@ what blocked it, how many times it was retried.
 `--priority` orders the queue. A task can also carry an iteration budget; exhausting it moves the
 task to `blocked` with the reason, never a silent stop halfway.
 
+## Working on the files
+
+The `project_file_*` tools act on the project the current task belongs to. Paths are relative to
+the project and cannot address anything outside it — `..`, absolute paths, and symlinks pointing
+out are each refused. A `root` argument picks which of the project's two places to act in:
+
+| `root` | Where |
+|--------|-------|
+| `root` *(default when the project has one)* | the attached files — the repo or folder the project points at |
+| `workspace` | the project's own folder: `CONTEXT.md`, notes, drafts |
+
+A self-contained project has only the second, so the choice collapses.
+
+These exist because `workspace_*` is confined to `.openvole/workspace/` and cannot reach an
+attached root at all. Without them, working in a repo meant installing a filesystem paw and
+granting it the path — which then had the run of the whole grant, not just this project.
+
+::: tip Projects isolate each other
+Because every path resolves against *this task's* project, an agent with two attached projects
+cannot reach from one into the other through these tools. Scope arrives per call rather than being
+remembered, so this holds at task concurrency above 1 as well.
+
+It does **not** extend to `paw-shell` or `paw-filesystem`: those are sandboxed per agent by
+`security.allowedPaths`, which a project cannot narrow. A project that needs strict isolation
+should deny them in its `toolProfile`.
+:::
+
 ## Scheduled work
 
 A schedule can be scoped to a project, which turns a heartbeat from "wake up and do something" into
@@ -243,5 +270,8 @@ you edit.
 
 ## Tools the agent uses
 
-`project_scan`, `project_create`, `project_list`, `project_open`, `project_update`,
+**Setup** — `project_scan`, `project_create`, `project_list`, `project_open`, `project_update`,
 `project_archive`, `task_create`, `task_list`, `task_update`, `task_next`.
+
+**Files** — `project_file_list`, `project_file_read`, `project_file_write`, `project_file_move`,
+`project_file_delete`. See below.

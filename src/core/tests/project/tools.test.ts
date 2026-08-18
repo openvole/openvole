@@ -57,11 +57,16 @@ describe('project and task tools', () => {
 		await fs.rm(dir, { recursive: true, force: true })
 	})
 
-	it('registers exactly the ten tools', () => {
+	it('registers exactly the fifteen tools', () => {
 		expect(tools.map((t) => t.name).sort()).toEqual(
 			[
 				'project_archive',
 				'project_create',
+				'project_file_delete',
+				'project_file_list',
+				'project_file_move',
+				'project_file_read',
+				'project_file_write',
 				'project_list',
 				'project_open',
 				'project_scan',
