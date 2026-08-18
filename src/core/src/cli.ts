@@ -311,9 +311,7 @@ async function upgradeAgentDir(projectRoot: string): Promise<UpgradeResult> {
 				} else if (existing !== brainContent) {
 					const distPath = path.join(pawDataDir, 'BRAIN.md.dist')
 					await fs.writeFile(distPath, brainContent, 'utf-8')
-					notes.push(
-						`${pawName}/BRAIN.md kept (yours); new default written to BRAIN.md.dist`,
-					)
+					notes.push(`${pawName}/BRAIN.md kept (yours); new default written to BRAIN.md.dist`)
 				}
 			}
 		} catch {
@@ -1049,7 +1047,9 @@ async function handleProjectCommand(args: string[], projectRoot: string): Promis
 		case 'create': {
 			const id = args[1]
 			if (!id) {
-				logger.error('Usage: vole project create <id> [--name <name>] [--kind <kind>] [--root <path>]')
+				logger.error(
+					'Usage: vole project create <id> [--name <name>] [--kind <kind>] [--root <path>]',
+				)
 				process.exit(1)
 			}
 			try {
@@ -1734,7 +1734,13 @@ async function handleNetCommand(args: string[], projectRoot: string): Promise<vo
 			const fsp = await import('node:fs/promises')
 			if (sub === 'list' || sub === 'accept' || sub === 'deny') {
 				const reqPath = path.join(netDir, 'pair_requests.json')
-				let requests: Array<{ id: string; name: string; publicKey: string; note?: string; ts: number }> = []
+				let requests: Array<{
+					id: string
+					name: string
+					publicKey: string
+					note?: string
+					ts: number
+				}> = []
 				try {
 					requests = JSON.parse(await fsp.readFile(reqPath, 'utf-8'))
 				} catch {
@@ -1746,7 +1752,9 @@ async function handleNetCommand(args: string[], projectRoot: string): Promise<vo
 						break
 					}
 					for (const r of requests) {
-						logger.info(`${r.name}  (${r.id.substring(0, 8)})  ${new Date(r.ts).toLocaleString()}${r.note ? `  — ${r.note}` : ''}`)
+						logger.info(
+							`${r.name}  (${r.id.substring(0, 8)})  ${new Date(r.ts).toLocaleString()}${r.note ? `  — ${r.note}` : ''}`,
+						)
 					}
 					break
 				}
@@ -1755,7 +1763,9 @@ async function handleNetCommand(args: string[], projectRoot: string): Promise<vo
 					logger.error(`Usage: vole net pair ${sub} <name-or-id>`)
 					process.exit(1)
 				}
-				const idx = requests.findIndex((r) => r.id === ref || r.name === ref || r.id.startsWith(ref))
+				const idx = requests.findIndex(
+					(r) => r.id === ref || r.name === ref || r.id.startsWith(ref),
+				)
 				if (idx < 0) {
 					logger.error(`No pending pair request matching "${ref}"`)
 					process.exit(1)
@@ -1845,7 +1855,12 @@ async function handleNetCommand(args: string[], projectRoot: string): Promise<vo
 					body: JSON.stringify({ publicKey: keyPair.publicKeyString, name: myName, note }),
 					signal: AbortSignal.timeout(8000),
 				})
-				const resp = (await r.json()) as { ok?: boolean; pending?: boolean; alreadyTrusted?: boolean; error?: string }
+				const resp = (await r.json()) as {
+					ok?: boolean
+					pending?: boolean
+					alreadyTrusted?: boolean
+					error?: string
+				}
 				if (resp.alreadyTrusted) {
 					logger.info('The peer already trusts this node — pairing is complete.')
 				} else if (resp.pending) {
@@ -1872,7 +1887,9 @@ async function handleNetCommand(args: string[], projectRoot: string): Promise<vo
 			const toIdx = args.indexOf('--to')
 			const to = toIdx >= 0 ? args[toIdx + 1] : undefined
 			if (!file || file.startsWith('--') || !to) {
-				logger.error('Usage: vole net send <file> --to <peer> [--note <text>] [--agent <name>] [--wait]')
+				logger.error(
+					'Usage: vole net send <file> --to <peer> [--note <text>] [--agent <name>] [--wait]',
+				)
 				process.exit(1)
 			}
 			const noteIdx = args.indexOf('--note')
@@ -1895,20 +1912,23 @@ async function handleNetCommand(args: string[], projectRoot: string): Promise<vo
 			}
 			const port = Number(process.env.VOLE_DASHBOARD_PORT) || 3000
 			const mcpCall = async (tool: string, argsObj: Record<string, unknown>) => {
-				const res = await fetch(`http://127.0.0.1:${port}/mcp/${encodeURIComponent(agentArg ?? '')}?token=${encodeURIComponent(token)}`, {
-					method: 'POST',
-					headers: {
-						'content-type': 'application/json',
-						accept: 'application/json, text/event-stream',
+				const res = await fetch(
+					`http://127.0.0.1:${port}/mcp/${encodeURIComponent(agentArg ?? '')}?token=${encodeURIComponent(token)}`,
+					{
+						method: 'POST',
+						headers: {
+							'content-type': 'application/json',
+							accept: 'application/json, text/event-stream',
+						},
+						body: JSON.stringify({
+							jsonrpc: '2.0',
+							id: 1,
+							method: 'tools/call',
+							params: { name: tool, arguments: argsObj },
+						}),
+						signal: AbortSignal.timeout(20_000),
 					},
-					body: JSON.stringify({
-						jsonrpc: '2.0',
-						id: 1,
-						method: 'tools/call',
-						params: { name: tool, arguments: argsObj },
-					}),
-					signal: AbortSignal.timeout(20_000),
-				})
+				)
 				const text = await res.text()
 				if (!res.ok) throw new Error(`MCP HTTP ${res.status}: ${text.slice(0, 200)}`)
 				// Stateless MCP replies JSON (or a single SSE data: line) — parse either.
@@ -1945,7 +1965,13 @@ async function handleNetCommand(args: string[], projectRoot: string): Promise<vo
 			for (;;) {
 				await new Promise((r) => setTimeout(r, 2000))
 				const st = (await mcpCall('net_file_status', { transfer_id: sent.transferId })) as {
-					transfer?: { state: string; bytesDone: number; size: number; error?: string; savedPath?: string }
+					transfer?: {
+						state: string
+						bytesDone: number
+						size: number
+						error?: string
+						savedPath?: string
+					}
 				}
 				const t = st.transfer
 				if (!t) continue
@@ -1998,7 +2024,7 @@ async function handleNetCommand(args: string[], projectRoot: string): Promise<vo
 					logger.error('To connect two of your OWN nodes, use static trust instead:')
 					logger.error('  1. On each node:  vole net show-key')
 					logger.error('  2. On each node:  vole net trust "<the other node\'s key>"')
-					logger.error('  3. Add the other node\'s URL under net.peers in vole.config.json')
+					logger.error("  3. Add the other node's URL under net.peers in vole.config.json")
 					process.exit(1)
 				}
 				try {
