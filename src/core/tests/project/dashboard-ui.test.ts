@@ -198,6 +198,15 @@ describe('dashboard projects UI', () => {
 		}
 	})
 
+	it('keeps the CONTEXT.md preview collapsed until asked', async () => {
+		const source = await readUi()
+		// It is written once and read by the agent, not by you — open by default it cost half the
+		// screen above the board, which is what the page is actually for.
+		expect(source).toContain('var projContextOpen = false;')
+		expect(source).toContain("projContextOpen ? '' : 'none'")
+		expect(source).toContain('function toggleProjContext()')
+	})
+
 	describe('the project file manager', () => {
 		it('wires the Files sub-tab to its loader', async () => {
 			const source = await readUi()

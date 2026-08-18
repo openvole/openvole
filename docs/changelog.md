@@ -26,6 +26,8 @@
 
 - **A file browser and editor on the project page.** The **Files** sub-tab browses both places a project's files can live — its folder in the agent workspace and the root it is attached to — and edits them: open, save, create, rename, move, delete — plus drag-and-drop to bring in files that already exist, streamed to disk with a progress bar and suffixed rather than overwriting on a name clash. Seeing what the agent actually wrote previously meant ssh-ing to the machine it runs on. It is bounded by the project's own roots rather than by `security.allowedPaths`, deliberately: a surface that writes and deletes should not wander the whole grant. `.project.json` and `tasks.jsonl` open read-only, since both have proper editors and the task log is append-only and concurrently written.
 
+- **The `CONTEXT.md` preview collapses.** It is written once and read by the agent, so an always-open panel spent half the screen above the task board the page is actually for. It is now one line showing the file's first line, expandable, and still editable from **Context**.
+
 - **`vole project` and `vole task` commands** — list, scan, create, open, archive; add, list, next, update, cancel. They read the project files directly, so they work with the agent stopped. `vole task` previously existed as a stub that only ever printed "requires a running vole instance"; it now manages real work items.
 
 - **`SchedulerStore.trigger(id)`** fires a schedule immediately without disturbing its cron.

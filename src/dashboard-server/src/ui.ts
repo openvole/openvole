@@ -403,7 +403,12 @@ export function getDashboardHtml(wsPort: number): string {
   .proj-title { margin: 0 0 4px; font-size: 16px; }
   .proj-sub { font-size: 12px; color: var(--text-dim); word-break: break-all; }
   .proj-actions { display: flex; gap: 6px; flex-wrap: wrap; }
-  .proj-context { margin: 14px 0; padding: 10px 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; font-size: 12px; white-space: pre-wrap; max-height: 180px; overflow: auto; color: var(--text-dim); }
+  .proj-context-line { display: flex; align-items: center; gap: 6px; margin: 12px 0 0; font-size: 11px; color: var(--text-dim); cursor: pointer; user-select: none; }
+  .proj-context-line:hover { color: var(--text); }
+  .proj-context-caret { display: inline-block; width: 8px; flex-shrink: 0; }
+  .proj-context-gist { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .proj-context-none { margin: 12px 0 0; font-size: 11px; color: var(--text-dim); }
+  .proj-context { margin: 8px 0 0; padding: 10px 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; font-size: 12px; white-space: pre-wrap; max-height: 40vh; overflow: auto; color: var(--text-dim); }
   .proj-board { display: grid; gap: 14px; margin-top: 14px; }
   .board-col-title { font-size: 11px; text-transform: uppercase; letter-spacing: .07em; color: var(--text-dim); margin-bottom: 6px; display: flex; align-items: center; gap: 6px; }
   .board-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
@@ -3010,7 +3015,20 @@ function renderProjectDetail(res) {
     (p.status === 'archived' ? '' : '<button class="btn-subtle btn-sm" onclick="archiveProject(\\'' + esc(p.id) + '\\')">Archive</button>') +
     '</div></div>';
 
-  html += '<div class="proj-context">' + (res.context ? esc(res.context) : 'No CONTEXT.md yet — this is what a future run reads to understand the project.') + '</div>';
+  // CONTEXT.md is written once and read by the agent, not by you — an always-open preview cost
+  // half the screen above the board you actually came for. Collapsed to one line, with the first
+  // line of it as the gist so the summary is still worth reading.
+  if (res.context) {
+    var gist = res.context.split('\\n').filter(function(l) { return l.trim(); })[0] || '';
+    html += '<div class="proj-context-line" onclick="toggleProjContext()">' +
+      '<span class="proj-context-caret" id="proj-context-caret">' + (projContextOpen ? '&#9662;' : '&#9656;') + '</span>' +
+      '<span>CONTEXT.md</span>' +
+      '<span class="proj-context-gist">' + esc(gist.replace(/^#+\\s*/, '')) + '</span></div>' +
+      '<div class="proj-context" id="proj-context" style="display:' + (projContextOpen ? '' : 'none') + '">' +
+      esc(res.context) + '</div>';
+  } else {
+    html += '<div class="proj-context-none">No CONTEXT.md yet — this is what a future run reads to understand the project.</div>';
+  }
 
   var byState = {};
   for (var i = 0; i < tasks.length; i++) {
@@ -3111,6 +3129,16 @@ function renderTaskRow(projectId, t) {
  */
 
 var projSubtab = 'board';
+/** CONTEXT.md preview starts collapsed, and stays however you last left it. */
+var projContextOpen = false;
+
+function toggleProjContext() {
+  projContextOpen = !projContextOpen;
+  var box = document.getElementById('proj-context');
+  var caret = document.getElementById('proj-context-caret');
+  if (box) box.style.display = projContextOpen ? '' : 'none';
+  if (caret) caret.innerHTML = projContextOpen ? '&#9662;' : '&#9656;';
+}
 var pchatPending = {}; // taskId -> { el, projectId }
 
 function projectSessionId(projectId) {

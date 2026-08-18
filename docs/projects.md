@@ -154,14 +154,18 @@ into another agent's workspace would cross the isolation boundary and put two wr
 
 ## In the dashboard
 
-The agent view has a **Projects** tab: projects on the left, and for the selected one its
-`CONTEXT.md` and a task board grouped by state — running, verifying, blocked, queued, done — with
+The agent view has a **Projects** tab: projects on the left, and for the selected one a task
+board grouped by state — running, verifying, blocked, queued, done — with
 each task's done-criteria and, when blocked, the reason.
 
 The **Chat** sub-tab talks to the agent in that project's own context — its `CONTEXT.md` and open
 tasks are already loaded, so you can describe what you want instead of filling in a task form and
 the agent creates and updates the tasks itself. These conversations live on the project page and
 stay out of the central Chat tab, which keeps that list from filling with unlabelled sessions.
+
+`CONTEXT.md` sits above the board as a single collapsed line showing its first line; click to
+expand, or use **Context** to edit it. It is written for the agent to read, so it stays out of the
+way of the board by default.
 
 Buttons move a task to whatever states are legal from where it is, so `done` is only ever offered
 after `verifying`. Blocking asks for a reason, because a board full of blocked tasks with no notes
