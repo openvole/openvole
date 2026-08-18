@@ -44,9 +44,8 @@ VoleDrop, or sync it over VoleNet.
 
 ## Context: VOLE.md
 
-In the `CLAUDE.md` idiom: a markdown file written for the agent, kept beside the work. It is
-loaded into the system prompt of every task in that project, so what it says is what a run knows
-before it starts.
+A markdown file written for the agent, kept beside the work. It is loaded into the system prompt
+of every task in that project, so what it says is what a run knows before it starts.
 
 Two places it can live, and both are read:
 

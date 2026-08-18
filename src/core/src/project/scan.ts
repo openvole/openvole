@@ -58,6 +58,9 @@ async function readJson(p: string): Promise<Record<string, unknown> | null> {
 
 /** Docs an agent should read before claiming to understand a project. */
 const DOC_CANDIDATES = [
+	// A repo that has already been worked on by a vole carries its briefing here.
+	'VOLE.md',
+	// Other agents' conventions files. Not ours, but they describe the same repo.
 	'CLAUDE.md',
 	'AGENTS.md',
 	'README.md',

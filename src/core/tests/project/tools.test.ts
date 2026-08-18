@@ -165,7 +165,7 @@ describe('project and task tools', () => {
 			name: string
 			body: string
 		}>
-		// A new project's context doc is VOLE.md — the CLAUDE.md idiom, not a bespoke filename.
+		// A new project's context doc is VOLE.md; CONTEXT.md is only kept for projects that have one.
 		expect(docs.map((d) => d.name)).toEqual(['VOLE.md'])
 		expect(docs[0].body).toBe('just the context')
 	})

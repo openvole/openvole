@@ -4217,7 +4217,7 @@ function draftProjectContext(projectId) {
     instruction: function(prompt) {
       return 'Write the full contents of CONTEXT.md for the project "' + projectId + '".\\n\\n' +
         'First call project_open on "' + projectId + '" to see what it is. If it has a root, look at ' +
-        'the real files — read its README, CLAUDE.md or equivalent — so what you write is grounded ' +
+        'the real files — read its VOLE.md, README or equivalent — so what you write is grounded ' +
         'in what is actually there rather than guessed.\\n\\n' +
         'What it should cover: ' + prompt + '\\n\\n' +
         'CONTEXT.md is what a future run of you reads to understand this project: what it is, how to ' +

@@ -22,9 +22,10 @@ const logger = createLogger('project')
 
 export const MANIFEST_NAME = '.project.json'
 /**
- * The conventional context file, in the CLAUDE.md idiom: written for the agent, kept beside the
- * work. For an attached project it belongs at the repo root, checked in, so it travels with the
- * code rather than living in one agent's private folder.
+ * A project's context file: written for the agent, kept beside the work.
+ *
+ * For an attached project it belongs at the repo root, checked in, so it travels with the code
+ * rather than living in one agent's private folder.
  */
 export const VOLE_NAME = 'VOLE.md'
 /** The name this used to have. Still read, so projects that have one keep working. */
