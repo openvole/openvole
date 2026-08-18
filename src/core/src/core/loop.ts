@@ -48,9 +48,7 @@ export interface LoopDependencies {
 	 */
 	resolveProject?: (task: AgentTask) => Promise<ProjectContextInfo | null>
 	/** Every active project, so the agent can see and switch between them from any run. */
-	listProjects?: () => Promise<
-		Array<{ id: string; name: string; kind: string; openTasks: number }>
-	>
+	listProjects?: () => Promise<Array<{ id: string; name: string; kind: string; openTasks: number }>>
 }
 
 /**

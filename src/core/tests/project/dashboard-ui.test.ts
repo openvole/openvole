@@ -261,16 +261,54 @@ describe('dashboard projects UI', () => {
 			const source = await readUi()
 			const start = source.indexOf('function loadProjectFiles(')
 			const block = source.substring(start, source.indexOf('function moveTask(', start))
-			// Every navigation away from the editor goes through the same check — clicking a folder
+			// Every navigation away from the editor goes through the same guard — clicking a folder
 			// and silently losing what you typed is the worst thing a file manager can do.
-			expect(block).toContain('function pfCheckDirty()')
-			for (const navigator of ['pfUp', 'pfCrumbTo', 'pfSwitchRoot']) {
+			expect(block).toContain('function pfGuard(')
+			for (const navigator of ['pfUp', 'pfCrumbTo', 'pfSwitchRoot', 'pfEnter', 'pfOpenFile']) {
 				const fn = block.substring(block.indexOf(`function ${navigator}(`))
 				expect(
 					fn.substring(0, fn.indexOf('\n}')),
 					`${navigator} discards edits silently`,
-				).toContain('pfCheckDirty()')
+				).toContain('pfGuard(')
 			}
+		})
+
+		it('uses the dashboard modal, never the browser dialogs', async () => {
+			const source = await readUi()
+			const start = source.indexOf('function loadProjectFiles(')
+			const block = source.substring(start, source.indexOf('function moveTask(', start))
+			// prompt() and confirm() block the page, cannot be styled, and browsers increasingly
+			// suppress them — a delete that silently never asks is worse than one that asks badly.
+			// Comments stripped first: this file explains why it does not call them.
+			const code = block.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
+			expect(code).not.toMatch(/(?<![.\w])prompt\(/)
+			expect(code).not.toMatch(/(?<![.\w])confirm\(/)
+			expect(block).toContain('openModal(')
+			// A destructive dialog has to look destructive.
+			const del = block.substring(block.indexOf('function pfDelete('))
+			expect(del.substring(0, del.indexOf('\n}'))).toContain('danger: true')
+		})
+
+		it('streams uploads to the project route both ends agree on', async () => {
+			const source = await readUi()
+			const server = await fs.readFile(path.resolve(path.dirname(UI_PATH), 'server.ts'), 'utf-8')
+			expect(source).toContain("'/project-upload/' + encodeURIComponent(agentId)")
+			expect(server).toContain("req.url?.startsWith('/project-upload/')")
+			// The destination is resolved server-side inside the project's roots — the browser never
+			// gets to name a path on disk, which is why there is no path parameter to find here.
+			expect(server).toContain('callbacks.resolveProjectUpload')
+			expect(source).not.toMatch(/project-upload[^']*&path=/)
+		})
+
+		it('pins the upload destination instead of reading it back when each one lands', async () => {
+			const source = await readUi()
+			const fn = source.substring(source.indexOf('function pfUploadFiles('))
+			const block = fn.substring(0, fn.indexOf('\n}'))
+			// Uploads are async and the operator can browse while they run — a file landing in
+			// whichever folder happened to be open when it finished is the bug this prevents.
+			expect(block).toContain('var dir = pfPath;')
+			expect(block).toContain('&dir=')
+			expect(block).toContain('encodeURIComponent(dir)')
 		})
 	})
 })

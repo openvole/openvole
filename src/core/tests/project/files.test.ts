@@ -218,6 +218,25 @@ describe('ProjectFiles', () => {
 			expect((await fs.stat(path.join(workspace, 'demo', 'assets/raw'))).isDirectory()).toBe(true)
 		})
 
+		it('creates an empty file', async () => {
+			await files.create('demo', 'workspace', 'fresh/new.md')
+			expect(await fs.readFile(path.join(workspace, 'demo', 'fresh/new.md'), 'utf-8')).toBe('')
+		})
+
+		it('refuses to create over an existing file, rather than emptying it', async () => {
+			// The New-file button sends this. An empty write here would destroy the file silently.
+			await files.write('demo', 'workspace', 'keep.md', 'precious')
+			await expect(files.create('demo', 'workspace', 'keep.md')).rejects.toThrow(/already exists/)
+			expect(await fs.readFile(path.join(workspace, 'demo', 'keep.md'), 'utf-8')).toBe('precious')
+		})
+
+		it('refuses to create over the ledger files or the root', async () => {
+			await expect(files.create('demo', 'workspace', 'tasks.jsonl')).rejects.toThrow(
+				/managed by the project/,
+			)
+			await expect(files.create('demo', 'workspace', '')).rejects.toThrow(/refusing to overwrite/)
+		})
+
 		it('renames a file', async () => {
 			await files.write('demo', 'workspace', 'old.md', 'x')
 			const moved = await files.rename('demo', 'workspace', 'old.md', 'docs/new.md')
@@ -260,6 +279,51 @@ describe('ProjectFiles', () => {
 				/managed by the project/,
 			)
 			expect(await fs.stat(path.join(workspace, 'demo', '.project.json'))).toBeTruthy()
+		})
+	})
+
+	describe('upload targets', () => {
+		it('takes the basename and drops control characters', async () => {
+			const picked = await files.uploadTarget('demo', 'workspace', '', '../../etc/pa\u0000sswd')
+			expect(picked.rel).toBe('passwd')
+		})
+
+		it('suffixes around a collision rather than overwriting', async () => {
+			await files.write('demo', 'workspace', 'photo.jpg', 'first')
+			expect((await files.uploadTarget('demo', 'workspace', '', 'photo.jpg')).rel).toBe(
+				'photo (1).jpg',
+			)
+
+			await files.write('demo', 'workspace', 'photo (1).jpg', 'second')
+			expect((await files.uploadTarget('demo', 'workspace', '', 'photo.jpg')).rel).toBe(
+				'photo (2).jpg',
+			)
+			// Neither existing file was touched by asking.
+			expect(await fs.readFile(path.join(workspace, 'demo', 'photo.jpg'), 'utf-8')).toBe('first')
+		})
+
+		it('never hands back a ledger name', async () => {
+			const picked = await files.uploadTarget('demo', 'workspace', '', 'tasks.jsonl')
+			expect(picked.rel).toBe('tasks (1).jsonl')
+		})
+
+		it('lands in the folder being browsed', async () => {
+			await files.mkdir('demo', 'workspace', 'assets/raw')
+			expect((await files.uploadTarget('demo', 'workspace', 'assets/raw', 'a.mov')).rel).toBe(
+				'assets/raw/a.mov',
+			)
+		})
+
+		it('refuses a folder outside the project', async () => {
+			await expect(files.uploadTarget('demo', 'workspace', '../..', 'x.txt')).rejects.toThrow(
+				/escapes/,
+			)
+		})
+
+		it('refuses a folder that is not there', async () => {
+			await expect(files.uploadTarget('demo', 'workspace', 'nope', 'x.txt')).rejects.toThrow(
+				/not a directory/,
+			)
 		})
 	})
 

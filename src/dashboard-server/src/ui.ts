@@ -464,6 +464,14 @@ export function getDashboardHtml(wsPort: number): string {
   .pf-edit-name { flex: 1; min-width: 0; font-family: var(--mono); font-size: 11px; overflow-wrap: anywhere; }
   .pf-edit textarea { width: 100%; min-height: 44vh; font-family: var(--mono); font-size: 12px; resize: vertical; }
   .pf-dirty { color: var(--orange); font-size: 10px; }
+  .pf-listwrap { position: relative; }
+  .pf-drop { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; background: color-mix(in srgb, var(--accent) 14%, transparent); border: 2px dashed var(--accent); border-radius: 6px; color: var(--accent); font-size: 12px; pointer-events: none; z-index: 2; }
+  .pf-listwrap.dragging .pf-drop { display: flex; }
+  .pf-uploads { margin-top: 8px; display: flex; flex-direction: column; gap: 4px; }
+  .pf-upload { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--text-dim); }
+  .pf-upload-bar { flex: 1; height: 3px; background: var(--border); border-radius: 2px; overflow: hidden; }
+  .pf-upload-bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .15s linear; }
+  .pf-upload.bad { color: var(--red, var(--orange)); }
   @media (max-width: 760px) {
     .proj-layout { grid-template-columns: 1fr; }
     .proj-list-pane { order: -1; }
@@ -3042,13 +3050,17 @@ function renderProjectDetail(res) {
     '<div class="pf-crumb" id="pf-crumb">Loading&hellip;</div>' +
     '<button class="btn-subtle btn-sm" onclick="pfNewFile()">New file</button>' +
     '<button class="btn-subtle btn-sm" onclick="pfNewFolder()">New folder</button>' +
+    '<button class="btn-subtle btn-sm" onclick="pfPickUpload()">Add files</button>' +
     '<button class="btn-subtle btn-sm" onclick="pfRefresh()">Refresh</button>' +
     '</div>' +
     '<div class="pf-abs" id="pf-abs"></div>' +
+    '<input type="file" id="pf-file-input" multiple style="display:none" onchange="pfFilesPicked(event)">' +
     '<div class="pf-grid">' +
-    '<div class="pf-list" id="pf-list"></div>' +
+    '<div class="pf-listwrap" id="pf-listwrap" ondragover="pfDragOver(event)" ondragleave="pfDragLeave(event)" ondrop="pfDrop(event)">' +
+    '<div class="pf-drop">Drop files here to add them to this folder</div>' +
+    '<div class="pf-list" id="pf-list"></div></div>' +
     '<div class="pf-edit" id="pf-edit"><div class="empty" style="padding:14px">Select a file to view or edit it.</div></div>' +
-    '</div></div>';
+    '</div><div class="pf-uploads" id="pf-uploads"></div></div>';
 
   document.getElementById('proj-detail').innerHTML = html;
   if (projSubtab === 'chat') loadProjectChat(p.id);
@@ -3258,10 +3270,86 @@ function pfJoin(base, name) {
   return base ? base + '/' + name : name;
 }
 
-/** Refuse to navigate away from an edit in progress without saying so. */
-function pfCheckDirty() {
-  if (!pfOpen || !pfOpen.dirty) return true;
-  return confirm('Discard unsaved changes to ' + pfOpen.rel + '?');
+/**
+ * Run an action, asking first if it would discard an unsaved edit.
+ *
+ * Callback-shaped rather than returning a boolean because the question is now a modal, and a
+ * modal cannot block — every navigation path therefore hands its work to this rather than
+ * checking a flag and continuing.
+ */
+function pfGuard(action) {
+  if (!pfOpen || !pfOpen.dirty) { action(); return; }
+  pfAsk({
+    title: 'Discard unsaved changes?',
+    sub: pfOpen.rel + ' has edits you have not saved.',
+    confirmLabel: 'Discard',
+    danger: true,
+    onOk: action
+  });
+}
+
+/**
+ * The file manager's dialogs.
+ *
+ * These replace prompt()/confirm(): those block the page, cannot be styled to match anything,
+ * and browsers increasingly suppress them outright — a delete that silently never asks is worse
+ * than one that asks badly. pfPending holds the callback plus whether an input was rendered, so
+ * pfAskOk never has to infer either from the DOM.
+ */
+var pfPending = null;
+
+function pfAsk(opts) {
+  pfPending = { onOk: opts.onOk, input: !!opts.input };
+
+  var html = '<div class="modal-title">' + esc(opts.title) + '</div>';
+  if (opts.sub) html += '<div class="modal-sub">' + esc(opts.sub) + '</div>';
+  if (opts.input) {
+    html += '<div class="form-field"><label class="form-label">' + esc(opts.label || 'Name') + '</label>' +
+      '<input class="form-input" id="pf-ask-input" spellcheck="false" onkeydown="pfAskKey(event)" placeholder="' +
+      esc(opts.placeholder || '') + '"></div>';
+  }
+  html += '<div class="modal-actions">' +
+    '<button class="btn-subtle" onclick="pfAskCancel()">Cancel</button>' +
+    '<button class="' + (opts.danger ? 'btn-danger' : 'btn-primary') + '" onclick="pfAskOk()">' +
+    esc(opts.confirmLabel || 'OK') + '</button></div>';
+
+  openModal(html);
+
+  var input = document.getElementById('pf-ask-input');
+  if (input) {
+    input.value = opts.value || '';
+    input.focus();
+    // Select the stem, not the extension — renaming report.md is almost never about the ".md".
+    var dot = (opts.value || '').lastIndexOf('.');
+    if (opts.selectStem && dot > 0) input.setSelectionRange(0, dot);
+    else input.select();
+  }
+}
+
+function pfAskKey(event) {
+  if (event.key === 'Enter') { event.preventDefault(); pfAskOk(); }
+}
+
+function pfAskCancel() {
+  pfPending = null;
+  closeModal();
+}
+
+function pfAskOk() {
+  var pending = pfPending;
+  if (!pending) return;
+
+  var value = '';
+  if (pending.input) {
+    var el = document.getElementById('pf-ask-input');
+    value = el ? el.value.trim() : '';
+    // An empty name is not a decision — leave the dialog up rather than doing nothing silently.
+    if (!value) { if (el) el.focus(); return; }
+  }
+
+  pfPending = null;
+  closeModal();
+  pending.onOk(value);
 }
 
 function pfRefresh() { pfBrowse(pfRoot, pfPath); }
@@ -3306,10 +3394,11 @@ function pfRenderRoots() {
 function pfSwitchRoot(index) {
   var root = pfRoots[index];
   if (!root || root.key === pfRoot) return;
-  if (!pfCheckDirty()) return;
-  pfOpen = null;
-  pfClearEditor('Select a file to view or edit it.');
-  pfBrowse(root.key, '');
+  pfGuard(function() {
+    pfOpen = null;
+    pfClearEditor('Select a file to view or edit it.');
+    pfBrowse(root.key, '');
+  });
 }
 
 function pfRenderCrumb(listing) {
@@ -3332,9 +3421,9 @@ function pfRenderCrumb(listing) {
 }
 
 function pfCrumbTo(depth) {
-  if (!pfCheckDirty()) return;
   var parts = pfPath ? pfPath.split('/') : [];
-  pfBrowse(pfRoot, parts.slice(0, depth).join('/'));
+  var target = parts.slice(0, depth).join('/');
+  pfGuard(function() { pfBrowse(pfRoot, target); });
 }
 
 function pfRenderList() {
@@ -3368,18 +3457,18 @@ function pfRenderList() {
 }
 
 function pfUp() {
-  if (!pfCheckDirty()) return;
   var parts = pfPath ? pfPath.split('/') : [];
   parts.pop();
-  pfBrowse(pfRoot, parts.join('/'));
+  var target = parts.join('/');
+  pfGuard(function() { pfBrowse(pfRoot, target); });
 }
 
 function pfEnter(index) {
   var e = pfEntries[index];
   if (!e) return;
   if (e.kind === 'dir') {
-    if (!pfCheckDirty()) return;
-    pfBrowse(pfRoot, pfJoin(pfPath, e.name));
+    var into = pfJoin(pfPath, e.name);
+    pfGuard(function() { pfBrowse(pfRoot, into); });
     return;
   }
   pfOpenFile(index);
@@ -3387,8 +3476,11 @@ function pfEnter(index) {
 
 function pfOpenFile(index) {
   var e = pfEntries[index];
-  if (!e || !pfCheckDirty()) return;
-  var rel = pfJoin(pfPath, e.name);
+  if (!e) return;
+  pfGuard(function() { pfReadInto(e, pfJoin(pfPath, e.name)); });
+}
+
+function pfReadInto(e, rel) {
   var epoch = viewEpoch;
 
   sendCommand('project_files', { id: pfProject, op: 'read', args: { root: pfRoot, path: rel } })
@@ -3459,50 +3551,205 @@ function pfSave() {
 }
 
 function pfNewFile() {
-  var name = prompt('New file name (a path with / creates folders too):');
-  if (!name) return;
-  var rel = pfJoin(pfPath, name.trim());
-  sendCommand('project_files', { id: pfProject, op: 'write', args: { root: pfRoot, path: rel, content: '' } })
-    .then(function() { pfBrowse(pfRoot, pfPath); })
-    .catch(function(err) { showToast(String(err && err.message || err), 'error'); });
+  pfAsk({
+    title: 'New file',
+    sub: 'A path with / creates the folders on the way.',
+    label: 'Name',
+    placeholder: 'notes.md',
+    confirmLabel: 'Create',
+    input: true,
+    onOk: function(name) {
+      var rel = pfJoin(pfPath, name);
+      var dir = rel.split('/').slice(0, -1).join('/');
+
+      // 'create' rather than an empty write: writing would truncate a file that already has that
+      // name, and silently emptying someone's file is the one thing a New button must never do.
+      sendCommand('project_files', { id: pfProject, op: 'create', args: { root: pfRoot, path: rel } })
+        .then(function() {
+          // Land in the folder that now holds it, with it open. A new file you cannot see is
+          // indistinguishable from one that was never created.
+          pfOpen = { root: pfRoot, rel: rel, name: rel.split('/').pop(), dirty: false };
+          pfRenderEditor({ rel: rel, size: 0, content: '' }, false);
+          pfBrowse(pfRoot, dir);
+        })
+        .catch(function(err) { showToast(String(err && err.message || err), 'error'); });
+    }
+  });
 }
 
 function pfNewFolder() {
-  var name = prompt('New folder name:');
-  if (!name) return;
-  sendCommand('project_files', { id: pfProject, op: 'mkdir', args: { root: pfRoot, path: pfJoin(pfPath, name.trim()) } })
-    .then(function() { pfBrowse(pfRoot, pfPath); })
-    .catch(function(err) { showToast(String(err && err.message || err), 'error'); });
+  pfAsk({
+    title: 'New folder',
+    label: 'Name',
+    placeholder: 'assets',
+    confirmLabel: 'Create',
+    input: true,
+    onOk: function(name) {
+      sendCommand('project_files', { id: pfProject, op: 'mkdir', args: { root: pfRoot, path: pfJoin(pfPath, name) } })
+        .then(function() { pfBrowse(pfRoot, pfPath); })
+        .catch(function(err) { showToast(String(err && err.message || err), 'error'); });
+    }
+  });
 }
 
 function pfRename(index) {
   var e = pfEntries[index];
   if (!e) return;
-  var name = prompt('Rename ' + e.name + ' to:', e.name);
-  if (!name || name.trim() === e.name) return;
 
-  var from = pfJoin(pfPath, e.name);
-  sendCommand('project_files', { id: pfProject, op: 'rename', args: { root: pfRoot, path: from, to: pfJoin(pfPath, name.trim()) } })
-    .then(function() {
-      if (pfOpen && pfOpen.rel === from) { pfOpen = null; pfClearEditor('Select a file to view or edit it.'); }
-      pfBrowse(pfRoot, pfPath);
-    })
-    .catch(function(err) { showToast(String(err && err.message || err), 'error'); });
+  pfAsk({
+    title: 'Rename',
+    sub: 'A path with / moves it into that folder.',
+    label: 'New name',
+    value: e.name,
+    selectStem: true,
+    confirmLabel: 'Rename',
+    input: true,
+    onOk: function(name) {
+      if (name === e.name) return;
+      var from = pfJoin(pfPath, e.name);
+      sendCommand('project_files', { id: pfProject, op: 'rename', args: { root: pfRoot, path: from, to: pfJoin(pfPath, name) } })
+        .then(function() {
+          if (pfOpen && pfOpen.rel === from) { pfOpen = null; pfClearEditor('Select a file to view or edit it.'); }
+          pfBrowse(pfRoot, pfPath);
+        })
+        .catch(function(err) { showToast(String(err && err.message || err), 'error'); });
+    }
+  });
 }
 
 function pfDelete(index) {
   var e = pfEntries[index];
   if (!e) return;
-  var what = e.kind === 'dir' ? 'folder ' + e.name + ' and everything in it' : e.name;
-  if (!confirm('Delete ' + what + '? This cannot be undone.')) return;
 
-  var rel = pfJoin(pfPath, e.name);
-  sendCommand('project_files', { id: pfProject, op: 'delete', args: { root: pfRoot, path: rel } })
-    .then(function() {
-      if (pfOpen && pfOpen.rel === rel) { pfOpen = null; pfClearEditor('Select a file to view or edit it.'); }
-      pfBrowse(pfRoot, pfPath);
-    })
-    .catch(function(err) { showToast(String(err && err.message || err), 'error'); });
+  pfAsk({
+    title: 'Delete ' + e.name + '?',
+    sub: e.kind === 'dir'
+      ? 'The folder and everything inside it. This cannot be undone.'
+      : 'This cannot be undone.',
+    confirmLabel: 'Delete',
+    danger: true,
+    onOk: function() {
+      var rel = pfJoin(pfPath, e.name);
+      sendCommand('project_files', { id: pfProject, op: 'delete', args: { root: pfRoot, path: rel } })
+        .then(function() {
+          if (pfOpen && pfOpen.rel === rel) { pfOpen = null; pfClearEditor('Select a file to view or edit it.'); }
+          pfBrowse(pfRoot, pfPath);
+        })
+        .catch(function(err) { showToast(String(err && err.message || err), 'error'); });
+    }
+  });
+}
+
+/**
+ * Adding files that already exist somewhere else: drop them on the list, or use Add files.
+ *
+ * Uploads go over HTTP rather than the websocket — a websocket frame would mean base64 in memory
+ * on both ends, and these are real files. The destination is resolved server-side inside the
+ * project's roots, so the browser never names a path on disk.
+ */
+function pfDragOver(event) {
+  // Without preventDefault the browser navigates to the dropped file and the page is gone.
+  event.preventDefault();
+  var wrap = document.getElementById('pf-listwrap');
+  if (wrap) wrap.classList.add('dragging');
+}
+
+function pfDragLeave(event) {
+  // dragleave also fires moving between children, so only clear when leaving the wrapper itself.
+  var wrap = document.getElementById('pf-listwrap');
+  if (!wrap || (event.relatedTarget && wrap.contains(event.relatedTarget))) return;
+  wrap.classList.remove('dragging');
+}
+
+function pfDrop(event) {
+  event.preventDefault();
+  var wrap = document.getElementById('pf-listwrap');
+  if (wrap) wrap.classList.remove('dragging');
+  var files = event.dataTransfer && event.dataTransfer.files;
+  if (files && files.length) pfUploadFiles(files);
+}
+
+function pfPickUpload() {
+  var input = document.getElementById('pf-file-input');
+  if (input) { input.value = ''; input.click(); }
+}
+
+function pfFilesPicked(event) {
+  var files = event.target && event.target.files;
+  if (files && files.length) pfUploadFiles(files);
+}
+
+function pfUploadFiles(files) {
+  var box = document.getElementById('pf-uploads');
+  if (!box || !pfProject) return;
+
+  var token = new URLSearchParams(location.search).get('token') || '';
+  // Pin the destination now: the upload is async and the operator may browse elsewhere while it
+  // runs, and a file landing in whichever folder happened to be open when it finished is a bug.
+  var agentId = currentAgentId || '';
+  var project = pfProject;
+  var root = pfRoot;
+  var dir = pfPath;
+  var epoch = viewEpoch;
+  var remaining = files.length;
+
+  for (var i = 0; i < files.length; i++) {
+    (function(file) {
+      var row = document.createElement('div');
+      row.className = 'pf-upload';
+      var name = document.createElement('span');
+      name.textContent = file.name;
+      var bar = document.createElement('div');
+      bar.className = 'pf-upload-bar';
+      var fill = document.createElement('i');
+      bar.appendChild(fill);
+      row.appendChild(name);
+      row.appendChild(bar);
+      box.appendChild(row);
+
+      var url = '/project-upload/' + encodeURIComponent(agentId) +
+        '?token=' + encodeURIComponent(token) +
+        '&project=' + encodeURIComponent(project) +
+        '&root=' + encodeURIComponent(root) +
+        '&dir=' + encodeURIComponent(dir) +
+        '&name=' + encodeURIComponent(file.name);
+
+      // XHR rather than fetch: upload progress has no fetch equivalent, and a large file with no
+      // feedback is indistinguishable from one that failed.
+      var xhr = new XMLHttpRequest();
+      xhr.open('POST', url);
+      xhr.upload.onprogress = function(e) {
+        if (e.lengthComputable) fill.style.width = Math.round((e.loaded / e.total) * 100) + '%';
+      };
+      xhr.onload = function() {
+        var res = null;
+        try { res = JSON.parse(xhr.responseText); } catch (e) { /* handled below */ }
+        if (!res || !res.ok) {
+          row.className = 'pf-upload bad';
+          name.textContent = file.name + ' — ' + ((res && res.error) || 'upload failed');
+          bar.remove();
+        } else {
+          fill.style.width = '100%';
+          // Say so when the server had to rename around a collision, rather than leaving the
+          // operator looking for a name that is not there.
+          if (res.name !== file.name) name.textContent = file.name + ' → ' + res.name;
+          setTimeout(function() { row.remove(); }, 2500);
+        }
+        if (--remaining === 0 && !viewChanged(epoch) && pfRoot === root && pfPath === dir) {
+          pfBrowse(root, dir);
+        }
+      };
+      xhr.onerror = function() {
+        row.className = 'pf-upload bad';
+        name.textContent = file.name + ' — upload failed';
+        bar.remove();
+        if (--remaining === 0 && !viewChanged(epoch) && pfRoot === root && pfPath === dir) {
+          pfBrowse(root, dir);
+        }
+      };
+      xhr.send(file);
+    })(files[i]);
+  }
 }
 
 function moveTask(projectId, taskId, state) {

@@ -269,6 +269,79 @@ export class ProjectFiles {
 		return { path: target, rel: toRel(root, target), size: bytes.length }
 	}
 
+	/**
+	 * Create a new empty file, refusing one that is already there.
+	 *
+	 * Separate from `write` because "New file" with the name of an existing file would otherwise
+	 * truncate it — silently destroying content is the one thing a create button must never do.
+	 * `wx` does the check and the create in one syscall, so there is no window between them.
+	 */
+	async create(
+		projectId: string,
+		key: FileRootKey,
+		rel: string,
+	): Promise<{ path: string; rel: string }> {
+		const root = await this.rootPath(projectId, key)
+		const target = await this.assertWritable(root, key, rel)
+		if (target === root) throw new ProjectFileError('refusing to overwrite the project root')
+
+		await fs.mkdir(path.dirname(target), { recursive: true })
+		try {
+			await fs.writeFile(target, '', { flag: 'wx' })
+		} catch (err) {
+			if ((err as NodeJS.ErrnoException).code === 'EEXIST') {
+				throw new ProjectFileError(`already exists: ${rel}`)
+			}
+			throw err
+		}
+
+		logger.info(`created ${target}`)
+		return { path: target, rel: toRel(root, target) }
+	}
+
+	/**
+	 * Pick a free path for an uploaded file, authorized and collision-free.
+	 *
+	 * An upload must never fail for a name clash and never overwrite what is already there, so a
+	 * taken name gets a " (n)" suffix — the same thing every file manager does when you drop a
+	 * second copy in. The ledger names are treated as taken for the same reason they are read-only.
+	 */
+	async uploadTarget(
+		projectId: string,
+		key: FileRootKey,
+		relDir: string,
+		name: string,
+	): Promise<{ path: string; rel: string }> {
+		const root = await this.rootPath(projectId, key)
+		const dir = await resolveWithin(root, relDir)
+
+		const stat = await fs.stat(dir).catch(() => null)
+		if (!stat?.isDirectory()) throw new ProjectFileError(`not a directory: ${relDir}`)
+
+		// A browser sends whatever the OS gave it, including paths on some platforms — take the
+		// basename and drop control characters before it ever reaches a filesystem call.
+		// biome-ignore lint/suspicious/noControlCharactersInRegex: stripping control chars
+		const safe =
+			path
+				.basename(name)
+				.replace(/[\x00-\x1f/\\]/g, '')
+				.trim() || 'file'
+		const ext = path.extname(safe)
+		const stem = safe.slice(0, safe.length - ext.length) || 'file'
+		const guarded = key === 'workspace' && dir === root
+
+		for (let n = 0; n < 1000; n++) {
+			const candidate = n === 0 ? safe : `${stem} (${n})${ext}`
+			if (guarded && RESERVED.has(candidate)) continue
+			const target = path.join(dir, candidate)
+			if (!(await fs.stat(target).catch(() => null))) {
+				return { path: target, rel: toRel(root, target) }
+			}
+		}
+
+		throw new ProjectFileError(`no free name for ${safe} — a thousand copies is enough`)
+	}
+
 	async mkdir(projectId: string, key: FileRootKey, rel: string): Promise<{ path: string }> {
 		const root = await this.rootPath(projectId, key)
 		const target = await resolveWithin(root, rel)

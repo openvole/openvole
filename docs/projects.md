@@ -174,8 +174,14 @@ root there is only the one and the pills are hidden.
 
 Click a folder to go into it, a file to open it. Text opens in an editor with a **Save** button;
 binary files and anything over 512 KB say so rather than filling a textarea with noise. **New
-file** takes a path, so `docs/notes.md` creates the folder on the way. **rename** also moves —
-give it a path with slashes. Navigating away from unsaved changes asks first.
+file** takes a path, so `docs/notes.md` creates the folder on the way, and it refuses a name that
+already exists rather than emptying that file. **rename** also moves — give it a path with
+slashes. Navigating away from unsaved changes asks first.
+
+To bring in a file that already exists, drag it onto the listing or use **Add files**. Uploads
+stream to disk with a progress bar, land in the folder you were looking at when you started them,
+and get a ` (n)` suffix rather than overwriting anything with the same name — if that happens the
+row tells you what the file was actually called.
 
 `.project.json` and `tasks.jsonl` show as *managed* and open read-only. They have proper editors
 elsewhere — the project form and the task board — and `tasks.jsonl` is an append-only log the agent

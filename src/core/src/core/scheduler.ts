@@ -100,7 +100,11 @@ export class SchedulerStore {
 		} catch (err) {
 			this.restoring = false
 			// ENOENT is expected on first run — no schedules file yet
-			if (err instanceof Error && 'code' in err && (err as NodeJS.ErrnoException).code === 'ENOENT') {
+			if (
+				err instanceof Error &&
+				'code' in err &&
+				(err as NodeJS.ErrnoException).code === 'ENOENT'
+			) {
 				return
 			}
 			logger.warn(`Could not restore schedules: ${err}`)

@@ -60,6 +60,17 @@ export interface DashboardCallbacks {
 		op: string,
 		args: Record<string, unknown>,
 	) => Promise<unknown>
+	/**
+	 * Absolute path an uploaded file should be written to inside a project, already authorized.
+	 * The route never joins a client-supplied name onto a directory itself.
+	 */
+	resolveProjectUpload?: (
+		agentId: string,
+		projectId: string,
+		root: string,
+		dir: string,
+		name: string,
+	) => Promise<string>
 	taskAdd?: (agentId: string, input: Record<string, unknown>) => Promise<unknown>
 	/** Hand a queued task to the agent now, instead of waiting for its heartbeat. */
 	taskRun?: (agentId: string, projectId: string, taskId: string) => Promise<unknown>
@@ -331,6 +342,65 @@ export function createDashboardServer(
 						res.writeHead(500)
 						res.end(e instanceof Error ? e.message : String(e))
 					}
+				}
+			})()
+			return
+		}
+
+		// Drag-and-drop into a project's file browser. Same shape as the VoleDrop spool below —
+		// streamed to disk, token and same-origin gated — but the destination is resolved by the
+		// project layer, so an upload can only ever land inside that project's own roots.
+		if (req.method === 'POST' && req.url?.startsWith('/project-upload/')) {
+			if (!tokenOk(req) || !sameOrigin(req) || !callbacks.resolveProjectUpload) {
+				res.writeHead(callbacks.resolveProjectUpload ? 401 : 404)
+				res.end()
+				return
+			}
+			void (async () => {
+				let dest: string | undefined
+				try {
+					const u = new URL(req.url as string, 'http://localhost')
+					const agentId = decodeURIComponent(u.pathname.split('/')[2] ?? '')
+					const projectId = u.searchParams.get('project') ?? ''
+					if (!projectId) throw new Error('missing project')
+
+					dest = await callbacks.resolveProjectUpload?.(
+						agentId,
+						projectId,
+						u.searchParams.get('root') ?? 'workspace',
+						u.searchParams.get('dir') ?? '',
+						u.searchParams.get('name') ?? 'file',
+					)
+					if (!dest) throw new Error('no destination')
+
+					const MAX_UPLOAD_BYTES =
+						Number(process.env.VOLE_UPLOAD_MAX_BYTES) || 4 * 1024 * 1024 * 1024
+					const { pipeline } = await import('node:stream/promises')
+					const { Transform } = await import('node:stream')
+					// Budget enforced inside the pipeline, for the same reason as the spool route: a
+					// bare data listener starts the stream flowing across the awaits above.
+					let received = 0
+					const budget = new Transform({
+						transform(chunk: Buffer, _enc, cb) {
+							received += chunk.length
+							if (received > MAX_UPLOAD_BYTES) cb(new Error('upload too large'))
+							else cb(null, chunk)
+						},
+					})
+					await pipeline(req, budget, fs.createWriteStream(dest))
+
+					res.writeHead(200, { 'Content-Type': 'application/json' })
+					res.end(JSON.stringify({ ok: true, name: path.basename(dest), size: received }))
+				} catch (err) {
+					// A half-written file in a project folder reads as a real one; clean it up.
+					if (dest) fs.rmSync(dest, { force: true })
+					if (!res.headersSent) res.writeHead(400, { 'Content-Type': 'application/json' })
+					res.end(
+						JSON.stringify({
+							ok: false,
+							error: err instanceof Error ? err.message : 'upload failed',
+						}),
+					)
 				}
 			})()
 			return

@@ -106,6 +106,8 @@ export class ControlPlane {
 				projectUpdate: (agentId, id, patch) => this.projectUpdate(agentId, id, patch),
 				projectArchive: (agentId, id) => this.projectArchive(agentId, id),
 				projectFiles: (agentId, id, op, args) => this.projectFiles(agentId, id, op, args),
+				resolveProjectUpload: (agentId, projectId, root, dir, name) =>
+					this.resolveProjectUpload(agentId, projectId, root, dir, name),
 				taskAdd: (agentId, input) => this.taskAdd(agentId, input),
 				taskRun: (agentId, projectId, taskId) =>
 					this.callAgent(agentId, 'project_task_run', { projectId, taskId }),
@@ -474,6 +476,8 @@ export class ControlPlane {
 					ok: true as const,
 					...(await files.write(projectId, root, rel, String(args.content ?? ''))),
 				}
+			case 'create':
+				return { ok: true as const, ...(await files.create(projectId, root, rel)) }
 			case 'mkdir':
 				return { ok: true as const, ...(await files.mkdir(projectId, root, rel)) }
 			case 'delete':
@@ -486,6 +490,30 @@ export class ControlPlane {
 			default:
 				throw new Error(`Unknown file operation: "${op}"`)
 		}
+	}
+
+	/**
+	 * Where an uploaded file should land inside a project, authorized before a byte is written.
+	 *
+	 * The upload route streams straight to this path, so the whole boundary check happens here —
+	 * the HTTP layer never joins a client-supplied name onto a directory itself.
+	 */
+	async resolveProjectUpload(
+		agentId: string,
+		projectId: string,
+		root: string,
+		dir: string,
+		name: string,
+	): Promise<string> {
+		const { projects } = await this.projectStoresFor(agentId)
+		const files = new ProjectFiles(projects)
+		const target = await files.uploadTarget(
+			projectId,
+			(root as FileRootKey) || 'workspace',
+			dir,
+			name,
+		)
+		return target.path
 	}
 
 	async taskAdd(agentId: string, input: Record<string, unknown>) {
