@@ -440,7 +440,10 @@ export function getDashboardHtml(wsPort: number): string {
   .pchat-messages { flex: 1; overflow-y: auto; padding: 4px 2px; display: flex; flex-direction: column; gap: 8px; }
   .pchat-composer { display: flex; gap: 6px; margin-top: 10px; }
   .pchat-composer textarea { flex: 1; resize: none; min-height: 40px; max-height: 140px; }
-  .pchat-hint { font-size: 11px; color: var(--text-dim); margin-top: 6px; }
+  .pchat-hint { font-size: 11px; color: var(--text-dim); flex: 1; min-width: 0; }
+  .pchat-foot { display: flex; align-items: flex-start; gap: 10px; margin-top: 6px; }
+  .pchat-actions { display: flex; gap: 6px; flex-shrink: 0; }
+  .pchat-earlier { align-self: center; margin-bottom: 6px; }
   .task-assignee { display: inline-block; font-size: 10px; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--accent-line, var(--border)); color: var(--accent); margin-left: 6px; }
   .pf-roots { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
   .pf-root { background: none; border: 1px solid var(--border); border-radius: 999px; color: var(--text-dim); font-size: 11px; padding: 3px 10px; cursor: pointer; }
@@ -3110,7 +3113,12 @@ function renderProjectDetail(res) {
     '<div class="pchat-composer">' +
     '<textarea class="form-textarea" id="pchat-input" rows="2" placeholder="Talk about this project&hellip;" onkeydown="pchatKey(event)"></textarea>' +
     '<button class="btn-primary" onclick="pchatSend()">Send</button></div>' +
+    '<div class="pchat-foot">' +
     '<div class="pchat-hint">This conversation runs in the project\\'s own context — its docs and open tasks are already loaded, and the agent can create and update tasks from here.</div>' +
+    '<div class="pchat-actions">' +
+    '<button class="btn-subtle btn-sm" id="pchat-compact" onclick="pchatCompact()" title="Summarize the older messages and keep the recent ones">Compact</button>' +
+    '<button class="btn-subtle btn-sm" onclick="pchatClear()" title="Delete this project&rsquo;s conversation">Clear</button>' +
+    '</div></div>' +
     '</div></div>';
 
   html += '<div id="proj-files-view" style="display:' + (projSubtab === 'files' ? '' : 'none') + '">' +
@@ -3212,29 +3220,114 @@ function switchProjSubtab(name) {
   if (name === 'files' && currentProjectId) loadProjectFiles(currentProjectId);
 }
 
+/**
+ * How many messages the window shows at once.
+ *
+ * The transcript on disk is the record and stays whole; this is only what gets painted. A months-old
+ * project conversation is thousands of messages, and rendering all of them to show the last three
+ * is the kind of thing that makes a page feel broken.
+ */
+var PCHAT_WINDOW = 40;
+var pchatAll = [];
+
 function loadProjectChat(projectId) {
   var box = document.getElementById('pchat-messages');
   if (!box) return;
   var epoch = viewEpoch;
   sendCommand('chat_history', { sessionId: projectSessionId(projectId) }).then(function(res) {
     if (viewChanged(epoch) || currentProjectId !== projectId) return;
-    var target = document.getElementById('pchat-messages');
-    if (!target) return;
-    var history = (res && res.history) || [];
-    if (!history.length) {
-      target.innerHTML = '<div class="empty">Nothing yet. Describe what you want done and the agent will work out the tasks.</div>';
-      return;
-    }
-    target.innerHTML = '';
-    for (var i = 0; i < history.length; i++) {
-      var m = history[i];
-      if (m.role !== 'user' && m.role !== 'brain') continue;
-      appendProjectMessage(m.role, m.content);
-    }
-    target.scrollTop = target.scrollHeight;
+    pchatAll = ((res && res.history) || []).filter(function(m) {
+      return m.role === 'user' || m.role === 'brain';
+    });
+    renderProjectChat(PCHAT_WINDOW);
   }).catch(function() {
     var target = document.getElementById('pchat-messages');
     if (target) target.innerHTML = '<div class="empty">Could not load this conversation.</div>';
+  });
+}
+
+function renderProjectChat(show) {
+  var target = document.getElementById('pchat-messages');
+  if (!target) return;
+
+  if (!pchatAll.length) {
+    target.innerHTML = '<div class="empty">Nothing yet. Describe what you want done and the agent will work out the tasks.</div>';
+    return;
+  }
+
+  var count = Math.min(show, pchatAll.length);
+  var start = pchatAll.length - count;
+  target.innerHTML = '';
+
+  if (start > 0) {
+    var more = document.createElement('button');
+    more.className = 'btn-subtle btn-sm pchat-earlier';
+    more.textContent = 'Show ' + Math.min(PCHAT_WINDOW, start) + ' earlier of ' + start;
+    more.onclick = function() { renderProjectChat(count + PCHAT_WINDOW); };
+    target.appendChild(more);
+  }
+
+  for (var i = start; i < pchatAll.length; i++) {
+    appendProjectMessage(pchatAll[i].role, pchatAll[i].content);
+  }
+  target.scrollTop = target.scrollHeight;
+}
+
+function pchatClear() {
+  var projectId = currentProjectId;
+  if (!projectId) return;
+  pfAsk({
+    title: 'Clear this conversation?',
+    sub: 'Deletes the transcript for this project. The project, its docs and its tasks are untouched.',
+    confirmLabel: 'Clear',
+    danger: true,
+    onOk: function() {
+      sendCommand('chat_clear', { sessionId: projectSessionId(projectId) }).then(function(res) {
+        if (res && res.ok === false) { showToast(res.error || 'Could not clear', 'error'); return; }
+        pchatAll = [];
+        renderProjectChat(PCHAT_WINDOW);
+        showToast('Conversation cleared', 'success');
+      }).catch(function(e) { showToast(e.message, 'error'); });
+    }
+  });
+}
+
+/**
+ * Replace the older messages with a summary the agent writes.
+ *
+ * The alternative to a long transcript should not be only "delete it": every run that loads this
+ * conversation pays for its whole length, and what you want kept is what was decided, not the
+ * back-and-forth that got there. The agent does the summarizing, so this needs it running and
+ * takes as long as a reply does.
+ */
+function pchatCompact() {
+  var projectId = currentProjectId;
+  if (!projectId) return;
+  if (!agentIsRunning()) {
+    showToast('Start the agent first — it writes the summary itself.', 'error');
+    return;
+  }
+
+  pfAsk({
+    title: 'Compact this conversation?',
+    sub: 'The agent summarizes everything except the last few messages, and the summary replaces them. This cannot be undone, and takes about as long as a reply.',
+    confirmLabel: 'Compact',
+    onOk: function() {
+      var btn = document.getElementById('pchat-compact');
+      if (btn) { btn.disabled = true; btn.textContent = 'Compacting…'; }
+      sendCommand('chat_compact', { sessionId: projectSessionId(projectId), keepLast: 6 }, 600000)
+        .then(function(res) {
+          if (res && res.ok === false) { showToast(res.error || 'Could not compact', 'error'); return; }
+          if (res && res.compacted === false) { showToast('Already short enough to leave alone', 'info'); return; }
+          showToast('Summarized ' + res.summarized + ' messages, kept the last ' + res.kept, 'success');
+          loadProjectChat(projectId);
+        })
+        .catch(function(e) { showToast(e.message, 'error'); })
+        .then(function() {
+          var b = document.getElementById('pchat-compact');
+          if (b) { b.disabled = false; b.textContent = 'Compact'; }
+        });
+    }
   });
 }
 

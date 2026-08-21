@@ -18,6 +18,10 @@
 
 - **Brain-drafted context and identity files.** The project context doc and each identity file (`SOUL.md`, `USER.md`, `AGENT.md`, `HEARTBEAT.md`, `BRAIN.md`) get a prompt box and a **Draft** button: describe what the file should cover and the agent writes it. Drafting it opens the project and reads its real files first, so the result is grounded in what is there. The draft fills the editor and is never saved for you. Drafts run under a reserved session so they stay out of the chat transcript and the unread badge.
 
+- **Clear and compact a project conversation.** **Clear** deletes the transcript; **Compact** has the agent summarize everything except the last few messages and puts the summary in their place, so what was decided survives while the length does not — every run that loads the conversation pays for all of it. Compaction is atomic in the agent: the summary is written before anything is removed, so a failed think leaves the chat intact. The chat window now paints the most recent messages with a control to pull in earlier ones, rather than rendering a thousand-message conversation to show the last three; the transcript on disk stays whole either way.
+
+- **Control requests that run the brain get a real deadline.** They shared the 15-second timeout meant for lookups, which a CLI-backed brain misses every time.
+
 - **Per-project chat.** Each project has its own conversation on its page, running in that project's context — its docs and open tasks are already loaded, so you can describe what you want and the agent works out the tasks instead of you filling in a form. Project conversations stay off the central Chat tab so that list doesn't fill with unlabelled sessions.
 
 - **Delegated work stays visible.** A task carries an `assignee` and a `delegatedTaskId`, so a task handed to a sibling agent shows who holds it rather than reading as abandoned, and the coordinator can poll it with `agent_task_status` and record the outcome and artifacts back onto the task. A project belongs to whoever owns the outcome, not whoever does the labor; the worker reports and the owner records, keeping one writer per ledger.

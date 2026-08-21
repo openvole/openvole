@@ -4,6 +4,7 @@ import {
 	writeConfigFile,
 	writeIdentityFile,
 } from '../config/index.js'
+import { createAgentContext } from '../context/types.js'
 import type { BusEvents } from '../core/bus.js'
 import type { VoleEngine } from '../index.js'
 
@@ -288,6 +289,79 @@ export function installControlAdapter(engine: VoleEngine, projectRoot: string): 
 				case 'chat_sessions': {
 					const tool = current.toolRegistry.get('session_list')
 					result = tool ? await tool.execute({}) : { ok: false, sessions: [] }
+					break
+				}
+				case 'chat_compact': {
+					// Summarize the older part of a transcript and put the summary in its place.
+					//
+					// A long-lived chat costs tokens on every run that loads it, and clearing is the
+					// only alternative — which throws away what was decided. This keeps the decisions
+					// and drops the transcript around them.
+					//
+					// Done here rather than orchestrated from the browser because it has to be
+					// atomic: a summary written by one call and a clear issued by another can
+					// interleave with the agent appending to the same session, and the failure mode
+					// is a transcript with the middle missing.
+					const history = current.toolRegistry.get('session_history')
+					const clear = current.toolRegistry.get('session_clear')
+					const append = current.toolRegistry.get('session_append')
+					if (!history || !clear || !append) {
+						result = { ok: false, error: 'paw-session is not loaded in this agent' }
+						break
+					}
+
+					const sessionId = params.sessionId as string
+					const keepLast = Math.max(0, Number(params.keepLast ?? 6))
+					const read = (await history.execute({ sessionId })) as {
+						ok: boolean
+						history?: Array<{ role: string; content: string }>
+					}
+					const messages = read.history ?? []
+
+					// Nothing to gain: the tail is the whole transcript.
+					if (messages.length <= keepLast + 1) {
+						result = { ok: true, compacted: false, messages: messages.length }
+						break
+					}
+
+					const older = messages.slice(0, messages.length - keepLast)
+					const tail = messages.slice(messages.length - keepLast)
+
+					const transcript = older
+						.map((m) => `${m.role === 'brain' ? 'Assistant' : m.role}: ${m.content}`)
+						.join('\n\n')
+
+					const ctx = createAgentContext(`compact-${Date.now()}`, 1)
+					// A purpose-built prompt, not the agent's own: this is a utility call, and the
+					// agent's identity and tools have nothing to do with summarizing a transcript.
+					;(ctx as unknown as Record<string, unknown>).systemPrompt =
+						'You compress conversation transcripts. Rewrite what follows as a compact record of what was decided, agreed, produced, and left open — in the third person, under short headings. Keep names, paths, ids, numbers and outcomes exactly. Drop pleasantries, retries and reasoning that led nowhere. This replaces the transcript, so anything you omit is gone: err towards keeping a fact. Output the summary alone, with no preamble.'
+					ctx.messages = [{ role: 'user', content: transcript, timestamp: Date.now() }]
+
+					const plan = await current.pawRegistry.think(ctx)
+					const summary = plan?.response?.trim()
+					if (!summary) {
+						result = { ok: false, error: 'the brain returned no summary — nothing was changed' }
+						break
+					}
+
+					// Only now is anything destroyed: a failed summary above leaves the chat intact.
+					await clear.execute({ sessionId })
+					await append.execute({
+						sessionId,
+						role: 'brain',
+						content: `**Summary of ${older.length} earlier messages**\n\n${summary}`,
+					})
+					for (const m of tail) {
+						await append.execute({ sessionId, role: m.role, content: m.content })
+					}
+
+					result = {
+						ok: true,
+						compacted: true,
+						summarized: older.length,
+						kept: tail.length,
+					}
 					break
 				}
 				case 'chat_clear': {

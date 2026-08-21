@@ -27,6 +27,8 @@ function isInsideAny(target: string, roots: string[]): boolean {
 	})
 }
 const RPC_TIMEOUT_MS = 15_000
+/** For control requests that invoke the brain. A CLI-backed brain routinely takes minutes. */
+const BRAIN_RPC_TIMEOUT_MS = 600_000
 const STOP_GRACE_MS = 5000
 const STATE_DEBOUNCE_MS = 150
 /** Max tasks included in an orchestrator's agent_state summary. */
@@ -127,6 +129,9 @@ export class ControlPlane {
 				chatHistory: (sessionId, id) => this.callAgent(id, 'chat_history', { sessionId }),
 				chatSessions: (id) => this.callAgent(id, 'chat_sessions'),
 				chatClear: (sessionId, id) => this.callAgent(id, 'chat_clear', { sessionId }),
+				// Runs the brain — give it the same room a think gets, not the 15s lookup deadline.
+				chatCompact: (sessionId, keepLast, id) =>
+					this.callAgent(id, 'chat_compact', { sessionId, keepLast }, BRAIN_RPC_TIMEOUT_MS),
 				volenetInstances: (id) => this.callAgent(id, 'volenet_instances'),
 				volenetChatHistory: (peerId, id) => this.callAgent(id, 'volenet_chat_history', { peerId }),
 				volenetChatSend: (peerId, text, id) =>
@@ -604,6 +609,12 @@ export class ControlPlane {
 		id: string | undefined,
 		method: string,
 		params: Record<string, unknown> = {},
+		/**
+		 * Override the default deadline. Nearly every control request is a lookup and 15s is
+		 * generous; the exceptions are the ones that run the brain, where 15s is a guaranteed
+		 * failure — a CLI-backed brain routinely takes minutes.
+		 */
+		timeoutMs = RPC_TIMEOUT_MS,
 	): Promise<unknown> {
 		const child = id ? this.children.get(id) : undefined
 		if (!id || !child) {
@@ -616,7 +627,7 @@ export class ControlPlane {
 					const timeout = setTimeout(() => {
 						child.pending.delete(reqId)
 						reject(new Error(`Control request timed out: ${method}`))
-					}, RPC_TIMEOUT_MS)
+					}, timeoutMs)
 					child.pending.set(reqId, { resolve, reject, timeout })
 					child.proc.send?.({ id: reqId, method, params })
 				}),

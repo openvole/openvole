@@ -207,6 +207,53 @@ describe('dashboard projects UI', () => {
 		expect(source).toContain('function toggleProjContext()')
 	})
 
+	describe('the project conversation', () => {
+		it('offers clear and compact, and both ask first', async () => {
+			const source = await readUi()
+			expect(source).toContain('function pchatClear()')
+			expect(source).toContain('function pchatCompact()')
+			for (const fn of ['pchatClear', 'pchatCompact']) {
+				const block = source.substring(source.indexOf(`function ${fn}(`))
+				expect(block.substring(0, block.indexOf('\n}')), `${fn} acts without asking`).toContain(
+					'pfAsk(',
+				)
+			}
+		})
+
+		it('gives compaction a deadline long enough for the brain to answer', async () => {
+			const source = await readUi()
+			const block = source.substring(source.indexOf('function pchatCompact('))
+			// The default websocket deadline is for lookups. Compaction runs a full think, which on
+			// a CLI-backed brain takes minutes — at the default every compaction fails.
+			const call = block.split('\n').find((l) => l.includes("sendCommand('chat_compact'")) ?? ''
+			expect(call, 'chat_compact is sent without an explicit deadline').toMatch(/\b\d{6,}\b/)
+		})
+
+		it('paints a window of the transcript, not all of it', async () => {
+			const source = await readUi()
+			// The transcript on disk stays whole; this is only what gets rendered. Painting a
+			// thousand-message conversation to show the last three reads as a broken page.
+			expect(source).toContain('var PCHAT_WINDOW =')
+			expect(source).toContain('function renderProjectChat(')
+			const block = source.substring(source.indexOf('function renderProjectChat('))
+			expect(block.substring(0, block.indexOf('\n}'))).toContain('earlier')
+		})
+
+		it('handles chat_compact on both sides of the wire', async () => {
+			const server = await fs.readFile(path.resolve(path.dirname(UI_PATH), 'server.ts'), 'utf-8')
+			expect(server).toContain(`case 'chat_compact'`)
+			const adapter = await fs.readFile(
+				path.resolve(path.dirname(UI_PATH), '../../core/src/agent/control-adapter.ts'),
+				'utf-8',
+			)
+			expect(adapter).toContain(`case 'chat_compact'`)
+			// Nothing is destroyed until a summary exists: a failed think must leave the chat alone.
+			const block = adapter.substring(adapter.indexOf(`case 'chat_compact'`))
+			const body = block.substring(0, block.indexOf(`case 'chat_clear'`))
+			expect(body.indexOf('pawRegistry.think')).toBeLessThan(body.indexOf('clear.execute'))
+		})
+	})
+
 	describe('the project file manager', () => {
 		it('wires the Files sub-tab to its loader', async () => {
 			const source = await readUi()

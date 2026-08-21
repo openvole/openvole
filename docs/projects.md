@@ -216,6 +216,15 @@ tasks are already loaded, so you can describe what you want instead of filling i
 the agent creates and updates the tasks itself. These conversations live on the project page and
 stay out of the central Chat tab, which keeps that list from filling with unlabelled sessions.
 
+Two actions sit under it. **Clear** deletes the transcript — the project, its docs and its tasks
+are untouched. **Compact** is the middle option: the agent summarizes everything except the last
+few messages and the summary takes their place, so what was decided survives and the length does
+not. Every run that loads this conversation pays for its whole length, which is what compacting is
+for. It runs the brain, so the agent has to be running and it takes about as long as a reply.
+
+The window shows the most recent messages with a control to pull in earlier ones. The transcript on
+disk is always whole — this is only what gets painted.
+
 The project's context docs sit above the board as a single collapsed line naming them; click to
 expand, or use **Context** to edit. They are written for the agent to read, so they stay out of
 the way of the board by default.

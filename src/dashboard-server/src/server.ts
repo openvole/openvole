@@ -89,6 +89,8 @@ export interface DashboardCallbacks {
 	chatHistory?: (sessionId?: string, agentId?: string) => Promise<unknown>
 	chatSessions?: (agentId?: string) => Promise<unknown>
 	chatClear?: (sessionId: string, agentId?: string) => Promise<unknown>
+	/** Replace a transcript's older half with a brain-written summary. Runs the brain, so it is slow. */
+	chatCompact?: (sessionId: string, keepLast: number, agentId?: string) => Promise<unknown>
 	volenetInstances?: (agentId?: string) => Promise<unknown>
 	volenetChatHistory?: (peerId?: string, agentId?: string) => Promise<unknown>
 	volenetChatSend?: (peerId: string, text: string, agentId?: string) => Promise<unknown>
@@ -617,6 +619,11 @@ export function createDashboardServer(
 					respond(
 						await callbacks.callPawTool?.(p?.agent ?? sel() ?? '', p?.name ?? '', p?.params ?? {}),
 					)
+					break
+				}
+				case 'chat_compact': {
+					const p = cmd.params as { sessionId: string; keepLast?: number }
+					respond(await callbacks.chatCompact?.(p?.sessionId, p?.keepLast ?? 6, sel()))
 					break
 				}
 				case 'chat_clear': {
