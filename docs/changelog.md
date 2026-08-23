@@ -48,6 +48,8 @@
 
 ### Fixed
 
+- **The Tasks list no longer grows into the Live Events feed.** It was sized to stretch between 190px and 400px, so every task that arrived pushed the feed further down the page while you were reading it. The list now holds one height and scrolls inside itself. It also gained a **When** column: the existing time column is a duration, so a finished task told you it took four seconds but not whether that was this morning or last week. Hovering it gives the full queued/started/finished trail.
+
 - **`vole upgrade` no longer overwrites a customized `BRAIN.md`.** It used to move the local file to `BRAIN.md.old` and write the package version over it. BRAIN.md is the agent's system prompt and the most likely file to be hand-tuned, and now that one command walks every agent on a server, that would replace every customized prompt at once. A changed default is written alongside as `BRAIN.md.dist` instead.
 
 ### Removed

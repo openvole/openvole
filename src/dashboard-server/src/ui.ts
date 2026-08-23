@@ -229,7 +229,9 @@ export function getDashboardHtml(wsPort: number): string {
   .sumcard.sched   { --sc-tint: color-mix(in srgb, var(--yellow) 13%, var(--surface)); }
   .tasks-panel { margin: 0 16px 16px; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; flex-shrink: 0; }
   .tasks-panel .panel-header { border-bottom: 1px solid var(--border); background: color-mix(in srgb, var(--accent) 7%, var(--surface)); }
-  .tasks-panel .panel-body { min-height: 190px; max-height: 400px; }
+  /* Fixed height: the list must not grow as tasks arrive, or it eats the Live Events pane below. */
+  .tasks-panel .panel-body { height: 260px; }
+  .tasks-panel td.task-when { color: var(--text-dim); }
 
   /* ── Detail drawer ── */
   .drawer-scrim { position: fixed; inset: 0; background: rgba(0,0,0,0.45); opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 60; }
@@ -252,6 +254,7 @@ export function getDashboardHtml(wsPort: number): string {
     .tab-btn { flex-shrink: 0; padding: 11px 12px 9px; }
     .sum-grid { grid-template-columns: 1fr 1fr; gap: 8px; padding: 10px; }
     .tasks-panel { margin: 0 10px 10px; }
+    .tasks-panel .panel-body { height: 200px; }
     .ov { overflow-y: auto; }
     .events-bar { flex: 0 0 auto; min-height: 220px; }
     .drawer { width: 100vw; }
@@ -1167,7 +1170,7 @@ export function getDashboardHtml(wsPort: number): string {
         <div class="panel-header"><h2>Tasks <span class="count" id="tasks-count">0</span></h2></div>
         <div class="panel-body">
           <table id="tasks-table">
-            <thead><tr><th>ID</th><th>Source</th><th>Input</th><th>Status</th><th>Time</th><th>Cost</th></tr></thead>
+            <thead><tr><th>ID</th><th>Source</th><th>Input</th><th>Status</th><th>When</th><th>Took</th><th>Cost</th></tr></thead>
             <tbody></tbody>
           </table>
         </div>
@@ -6349,7 +6352,7 @@ function renderTasks(tasks) {
   document.getElementById('tasks-count').textContent = tasks.length;
   var tbody = document.querySelector('#tasks-table tbody');
   tbody.innerHTML = sorted.length === 0
-    ? '<tr><td colspan="6" class="empty">No tasks</td></tr>'
+    ? '<tr><td colspan="7" class="empty">No tasks</td></tr>'
     : sorted.map(function(t) {
       var elapsed = formatElapsed(t);
       var sTag = sourceClass(t.source);
@@ -6358,6 +6361,7 @@ function renderTasks(tasks) {
         + '<td><span class="tag ' + sTag + '">' + esc(t.source) + '</span></td>'
         + '<td title="' + esc(t.input || '') + '">' + esc((t.input || '').substring(0, 50)) + '</td>'
         + '<td><span class="tag ' + statusClass(t.status) + '">' + esc(t.status) + '</span></td>'
+        + '<td class="task-when" title="' + esc(whenTitle(t)) + '">' + formatWhen(t) + '</td>'
         + '<td>' + elapsed + '</td>'
         + '<td>' + formatCost(t) + '</td>'
         + '</tr>';
@@ -6370,6 +6374,25 @@ function sourceClass(s) {
   if (s === 'heartbeat') return 'tag-yellow';
   if (s === 'schedule') return 'tag-orange';
   return 'tag-blue';
+}
+
+// When the task actually ran. Start time is the interesting stamp \u2014 a queued task has none yet,
+// so fall back to when it was enqueued. Same-day stamps keep seconds; older ones trade them for a date.
+function formatWhen(t) {
+  var at = t.startedAt || t.createdAt;
+  if (!at) return '\\u2014';
+  var d = new Date(at);
+  var time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+  if (d.toDateString() === new Date().toDateString()) return time;
+  return d.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' ' + time.slice(0, 5);
+}
+
+function whenTitle(t) {
+  var parts = [];
+  if (t.createdAt) parts.push('queued ' + new Date(t.createdAt).toLocaleString());
+  if (t.startedAt) parts.push('started ' + new Date(t.startedAt).toLocaleString());
+  if (t.completedAt) parts.push('finished ' + new Date(t.completedAt).toLocaleString());
+  return parts.join('\\n');
 }
 
 function formatElapsed(t) {
