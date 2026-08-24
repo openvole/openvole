@@ -14,6 +14,12 @@ import type { ProjectContextInfo } from '../project/types.js'
 export interface ToolContext {
 	/** The project this task is scoped to, when it has one. */
 	project?: ProjectContextInfo
+	/**
+	 * Where this run reports back to — the chat session that gets its result. Derived per run by
+	 * `replyAddressFor`, so a tool that talks to the human lands where the work came from instead
+	 * of defaulting to the general chat.
+	 */
+	replyTo?: string
 }
 
 /** A tool definition as provided by a Paw */

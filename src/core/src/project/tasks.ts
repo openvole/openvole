@@ -18,6 +18,7 @@ import {
 	TASK_TRANSITIONS,
 	TERMINAL_TASK_STATES,
 	type TaskBudget,
+	type TaskEvent,
 	type TaskState,
 } from './types.js'
 
@@ -202,6 +203,40 @@ export class TaskStore {
 		return { task, exhausted: false }
 	}
 
+	/**
+	 * The lifecycle of every task in a project: which states it passed through and when.
+	 *
+	 * The data was always there — `append` writes a full record per change and `readAll` throws all
+	 * but the last away — so this is a second pass over the same file, not new bookkeeping.
+	 *
+	 * Only *state changes* become events. A record that merely charged iterations moved nothing a
+	 * reader cares about, and emitting one per write would bury the six moves that matter under
+	 * dozens of identical lines.
+	 *
+	 * Newest first, matching how the board reads: what happened most recently is what you came to
+	 * find out.
+	 */
+	async history(projectId: string): Promise<Map<string, TaskEvent[]>> {
+		const out = new Map<string, TaskEvent[]>()
+		for (const [id, records] of (await this.readRecords(projectId)).entries()) {
+			const events: TaskEvent[] = []
+			let previous: TaskState | null = null
+			for (const record of records) {
+				if (record.state === previous) continue
+				previous = record.state
+				events.push({
+					state: record.state,
+					at: record.updatedAt ?? record.createdAt,
+					...(record.note ? { note: record.note } : {}),
+				})
+			}
+			// The creating record carries `createdAt === updatedAt`, so the first event is the
+			// creation and needs no special case.
+			out.set(id, events.reverse())
+		}
+		return out
+	}
+
 	private async append(task: ProjectTask): Promise<void> {
 		const file = this.fileFor(task.projectId)
 		await fs.mkdir(path.dirname(file), { recursive: true })
@@ -211,6 +246,16 @@ export class TaskStore {
 	/** Last line wins per id. A malformed line is skipped, not fatal. */
 	private async readAll(projectId: string): Promise<Map<string, ProjectTask>> {
 		const byId = new Map<string, ProjectTask>()
+		for (const [id, records] of (await this.readRecords(projectId)).entries()) {
+			const last = records[records.length - 1]
+			if (last) byId.set(id, last)
+		}
+		return byId
+	}
+
+	/** Every record per id, in the order they were written. A malformed line is skipped, not fatal. */
+	private async readRecords(projectId: string): Promise<Map<string, ProjectTask[]>> {
+		const byId = new Map<string, ProjectTask[]>()
 		let raw: string
 		try {
 			raw = await fs.readFile(this.fileFor(projectId), 'utf-8')
@@ -222,7 +267,10 @@ export class TaskStore {
 			if (!trimmed) continue
 			try {
 				const task = JSON.parse(trimmed) as ProjectTask
-				if (task?.id) byId.set(task.id, task)
+				if (!task?.id) continue
+				const records = byId.get(task.id)
+				if (records) records.push(task)
+				else byId.set(task.id, [task])
 			} catch {
 				// A torn trailing line costs one update, not the file.
 			}

@@ -52,6 +52,13 @@ export interface ActiveSkill {
 
 /** Result of a tool execution */
 export interface ActionResult {
+	/**
+	 * The conversation this result belongs to, when the run is a turn in one. Absent for a run
+	 * with no conversation (a heartbeat, a task started from the board) — a paw recording results
+	 * should skip those rather than fall back to a remembered "current session", which answers
+	 * for whichever task bootstrapped last. Added in core 4.17.0; undefined on older cores.
+	 */
+	sessionId?: string
 	toolName: string
 	pawName: string
 	success: boolean

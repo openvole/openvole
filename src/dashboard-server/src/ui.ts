@@ -397,7 +397,9 @@ export function getDashboardHtml(wsPort: number): string {
   .proj-item { padding: 8px 10px; border-radius: 6px; cursor: pointer; border: 1px solid transparent; margin-bottom: 4px; }
   .proj-item:hover { background: var(--surface-hover); }
   .proj-item.active { background: var(--surface-hover); border-color: var(--accent); }
-  .proj-item-name { font-size: 13px; font-weight: 500; }
+  .proj-item-name { font-size: 13px; font-weight: 500; display: flex; align-items: center; gap: 6px; }
+  /* A report routed to this project's chat while you were elsewhere. */
+  .proj-unread { font-size: 10px; font-family: var(--mono); line-height: 1; padding: 2px 6px; border-radius: 999px; background: var(--accent); color: var(--bg); flex-shrink: 0; }
   .proj-item-meta { font-size: 11px; color: var(--text-dim); margin-top: 2px; display: flex; gap: 6px; }
   .proj-archived .proj-item-name { color: var(--text-dim); }
   .proj-showall { display: block; margin-top: 10px; font-size: 11px; color: var(--text-dim); cursor: pointer; }
@@ -418,6 +420,19 @@ export function getDashboardHtml(wsPort: number): string {
   .task-row { border: 1px solid var(--border); border-radius: 6px; padding: 9px 11px; margin-bottom: 6px; background: var(--bg); }
   .task-goal { font-size: 13px; }
   .task-meta { font-size: 11px; color: var(--text-dim); margin-top: 4px; }
+  .task-next { display: inline-block; font-size: 10px; padding: 1px 6px; border-radius: 999px; background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent); margin-left: 6px; }
+  /* Task lifecycle: one summary line, expanding to the full trail of state changes. */
+  .task-life { display: flex; align-items: center; gap: 5px; margin-top: 4px; font-size: 11px; color: var(--text-dim); user-select: none; }
+  .task-life[onclick] { cursor: pointer; }
+  .task-life[onclick]:hover { color: var(--text); }
+  .task-life-caret { display: inline-block; width: 8px; flex-shrink: 0; }
+  .task-life-caret-off { opacity: .45; }
+  .task-life-dim { opacity: .7; }
+  .task-life-trail { margin: 4px 0 0 13px; padding-left: 9px; border-left: 1px solid var(--border); }
+  .task-life-row { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-dim); padding: 2px 0; }
+  .task-life-state { min-width: 76px; color: var(--text); }
+  .task-life-at { font-family: var(--mono); font-size: 10px; }
+  .task-life-note { color: var(--orange); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
   .task-note { font-size: 11px; color: var(--orange); margin-top: 4px; }
   .task-crit { font-size: 11px; color: var(--text-dim); margin-top: 4px; padding-left: 12px; }
   .task-actions { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 7px; }
@@ -2514,16 +2529,22 @@ function sendChat() {
   });
 }
 function chatOnTaskEvent(event, data, agentId) {
+  // Where the run said its report goes, which is not always a session it was a turn in: work
+  // started from the task board or picked up by a heartbeat has no conversation of its own but
+  // still reports into its project's. The sessionId is the fallback for an engine older than the
+  // reply-address change.
+  var addr = (data && (data.replyTo || data.sessionId)) || '';
+
   // Drafts are agent work, not conversation: they must not appear as chat or bump the unread
   // badge. Claim them here so the accounting below never sees them.
-  if (data && data.sessionId === DRAFT_SESSION) {
+  if (addr === DRAFT_SESSION) {
     draftOnTaskEvent(event, data);
     return;
   }
   // Project conversations belong to the project page, not the central Chat tab: they must not
   // appear as sessions there or bump its unread badge.
-  if (data && typeof data.sessionId === 'string' && data.sessionId.indexOf('project:') === 0) {
-    pchatOnTaskEvent(event, data);
+  if (addr.indexOf('project:') === 0) {
+    pchatOnTaskEvent(event, data, addr.slice('project:'.length), agentId);
     return;
   }
   // Unread accounting FIRST: a reply can land while you're on another tab or agent, and
@@ -3028,8 +3049,11 @@ function renderProjectList(projects) {
     var p = projects[i];
     var cls = 'proj-item' + (p.id === currentProjectId ? ' active' : '') + (p.status === 'archived' ? ' proj-archived' : '');
     var open = p.openTasks === 1 ? '1 open' : (p.openTasks || 0) + ' open';
+    var unread = projUnreadFor()[p.id] || 0;
     html += '<div class="' + cls + '" onclick="openProject(\\'' + esc(p.id) + '\\')">' +
-      '<div class="proj-item-name">' + esc(p.name || p.id) + '</div>' +
+      '<div class="proj-item-name">' + esc(p.name || p.id) +
+      (unread ? '<span class="proj-unread" title="' + unread + ' new report' + (unread === 1 ? '' : 's') + ' in this project&rsquo;s chat">' + unread + '</span>' : '') +
+      '</div>' +
       '<div class="proj-item-meta"><span>' + esc(p.kind) + '</span><span>&middot;</span><span>' + esc(open) + '</span>' +
       (p.status !== 'active' ? '<span>&middot;</span><span>' + esc(p.status) + '</span>' : '') +
       '</div></div>';
@@ -3092,14 +3116,26 @@ function renderProjectDetail(res) {
     (byState[tasks[i].state] = byState[tasks[i].state] || []).push(tasks[i]);
   }
 
+  var history = res.history || {};
   var board = '';
   for (var b = 0; b < BOARD_ORDER.length; b++) {
     var state = BOARD_ORDER[b];
     var group = byState[state];
     if (!group || !group.length) continue;
+    // The queue's own order is priority-desc then oldest-first — that is what the agent will
+    // actually pick up next, and it is information, so the card keeps its "next up" mark even
+    // though the column below reads newest-first like everything else.
+    var nextUp = state === 'queued' ? group.slice().sort(function(a, c) {
+      return (c.priority || 0) - (a.priority || 0) || (a.createdAt || 0) - (c.createdAt || 0);
+    })[0] : null;
+    group = group.slice().sort(function(a, c) {
+      return (c.updatedAt || c.createdAt || 0) - (a.updatedAt || a.createdAt || 0);
+    });
     board += '<div><div class="board-col-title"><span class="board-dot" style="background:' + TASK_STATE_COLOR[state] + '"></span>' +
       esc(state.replace('_', ' ')) + ' (' + group.length + ')</div>';
-    for (var t = 0; t < group.length; t++) board += renderTaskRow(p.id, group[t]);
+    for (var t = 0; t < group.length; t++) {
+      board += renderTaskRow(p.id, group[t], history[group[t].id], nextUp && nextUp.id === group[t].id);
+    }
     board += '</div>';
   }
   html += '<div class="proj-subtabs">' +
@@ -3147,9 +3183,20 @@ function renderProjectDetail(res) {
   if (projSubtab === 'files') loadProjectFiles(p.id);
 }
 
-function renderTaskRow(projectId, t) {
+/**
+ * One task card.
+ *
+ * The history argument is the task's lifecycle, newest first, rebuilt by the store from
+ * tasks.jsonl — which has always recorded a line per change, so this is a view of data that
+ * was already there rather
+ * than new bookkeeping. Two timestamps on the record (created, updated) cannot say how long a task
+ * sat in verifying or how many times it came back from blocked; the trail can.
+ */
+function renderTaskRow(projectId, t, history, isNextUp) {
   var html = '<div class="task-row"><div class="task-goal">' + esc(t.goal) +
+    (isNextUp ? '<span class="task-next" title="The agent picks this one up next: highest priority, longest queued">next up</span>' : '') +
     (t.assignee ? '<span class="task-assignee">' + esc(t.assignee) + '</span>' : '') + '</div>';
+  html += renderTaskLife(t, history);
   var meta = [];
   if (t.priority) meta.push('priority ' + t.priority);
   if (t.budget && t.budget.maxIterations) meta.push((t.iterationsUsed || 0) + '/' + t.budget.maxIterations + ' iterations');
@@ -3176,6 +3223,52 @@ function renderTaskRow(projectId, t) {
     html += '</div>';
   }
   return html + '</div>';
+}
+
+/** Which task trails are expanded. Survives the re-render an incoming report triggers. */
+var taskLifeOpen = {};
+
+function toggleTaskLife(taskId) {
+  taskLifeOpen[taskId] = !taskLifeOpen[taskId];
+  var trail = document.getElementById('tl-' + taskId);
+  var caret = document.getElementById('tlc-' + taskId);
+  if (trail) trail.style.display = taskLifeOpen[taskId] ? '' : 'none';
+  if (caret) caret.innerHTML = taskLifeOpen[taskId] ? '&#9662;' : '&#9656;';
+}
+
+function renderTaskLife(t, history) {
+  var events = history || [];
+  var open = !!taskLifeOpen[t.id];
+  // The summary line carries the two stamps you always want: when it last moved, and when it
+  // started existing. Everything between them is one click away rather than four lines on
+  // every card.
+  var latest = events.length ? events[0] : { state: t.state, at: t.updatedAt };
+  var summary = esc(String(latest.state).replace('_', ' ')) + ' ' + fmtStamp(latest.at);
+  if (t.createdAt && t.createdAt !== latest.at) {
+    summary += '<span class="task-life-dim"> · created ' + fmtStamp(t.createdAt) + '</span>';
+  }
+
+  var many = events.length > 1;
+  var html = '<div class="task-life"' + (many ? ' onclick="toggleTaskLife(\\'' + esc(t.id) + '\\')"' : '') + '>' +
+    (many
+      ? '<span class="task-life-caret" id="tlc-' + esc(t.id) + '">' + (open ? '&#9662;' : '&#9656;') + '</span>'
+      : '<span class="task-life-caret task-life-caret-off">&#8226;</span>') +
+    '<span>' + summary + '</span></div>';
+
+  if (many) {
+    var rows = '';
+    for (var i = 0; i < events.length; i++) {
+      var e = events[i];
+      rows += '<div class="task-life-row">' +
+        '<span class="board-dot" style="background:' + (TASK_STATE_COLOR[e.state] || 'var(--text-dim)') + '"></span>' +
+        '<span class="task-life-state">' + esc(String(e.state).replace('_', ' ')) + '</span>' +
+        '<span class="task-life-at" title="' + esc(new Date(e.at).toLocaleString()) + '">' + fmtStamp(e.at) + '</span>' +
+        (e.note ? '<span class="task-life-note">' + esc(e.note) + '</span>' : '') +
+        '</div>';
+    }
+    html += '<div class="task-life-trail" id="tl-' + esc(t.id) + '" style="display:' + (open ? '' : 'none') + '">' + rows + '</div>';
+  }
+  return html;
 }
 
 /* --- Per-project chat ---------------------------------------------------------------
@@ -3219,7 +3312,11 @@ function switchProjSubtab(name) {
   for (var i = 0; i < btns.length; i++) {
     btns[i].classList.toggle('active', btns[i].textContent.toLowerCase() === name);
   }
-  if (name === 'chat' && currentProjectId) loadProjectChat(currentProjectId);
+  if (name === 'chat' && currentProjectId) {
+    loadProjectChat(currentProjectId);
+    // Reading the conversation is what clears it — opening the project's board is not.
+    if (projClearUnread(currentProjectId)) loadProjects();
+  }
   if (name === 'files' && currentProjectId) loadProjectFiles(currentProjectId);
 }
 
@@ -3389,9 +3486,33 @@ function pchatSend() {
 }
 
 /** Completion handler, claimed before the central chat sees the event. */
-function pchatOnTaskEvent(event, data) {
+function pchatOnTaskEvent(event, data, projectId, agentId) {
   var p = data && data.taskId ? pchatPending[data.taskId] : null;
-  if (!p) return false;
+  var target = agentId !== undefined ? agentId : currentAgentId;
+
+  // No pending bubble means nobody typed this: it is a report from work started on the board or
+  // picked up by a heartbeat, now delivered to the project's conversation. It still has to be
+  // visible — the whole point of routing it here is that you find it next to the project.
+  if (!p) {
+    if (event !== 'task:completed' && event !== 'task:failed') return false;
+    if (!projectId) return false;
+    var here = target === currentAgentId;
+    if (here && currentProjectId === projectId) {
+      // Re-rendering the detail pane reloads the conversation when it is the open sub-tab, so a
+      // report you are looking at appears without a badge; on the board or in Files it is unread.
+      openProject(projectId);
+      if (projSubtab !== 'chat') projBumpUnread(projectId, target);
+    } else {
+      // A report for an agent you are not looking at still has to be counted against THAT agent,
+      // or switching to it would show a clean list while its project chat holds unread work.
+      projBumpUnread(projectId, target);
+      var ag = (lastAgents || []).filter(function(a) { return a.id === target; })[0];
+      showToast('\\uD83E\\uDDE0 ' + ((ag && ag.name) || 'The agent') + ' reported in ' + projectId,
+        event === 'task:failed' ? 'error' : 'success');
+    }
+    return true;
+  }
+
   if (event === 'task:started') return true;
 
   delete pchatPending[data.taskId];
@@ -3406,6 +3527,41 @@ function pchatOnTaskEvent(event, data) {
   }
   // Tasks the agent just created or moved should show up without switching views.
   if (currentProjectId === p.projectId) openProject(p.projectId);
+  return true;
+}
+
+/* --- Project unread ------------------------------------------------------------------
+ *
+ * Reports now land in the project they belong to instead of the general chat, which is only an
+ * improvement if you can tell one arrived. Deliberately its own small store rather than the Chat
+ * tab's: project sessions are filtered out of that list, so counting them there would badge a
+ * conversation you cannot open from it.
+ *
+ * Per agent, so switching agents doesn't show you another one's unread projects.
+ */
+var projUnreadStore = {};
+try { projUnreadStore = JSON.parse(localStorage.getItem('projUnread') || '{}') || {}; } catch (e) { projUnreadStore = {}; }
+
+function projUnreadFor(agentId) {
+  var key = agentId !== undefined && agentId !== null ? agentId : (currentAgentId || 'default');
+  if (!projUnreadStore[key]) projUnreadStore[key] = {};
+  return projUnreadStore[key];
+}
+function projSaveUnread() {
+  try { localStorage.setItem('projUnread', JSON.stringify(projUnreadStore)); } catch (e) {}
+}
+function projBumpUnread(projectId, agentId) {
+  var m = projUnreadFor(agentId);
+  m[projectId] = (m[projectId] || 0) + 1;
+  projSaveUnread();
+  // Only the list you are actually looking at needs repainting.
+  if ((agentId === undefined ? currentAgentId : agentId) === currentAgentId) loadProjects();
+}
+function projClearUnread(projectId) {
+  var m = projUnreadFor();
+  if (!m[projectId]) return false;
+  delete m[projectId];
+  projSaveUnread();
   return true;
 }
 
@@ -6376,15 +6532,20 @@ function sourceClass(s) {
   return 'tag-blue';
 }
 
-// When the task actually ran. Start time is the interesting stamp \u2014 a queued task has none yet,
-// so fall back to when it was enqueued. Same-day stamps keep seconds; older ones trade them for a date.
-function formatWhen(t) {
-  var at = t.startedAt || t.createdAt;
+// Same-day stamps keep seconds; older ones trade them for a date. Shared by the overview's task
+// table and the project board's task lifecycle, so one timestamp never reads two ways.
+function fmtStamp(at) {
   if (!at) return '\\u2014';
   var d = new Date(at);
   var time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
   if (d.toDateString() === new Date().toDateString()) return time;
   return d.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' ' + time.slice(0, 5);
+}
+
+// When the task actually ran. Start time is the interesting stamp — a queued task has none
+// yet, so fall back to when it was enqueued.
+function formatWhen(t) {
+  return fmtStamp(t.startedAt || t.createdAt);
 }
 
 function whenTitle(t) {

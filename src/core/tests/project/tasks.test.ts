@@ -187,4 +187,66 @@ describe('TaskStore', () => {
 		expect(open.map((t) => t.goal)).toEqual(['b'])
 		expect(await tasks.list({ state: 'all' })).toHaveLength(2)
 	})
+
+	describe('history', () => {
+		it('reconstructs the lifecycle from the log the store already writes', async () => {
+			const task = await tasks.create({ projectId: 'proj', goal: 'Cut the episode' })
+			await tasks.update('proj', task.id, { state: 'running' })
+			await tasks.update('proj', task.id, { state: 'verifying' })
+			await tasks.update('proj', task.id, { state: 'blocked', note: 'audio drifts at 6:00' })
+			await tasks.update('proj', task.id, { state: 'queued' })
+			await tasks.update('proj', task.id, { state: 'running' })
+
+			const events = (await tasks.history('proj')).get(task.id)!
+			// Newest first — what happened most recently is what you opened the card to find out.
+			expect(events.map((e) => e.state)).toEqual([
+				'running',
+				'queued',
+				'blocked',
+				'verifying',
+				'running',
+				'queued',
+			])
+			expect(events[2]?.note).toBe('audio drifts at 6:00')
+			// The creating record is the last entry, and its stamp is the task's createdAt.
+			expect(events[events.length - 1]?.at).toBe(task.createdAt)
+			// Monotonic going back in time.
+			for (let i = 1; i < events.length; i++) {
+				expect(events[i - 1].at).toBeGreaterThanOrEqual(events[i].at)
+			}
+		})
+
+		it('ignores writes that moved no state', async () => {
+			const task = await tasks.create({ projectId: 'proj', goal: 'Render' })
+			await tasks.update('proj', task.id, { state: 'running' })
+			// Charging iterations appends a full record per call; emitting one event each would
+			// bury the moves that matter under dozens of identical lines.
+			await tasks.chargeIterations('proj', task.id, 1)
+			await tasks.chargeIterations('proj', task.id, 1)
+			await tasks.chargeIterations('proj', task.id, 1)
+
+			const events = (await tasks.history('proj')).get(task.id)!
+			expect(events.map((e) => e.state)).toEqual(['running', 'queued'])
+		})
+
+		it('covers every task in the project and survives a torn line', async () => {
+			const a = await tasks.create({ projectId: 'proj', goal: 'A' })
+			const b = await tasks.create({ projectId: 'proj', goal: 'B' })
+			await tasks.update('proj', b.id, { state: 'running' })
+
+			const file = path.join(projects.dirFor('proj'), 'tasks.jsonl')
+			await fs.appendFile(file, '{"id":"t_torn","state":\n', 'utf-8')
+
+			const history = await tasks.history('proj')
+			expect(history.get(a.id)?.map((e) => e.state)).toEqual(['queued'])
+			expect(history.get(b.id)?.map((e) => e.state)).toEqual(['running', 'queued'])
+			// A torn line must not take the file down with it — the list still reads.
+			expect((await tasks.list({ projectId: 'proj', state: 'all' })).length).toBe(2)
+		})
+
+		it('is empty for a project that has never had a task', async () => {
+			await projects.create({ id: 'fresh' })
+			expect((await tasks.history('fresh')).size).toBe(0)
+		})
+	})
 })

@@ -2,7 +2,7 @@
 
 ## v4.17.0 (2026-08-18)
 
-> Ships as `openvole` 4.17.0 alongside `@openvole/dashboard-server` 0.14.0. Projects and tasks — an agent can now be pointed at new work in conversation instead of by editing `AGENT.md`.
+> Ships as `openvole` 4.17.0 alongside `@openvole/dashboard-server` 0.14.0, `@openvole/paw-sdk` 3.2.0 and `@openvole/paw-session` 2.4.0. Projects and tasks — an agent can now be pointed at new work in conversation instead of by editing `AGENT.md`.
 
 ### Added
 
@@ -46,7 +46,15 @@
 
 - **`vole upgrade` covers a whole server.** Run at a vole server root (the directory holding `agents.json`) it upgrades every registered agent and reports per agent; run inside an agent directory it still upgrades just that one. Paws are installed per agent, so a published fix previously reached an agent only if someone remembered to upgrade that directory — agents sitting on old paws look like live bugs rather than missed upgrades.
 
+- **A run reports where it came from.** Every task now carries a reply address, decided when it is created and derived from the run itself: its own conversation for a chat turn, its **project's** conversation for project work, the dashboard chat otherwise. The same address is used by the reply, by `chat_send`, and by the dashboard deciding where to show the result, so the three cannot disagree — and the agent is told what it is, so a question it raises mid-task lands beside its report. A task started with **Run now**, or picked up from the queue by a heartbeat, therefore reports on the project page instead of the general chat. A project's row carries a count when reports arrive while you are elsewhere; opening its Chat sub-tab clears it.
+
+- **A task's lifecycle is on its card.** Every state it passed through, when, and any note recorded on the way — newest first, under a summary line giving the current state and when it was created. `tasks.jsonl` has always appended a record per change, so this reads a trail that was already on disk rather than adding bookkeeping; `TaskStore.history()` reconstructs it. Board columns are ordered by most recent activity, and the queued column marks the task that will actually be picked up next, which is a different question from which one changed last.
+
 ### Fixed
+
+- **Reports no longer drift into the wrong conversation.** A run without a session had no reply address at all, so paw-session filed its result against a module-global "current session" — whichever task happened to bootstrap last. Tasks interleave, so this was right until two overlapped and then silently wrong, which is how a heartbeat's or a board task's report turned up in an unrelated chat. Requires `@openvole/paw-session` 2.4.0, which drops that fallback and uses the address core now sends.
+
+- **One run's tool results could land in another run's transcript.** The same ambient-state bug one layer down: an observe hook receives only the result, so a paw recording tool calls had to consult its own "current session". Those lines are then replayed into that chat's prompt on its next turn. Core now stamps each result with the run's own conversation — absent for a heartbeat or a board task, which have none and whose tool traffic belongs in no transcript.
 
 - **The Tasks list no longer grows into the Live Events feed.** It was sized to stretch between 190px and 400px, so every task that arrived pushed the feed further down the page while you were reading it. The list now holds one height and scrolls inside itself. It also gained a **When** column: the existing time column is a duration, so a finished task told you it took four seconds but not whether that was this morning or last week. Hovering it gives the full queued/started/finished trail.
 

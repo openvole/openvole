@@ -229,6 +229,15 @@ Your working directory is \`${content.workspaceDir}\` — put every file you cre
 - Time: ${now.toLocaleTimeString('en-US', { hour12: true })}
 - Platform: ${process.platform}`)
 
+	// Which conversation this run answers into. Stated rather than left implicit: the agent decides
+	// where to report, and without being told it defaulted every proactive message to the general
+	// chat — so project work reported somewhere other than the project.
+	if (typeof metadata?.replyTo === 'string' && metadata.replyTo) {
+		parts.push(
+			`- Reporting to: \`${metadata.replyTo}\` — your reply to this run, and anything you send with \`chat_send\`, lands in that conversation. Send it there; do not re-route a report to another session unless you were asked to.`,
+		)
+	}
+
 	// Dynamic: what projects exist at all. Without this the agent can only discover its own
 	// projects by calling project_list, which it has no reason to do mid-conversation — so
 	// "carry on with the openvole work" would reach an agent that cannot see that project.

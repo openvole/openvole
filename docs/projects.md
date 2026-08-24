@@ -136,7 +136,8 @@ reported as finished.
 | `waiting_approval` | reserved for the approval gate (not yet active) |
 
 Tasks are stored append-only, so `tasks.jsonl` is also the history: how long something sat queued,
-what blocked it, how many times it was retried.
+what blocked it, how many times it was retried. Each task card on the board carries that trail —
+the state it is in and when it got there, expanding to every move it has made, newest first.
 
 ### Budgets
 
@@ -169,6 +170,24 @@ It does **not** extend to `paw-shell` or `paw-filesystem`: those are sandboxed p
 `security.allowedPaths`, which a project cannot narrow. A project that needs strict isolation
 should deny them in its `toolProfile`.
 :::
+
+## Where the agent reports back
+
+A run reports to the conversation it came from. Ask something in the project's chat and the answer
+comes back there; ask in the Chat tab and it comes back there.
+
+Work with no conversation behind it — a task you started with **Run now**, or one a heartbeat picked
+up from the queue — reports to **the project's chat**. There is no ambiguity to resolve at reply
+time: the address is decided when the run is created, from the run itself, and the same address is
+used by the reply, by `chat_send`, and by the dashboard when it decides where to show the result.
+The agent is told what it is, so a question it raises mid-task lands in the same place as its
+report.
+
+The project's row in the list carries a count when reports arrive while you are elsewhere. Opening
+the project's **Chat** sub-tab clears it; opening its board does not.
+
+This is why a heartbeat that finishes a project task does not turn up in the general chat. If you
+do want something posted elsewhere, the agent can still name a destination explicitly.
 
 ## Scheduled work
 
@@ -228,6 +247,12 @@ disk is always whole — this is only what gets painted.
 The project's context docs sit above the board as a single collapsed line naming them; click to
 expand, or use **Context** to edit. They are written for the agent to read, so they stay out of
 the way of the board by default.
+
+Each task card shows its lifecycle: the state it is in, when it got there, and when it was created.
+Expand it for the whole trail — every state the task passed through with its timestamp and any note
+recorded on the way, newest first. Columns are ordered by most recent activity; the queued column
+additionally marks the task the agent will pick up next, which is a different question from which
+one changed last.
 
 Buttons move a task to whatever states are legal from where it is, so `done` is only ever offered
 after `verifying`. Blocking asks for a reason, because a board full of blocked tasks with no notes

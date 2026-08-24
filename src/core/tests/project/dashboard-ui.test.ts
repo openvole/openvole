@@ -162,10 +162,14 @@ describe('dashboard projects UI', () => {
 		const source = await readUi()
 		// The complaint this answers: a flat list of unlabelled sessions. Project talk belongs to
 		// the project page, so it must not appear as an openable session or bump that badge.
-		expect(source).toContain("data.sessionId.indexOf('project:') === 0")
 		expect((source.match(/sessionId\.indexOf\('project:'\) === 0\) continue/g) ?? []).length).toBe(
 			2,
 		)
+		// Task events are claimed for the project page by the run's REPLY address, not by the
+		// session it was a turn in: work started from the board reports into a project it was
+		// never in conversation with. Routing on sessionId alone leaks those into the Chat tab.
+		expect(source).toContain("var addr = (data && (data.replyTo || data.sessionId)) || ''")
+		expect(source).toContain("if (addr.indexOf('project:') === 0)")
 	})
 
 	it('names the project chat session so the run carries its scope', async () => {
@@ -366,5 +370,45 @@ describe('dashboard projects UI', () => {
 			expect(block).toContain('&dir=')
 			expect(block).toContain('encodeURIComponent(dir)')
 		})
+	})
+
+	it('shows each task\u2019s lifecycle, newest first', async () => {
+		const source = await readUi()
+		// The trail is rebuilt by the store from tasks.jsonl and handed to the card; two timestamps
+		// on the record cannot say how long a task sat in verifying or how often it was unblocked.
+		expect(source).toContain('var history = res.history || {}')
+		expect(source).toContain('renderTaskRow(p.id, group[t], history[group[t].id]')
+		// events[0] is the latest — the store returns the trail reversed, and the summary line
+		// reads it directly. If either end flipped, the card would headline the task's creation.
+		expect(source).toContain('var latest = events.length ? events[0] :')
+	})
+
+	it('orders the board by most recent activity but keeps the queue\u2019s real order visible', async () => {
+		const source = await readUi()
+		const start = source.indexOf('var history = res.history || {}')
+		const block = source.substring(start, source.indexOf('html +=', start))
+		// Newest first, as the board is something you monitor.
+		expect(block).toContain('(c.updatedAt || c.createdAt || 0) - (a.updatedAt || a.createdAt || 0)')
+		// But a queue's order IS information: priority desc, then oldest first, is what the agent
+		// picks up next. Sorting the column by recency without saying so would misreport that.
+		expect(block).toContain("state === 'queued'")
+		expect(block).toContain(
+			'(c.priority || 0) - (a.priority || 0) || (a.createdAt || 0) - (c.createdAt || 0)',
+		)
+		expect(source).toContain('next up')
+	})
+
+	it('tracks project unread separately from the chat tab', async () => {
+		const source = await readUi()
+		// Reports routed to a project chat are only an improvement if you can tell one arrived.
+		// Counting them in the chat store would badge a session that tab refuses to list.
+		expect(source).toContain("localStorage.getItem('projUnread')")
+		expect(source).toContain('function projBumpUnread(projectId, agentId)')
+		// Counted against the agent the report belongs to, not the one on screen — otherwise
+		// switching agents shows a clean list over an unread project conversation.
+		expect(source).toContain('projBumpUnread(projectId, target)')
+		// Reading the conversation clears it; opening the board does not.
+		const sub = source.substring(source.indexOf('function switchProjSubtab('))
+		expect(sub.substring(0, sub.indexOf('\n}'))).toContain('projClearUnread(currentProjectId)')
 	})
 })

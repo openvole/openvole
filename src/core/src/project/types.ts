@@ -113,6 +113,20 @@ export interface ProjectTask {
 	updatedAt: number
 }
 
+/**
+ * One step in a task's life — a state it entered and when.
+ *
+ * Not stored: `tasks.jsonl` already appends a full record per change, so the trail is reconstructed
+ * from the file. Every task carries `createdAt`/`updatedAt`, but two timestamps cannot answer "how
+ * long did this sit in verifying" or "how many times was it unblocked".
+ */
+export interface TaskEvent {
+	state: TaskState
+	at: number
+	/** The note recorded with this move, when there was one — usually why it blocked. */
+	note?: string
+}
+
 /** What the loop puts on `context.metadata.project` for the system prompt. */
 export interface ProjectContextInfo {
 	id: string

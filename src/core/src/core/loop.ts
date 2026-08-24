@@ -17,6 +17,7 @@ import { CostTracker } from './cost-tracker.js'
 import { type ActionResult, createActionError, failureResult, successResult } from './errors.js'
 import { PHASE_ORDER } from './hooks.js'
 import type { RateLimiter } from './rate-limiter.js'
+import { replyAddressFor } from './reply-address.js'
 import { type SystemPromptContent, buildSystemPrompt } from './system-prompt.js'
 import type { AgentTask } from './task.js'
 
@@ -104,6 +105,11 @@ export async function runAgentLoop(task: AgentTask, deps: LoopDependencies): Pro
 	if (task.metadata) {
 		Object.assign(context.metadata, task.metadata)
 	}
+	// Where this run's report goes. Derived from the task and written AFTER the metadata merge, so
+	// it is authoritative: a paw or a browser cannot hand the loop a reply address, for the same
+	// reason it cannot hand it allowTools. Identical to the address `task:completed` is emitted
+	// with — one rule, so the tool the agent reports through and the transcript it lands in agree.
+	context.metadata.replyTo = replyAddressFor(task)
 	if (config.maxContextTokens) {
 		context.metadata.maxContextTokens = config.maxContextTokens
 	}
@@ -715,8 +721,15 @@ export async function runAgentLoop(task: AgentTask, deps: LoopDependencies): Pro
 					})
 				}
 
-				// Fire observe hooks
-				pawRegistry.runObserveHooks(result)
+				// Fire observe hooks, stamped with this run's conversation. A hook sees only the
+				// result, so without this a paw that records tool results has to consult its own
+				// module-level "current session" — the same ambient-state bug that filed brain
+				// replies under the wrong chat. Undefined here is correct and meaningful: this run
+				// is not part of a conversation, so its tool traffic belongs in no transcript.
+				pawRegistry.runObserveHooks({
+					...result,
+					sessionId: context.metadata.sessionId as string | undefined,
+				})
 			}
 		}
 
@@ -814,6 +827,7 @@ async function runAct(
 	// tasks can run concurrently and a shared ref would answer for the wrong one.
 	const toolCtx: ToolContext = {
 		project: context.metadata.project as ProjectContextInfo | undefined,
+		replyTo: context.metadata.replyTo as string | undefined,
 	}
 
 	if (execution === 'parallel') {

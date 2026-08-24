@@ -3,6 +3,7 @@ import * as path from 'node:path'
 import { execa } from 'execa'
 import { z } from 'zod'
 import type { MessageBus } from '../core/bus.js'
+import { CHAT_DEFAULT_SESSION } from '../core/reply-address.js'
 import type { SchedulerStore } from '../core/scheduler.js'
 import type { TaskQueue } from '../core/task.js'
 import type { Vault } from '../core/vault.js'
@@ -10,7 +11,7 @@ import { MANIFEST_NAME, RESERVED_BASENAMES } from '../project/store.js'
 import { type ProjectToolDeps, createProjectTools } from '../project/tools.js'
 import type { SkillRegistry } from '../skill/registry.js'
 import type { ToolRegistry } from './registry.js'
-import type { ToolDefinition } from './types.js'
+import type { ToolContext, ToolDefinition } from './types.js'
 
 /** Interpreter candidates per script extension (first available on PATH wins). */
 const SCRIPT_INTERPRETERS: Record<string, string[]> = {
@@ -39,7 +40,7 @@ const SCRIPT_ENV_BASELINE = [
 ]
 
 /** The session the dashboard's Chat tab opens by default. */
-const CHAT_DEFAULT_SESSION = 'dashboard'
+
 /** Keep one chat message readable — long output belongs in the workspace, with a pointer in chat. */
 const CHAT_MAX_TEXT_CHARS = 8_000
 
@@ -936,17 +937,17 @@ export function createCoreTools(
 					{
 						name: 'chat_send',
 						description:
-							'Send a message to your human in the dashboard chat — a question, a confirmation, a blocker, a heads-up: anything that needs a person. Works from any run, including heartbeats and scheduled work where nobody is waiting: it raises an unread badge and is there when they next open the dashboard. One-way and non-blocking — the answer arrives as a new message on a later run, so send it, record that you asked, and get on with anything that does not depend on the reply.',
+							'Send a message to your human — a question, a confirmation, a blocker, a heads-up: anything that needs a person. It posts to the conversation this run belongs to: the chat you were asked in, or the project chat when you are working a project task. Works from any run, including heartbeats and scheduled work where nobody is waiting: it raises an unread badge and is there when they next open the dashboard. One-way and non-blocking — the answer arrives as a new message on a later run, so send it, record that you asked, and get on with anything that does not depend on the reply.',
 						parameters: z.object({
 							text: z.string().describe('The message. Markdown renders in the chat.'),
 							session: z
 								.string()
 								.optional()
 								.describe(
-									'Chat session to post into. Defaults to "dashboard" — the chat tab. Pass another session id (e.g. a channel conversation) to post there instead.',
+									"Override the destination. Defaults to this run's own conversation, which is almost always what you want — pass a session id only to deliberately post somewhere else.",
 								),
 						}),
-						async execute(params: unknown) {
+						async execute(params: unknown, ctx?: ToolContext) {
 							const { text, session } = params as { text: string; session?: string }
 							const trimmed = (text ?? '').trim()
 							if (!trimmed) return { ok: false, error: 'text is empty — nothing to send' }
@@ -954,7 +955,11 @@ export function createCoreTools(
 								trimmed.length > CHAT_MAX_TEXT_CHARS
 									? `${trimmed.substring(0, CHAT_MAX_TEXT_CHARS)}\n\n[… truncated at ${CHAT_MAX_TEXT_CHARS} chars — write the full text to your workspace and reference the path]`
 									: trimmed
-							const sessionId = session?.trim() || CHAT_DEFAULT_SESSION
+							// Report back where the work came from. A run started from the task board or
+							// picked up by a heartbeat has no conversation of its own, and used to fall
+							// through to the general chat — so a project's reports arrived somewhere
+							// other than the project. The address is decided per run by the loop.
+							const sessionId = session?.trim() || ctx?.replyTo || CHAT_DEFAULT_SESSION
 
 							// Write the transcript HERE, before announcing anything.
 							//

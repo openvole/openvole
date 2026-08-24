@@ -329,6 +329,9 @@ export class ControlPlane {
 			dir: projects.dirFor(id),
 			contextFiles: (await projects.readContextFiles(id, project.contextFiles)).inlined,
 			tasks: await tasks.list({ projectId: id, state: 'all' }),
+			// Reconstructed from the same tasks.jsonl the list came from — one extra pass over a
+			// file already in the page cache, not a second round trip per task card.
+			history: Object.fromEntries(await tasks.history(id)),
 		}
 	}
 
