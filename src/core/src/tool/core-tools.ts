@@ -3,12 +3,15 @@ import * as path from 'node:path'
 import { execa } from 'execa'
 import { z } from 'zod'
 import type { MessageBus } from '../core/bus.js'
+import { CHAT_DEFAULT_SESSION } from '../core/reply-address.js'
 import type { SchedulerStore } from '../core/scheduler.js'
 import type { TaskQueue } from '../core/task.js'
 import type { Vault } from '../core/vault.js'
+import { MANIFEST_NAME, RESERVED_BASENAMES } from '../project/store.js'
+import { type ProjectToolDeps, createProjectTools } from '../project/tools.js'
 import type { SkillRegistry } from '../skill/registry.js'
 import type { ToolRegistry } from './registry.js'
-import type { ToolDefinition } from './types.js'
+import type { ToolContext, ToolDefinition } from './types.js'
 
 /** Interpreter candidates per script extension (first available on PATH wins). */
 const SCRIPT_INTERPRETERS: Record<string, string[]> = {
@@ -37,7 +40,7 @@ const SCRIPT_ENV_BASELINE = [
 ]
 
 /** The session the dashboard's Chat tab opens by default. */
-const CHAT_DEFAULT_SESSION = 'dashboard'
+
 /** Keep one chat message readable — long output belongs in the workspace, with a pointer in chat. */
 const CHAT_MAX_TEXT_CHARS = 8_000
 
@@ -51,6 +54,8 @@ export function createCoreTools(
 	toolRegistry?: ToolRegistry,
 	/** Message bus — without it the dashboard chat channel (`chat_send`) is not registered. */
 	bus?: MessageBus,
+	/** Project stores — without them the project and task tools are not registered. */
+	projectDeps?: ProjectToolDeps,
 ): ToolDefinition[] {
 	const heartbeatPath = path.resolve(projectRoot, '.openvole', 'HEARTBEAT.md')
 	const workspaceDir = path.resolve(projectRoot, '.openvole', 'workspace')
@@ -62,6 +67,32 @@ export function createCoreTools(
 			return null
 		}
 		return resolved
+	}
+
+	/**
+	 * Project records live in the same tree as scratch files, so a stray workspace_write could
+	 * clobber a project manifest or its task log and make the project vanish from every listing.
+	 * Those files belong to the project tools; the scratch tools may read them but not write or
+	 * delete them.
+	 */
+	function isReservedProjectFile(resolved: string): boolean {
+		return RESERVED_BASENAMES.includes(path.basename(resolved))
+	}
+
+	const RESERVED_WRITE_ERROR =
+		`This file belongs to a project (${RESERVED_BASENAMES.join(', ')}) and is managed by the ` +
+		`project and task tools — use those instead of writing it directly.`
+
+	/** The workspace root, or any folder directly under it holding a project manifest. */
+	async function isProjectDirectory(resolved: string): Promise<boolean> {
+		if (resolved === workspaceDir) return true
+		if (path.dirname(resolved) !== workspaceDir) return false
+		try {
+			await fs.access(path.join(resolved, MANIFEST_NAME))
+			return true
+		} catch {
+			return false
+		}
 	}
 
 	return [
@@ -78,17 +109,36 @@ export function createCoreTools(
 					.describe(
 						'Cron expression in UTC (minute hour day month weekday). Examples: "0 13 * * *" for daily 1 PM, "*/30 * * * *" for every 30 min',
 					),
+				projectId: z
+					.string()
+					.optional()
+					.describe(
+						'Scope this schedule to a project. Each run then carries that project’s context and picks up its next queued task.',
+					),
 			}),
 			async execute(params) {
-				const { id, input, cron } = params as {
+				const { id, input, cron, projectId } = params as {
 					id: string
 					input: string
 					cron: string
+					projectId?: string
 				}
 				try {
-					scheduler.add(id, input, cron, () => {
-						taskQueue.enqueue(input, 'schedule')
-					})
+					scheduler.add(
+						id,
+						input,
+						cron,
+						() => {
+							taskQueue.enqueue(
+								input,
+								'schedule',
+								projectId ? { metadata: { projectId } } : undefined,
+							)
+						},
+						undefined,
+						false,
+						projectId,
+					)
 					const schedules = scheduler.list()
 					const entry = schedules.find((s) => s.id === id)
 					return { ok: true, id, cron, nextRun: entry?.nextRun }
@@ -378,6 +428,9 @@ export function createCoreTools(
 				if (!resolved) {
 					return { ok: false, error: 'Invalid path — must stay inside workspace directory' }
 				}
+				if (isReservedProjectFile(resolved)) {
+					return { ok: false, error: RESERVED_WRITE_ERROR }
+				}
 				await fs.mkdir(path.dirname(resolved), { recursive: true })
 				await fs.writeFile(resolved, content, 'utf-8')
 				return { ok: true, path: relPath }
@@ -448,6 +501,20 @@ export function createCoreTools(
 				const resolved = resolveWorkspacePath(relPath)
 				if (!resolved) {
 					return { ok: false, error: 'Invalid path — must stay inside workspace directory' }
+				}
+				if (isReservedProjectFile(resolved)) {
+					return { ok: false, error: RESERVED_WRITE_ERROR }
+				}
+				// This delete is recursive, so the dangerous case isn't the manifest by name — it's
+				// removing the folder that contains one. Projects are direct children of the
+				// workspace, so refusing a project folder (and the workspace root itself) covers it.
+				if (await isProjectDirectory(resolved)) {
+					return {
+						ok: false,
+						error:
+							`"${relPath}" is a project folder — deleting it would remove the project and its ` +
+							`task history. Use project_archive to retire a project instead.`,
+					}
 				}
 				try {
 					await fs.rm(resolved, { recursive: true })
@@ -870,17 +937,17 @@ export function createCoreTools(
 					{
 						name: 'chat_send',
 						description:
-							'Send a message to your human in the dashboard chat — a question, a confirmation, a blocker, a heads-up: anything that needs a person. Works from any run, including heartbeats and scheduled work where nobody is waiting: it raises an unread badge and is there when they next open the dashboard. One-way and non-blocking — the answer arrives as a new message on a later run, so send it, record that you asked, and get on with anything that does not depend on the reply.',
+							'Send a message to your human — a question, a confirmation, a blocker, a heads-up: anything that needs a person. It posts to the conversation this run belongs to: the chat you were asked in, or the project chat when you are working a project task. Works from any run, including heartbeats and scheduled work where nobody is waiting: it raises an unread badge and is there when they next open the dashboard. One-way and non-blocking — the answer arrives as a new message on a later run, so send it, record that you asked, and get on with anything that does not depend on the reply.',
 						parameters: z.object({
 							text: z.string().describe('The message. Markdown renders in the chat.'),
 							session: z
 								.string()
 								.optional()
 								.describe(
-									'Chat session to post into. Defaults to "dashboard" — the chat tab. Pass another session id (e.g. a channel conversation) to post there instead.',
+									"Override the destination. Defaults to this run's own conversation, which is almost always what you want — pass a session id only to deliberately post somewhere else.",
 								),
 						}),
-						async execute(params: unknown) {
+						async execute(params: unknown, ctx?: ToolContext) {
 							const { text, session } = params as { text: string; session?: string }
 							const trimmed = (text ?? '').trim()
 							if (!trimmed) return { ok: false, error: 'text is empty — nothing to send' }
@@ -888,7 +955,11 @@ export function createCoreTools(
 								trimmed.length > CHAT_MAX_TEXT_CHARS
 									? `${trimmed.substring(0, CHAT_MAX_TEXT_CHARS)}\n\n[… truncated at ${CHAT_MAX_TEXT_CHARS} chars — write the full text to your workspace and reference the path]`
 									: trimmed
-							const sessionId = session?.trim() || CHAT_DEFAULT_SESSION
+							// Report back where the work came from. A run started from the task board or
+							// picked up by a heartbeat has no conversation of its own, and used to fall
+							// through to the general chat — so a project's reports arrived somewhere
+							// other than the project. The address is decided per run by the loop.
+							const sessionId = session?.trim() || ctx?.replyTo || CHAT_DEFAULT_SESSION
 
 							// Write the transcript HERE, before announcing anything.
 							//
@@ -1230,6 +1301,11 @@ export function createCoreTools(
 					} as ToolDefinition,
 				]
 			: []),
+
+		// Project and task tools — how the agent sets up and works through its own projects.
+		// Absent when no stores are wired (an embedder using createCoreTools directly), which
+		// leaves the agent exactly as it was before projects existed.
+		...(projectDeps ? createProjectTools(projectDeps) : []),
 	]
 }
 

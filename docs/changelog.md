@@ -1,5 +1,77 @@
 # Changelog
 
+## v4.17.0 (2026-08-25)
+
+> Ships as `openvole` 4.17.0 alongside `@openvole/dashboard-server` 0.14.0, `@openvole/paw-sdk` 3.2.0 and `@openvole/paw-session` 2.4.0. Projects and tasks — an agent can now be pointed at new work in conversation instead of by editing `AGENT.md`.
+
+### Added
+
+- **Projects.** Each is a folder in the agent's workspace holding its own context docs, notes, and task queue. A directory is a project when it contains `.project.json`, so the filesystem is the index and a project folder stays portable. Set a `root` to attach one to files elsewhere (a repo, a footage folder), or leave it out for self-contained work such as drafts and research. See [Projects & Tasks](/projects).
+
+- **Project context loads per task.** `AGENT.md` and the other identity files are read once at engine start and cached, which made them the only place to record what an agent should work on — and meant every change of assignment was a file edit plus a restart. A project's context docs are loaded for the task that names it, so switching projects is neither. Agents with no projects get a byte-identical prompt to before.
+
+- **Tasks with done-criteria.** A task carries checkable conditions and moves `running → verifying → done`; it cannot reach `done` without passing through verification. Unmet criteria send it to `blocked` with a note naming what failed, rather than being reported as finished. Stored append-only in `tasks.jsonl`, so the file is also the history. Iteration budgets block on exhaustion instead of stopping silently.
+
+- **Agent-driven setup.** Ten new tools — `project_scan`, `project_create`, `project_list`, `project_open`, `project_update`, `project_archive`, `task_create`, `task_list`, `task_update`, `task_next`. "Work on the openvole repo" becomes: scan the directory (read-only), draft a `VOLE.md` from what was actually found, propose the project and opening tasks, create them once you agree.
+
+- **Project-scoped schedules.** A schedule can name a project, turning a heartbeat from "wake up and do something" into "pick up this project's queued work" — the agent arrives knowing the goal and its criteria. Selecting work does not claim it, so a crashed run cannot strand a task in `running`. A chat message never pulls queued work: what you asked for is the instruction.
+
+- **Brain-drafted context and identity files.** The project context doc and each identity file (`SOUL.md`, `USER.md`, `AGENT.md`, `HEARTBEAT.md`, `BRAIN.md`) get a prompt box and a **Draft** button: describe what the file should cover and the agent writes it. Drafting it opens the project and reads its real files first, so the result is grounded in what is there. The draft fills the editor and is never saved for you. Drafts run under a reserved session so they stay out of the chat transcript and the unread badge.
+
+- **Clear and compact a project conversation.** **Clear** deletes the transcript; **Compact** has the agent summarize everything except the last few messages and puts the summary in their place, so what was decided survives while the length does not — every run that loads the conversation pays for all of it. Compaction is atomic in the agent: the summary is written before anything is removed, so a failed think leaves the chat intact. The chat window now paints the most recent messages with a control to pull in earlier ones, rather than rendering a thousand-message conversation to show the last three; the transcript on disk stays whole either way.
+
+- **Control requests that run the brain get a real deadline.** They shared the 15-second timeout meant for lookups, which a CLI-backed brain misses every time.
+
+- **Per-project chat.** Each project has its own conversation on its page, running in that project's context — its docs and open tasks are already loaded, so you can describe what you want and the agent works out the tasks instead of you filling in a form. Project conversations stay off the central Chat tab so that list doesn't fill with unlabelled sessions.
+
+- **Delegated work stays visible.** A task carries an `assignee` and a `delegatedTaskId`, so a task handed to a sibling agent shows who holds it rather than reading as abandoned, and the coordinator can poll it with `agent_task_status` and record the outcome and artifacts back onto the task. A project belongs to whoever owns the outcome, not whoever does the labor; the worker reports and the owner records, keeping one writer per ledger.
+
+- **A Projects tab in the dashboard.** Projects with their open-task counts, the selected project's context docs, and a task board grouped by state with done-criteria and block reasons. Task buttons offer only the moves that are legal from the current state, and blocking prompts for a reason. Create a project from the UI, with a **directory picker** for choosing its files: browsers withhold absolute paths from `webkitdirectory` and the File System Access API, so the listing is served by the control plane from the machine the agent runs on. It reports whether the chosen folder is inside `security.allowedPaths` and offers to grant it, noting that a running agent needs a restart to pick the grant up. Scanning a path fills in the project's kind and stack. Served from the agent's files, so it works while the agent is stopped.
+
+- **The agent can work on its project's files.** Five new tools — `project_file_list`, `project_file_read`, `project_file_write`, `project_file_move`, `project_file_delete` — act on the project the current task belongs to, with paths relative to it. `workspace_*` is confined to `.openvole/workspace/` and cannot reach an attached root, so until now the dashboard could edit a project's repo while the agent could not: working in one meant installing a filesystem paw and granting it the path, which then reached the whole grant rather than that project. Because every path resolves against *this task's* project, an agent with two attached projects cannot reach from one into the other.
+
+- **Tools can see the call they are serving.** In-process tools now receive an optional second argument carrying the current project. Passed per call rather than captured when the tool is built — task concurrency is configurable, and a remembered "current project" would answer for whichever task started last. Tools that ignore it are unaffected, and paw tools over IPC never receive one.
+
+- **A file browser and editor on the project page.** The **Files** sub-tab browses both places a project's files can live — its folder in the agent workspace and the root it is attached to — and edits them: open, save, create, rename, move, delete — plus drag-and-drop to bring in files that already exist, streamed to disk with a progress bar and suffixed rather than overwriting on a name clash. Seeing what the agent actually wrote previously meant ssh-ing to the machine it runs on. It is bounded by the project's own roots rather than by `security.allowedPaths`, deliberately: a surface that writes and deletes should not wander the whole grant. `.project.json` and `tasks.jsonl` open read-only, since both have proper editors and the task log is append-only and concurrently written.
+
+- **`VOLE.md` replaces `CONTEXT.md`, and the project folder is the context.** **Every** markdown file at the top of a project's folder is loaded into the prompt, `VOLE.md` first, then `CONTEXT.md` for projects that already have one, then the rest alphabetically. For an attached project a `VOLE.md` at the **repo root** is read too, and read first — checked in, travelling with the code, so every agent that picks the project up gets the same briefing. One hardcoded filename could not hold a project that wants conventions and a glossary alongside its overview. A 20,000-character budget still applies; files past it are named in the prompt rather than inlined, and `contextFiles` in the manifest picks which are worth the budget.
+
+- **The context preview collapses.** Written once and read by the agent, an always-open panel spent half the screen above the task board the page is actually for. It is now one line naming the docs that are loaded, expandable, and still editable from **Context**.
+
+- **The dashboard comes back where you left it.** The page reloads itself when the websocket drops — a laptop waking, a network blip, a server restart — and nothing remembered which agent or tab you were on, so every reconnect dumped you on the agents list and read as the dashboard going home by itself. The agent, tab and open project are restored, falling back to the launcher if that agent is gone.
+
+- **`vole project` and `vole task` commands** — list, scan, create, open, archive; add, list, next, update, cancel. They read the project files directly, so they work with the agent stopped. `vole task` previously existed as a stub that only ever printed "requires a running vole instance"; it now manages real work items.
+
+- **`SchedulerStore.trigger(id)`** fires a schedule immediately without disturbing its cron.
+
+- **`vole upgrade` covers a whole server.** Run at a vole server root (the directory holding `agents.json`) it upgrades every registered agent and reports per agent; run inside an agent directory it still upgrades just that one. Paws are installed per agent, so a published fix previously reached an agent only if someone remembered to upgrade that directory — agents sitting on old paws look like live bugs rather than missed upgrades.
+
+- **A run reports where it came from.** Every task now carries a reply address, decided when it is created and derived from the run itself: its own conversation for a chat turn, its **project's** conversation for project work, the dashboard chat otherwise. The same address is used by the reply, by `chat_send`, and by the dashboard deciding where to show the result, so the three cannot disagree — and the agent is told what it is, so a question it raises mid-task lands beside its report. A task started with **Run now**, or picked up from the queue by a heartbeat, therefore reports on the project page instead of the general chat. A project's row carries a count when reports arrive while you are elsewhere; opening its Chat sub-tab clears it.
+
+- **A task's lifecycle is on its card.** Every state it passed through, when, and any note recorded on the way — newest first, under a summary line giving the current state and when it was created. `tasks.jsonl` has always appended a record per change, so this reads a trail that was already on disk rather than adding bookkeeping; `TaskStore.history()` reconstructs it. Board columns are ordered by most recent activity, and the queued column marks the task that will actually be picked up next, which is a different question from which one changed last.
+
+### Fixed
+
+- **Reports no longer drift into the wrong conversation.** A run without a session had no reply address at all, so paw-session filed its result against a module-global "current session" — whichever task happened to bootstrap last. Tasks interleave, so this was right until two overlapped and then silently wrong, which is how a heartbeat's or a board task's report turned up in an unrelated chat. Requires `@openvole/paw-session` 2.4.0, which drops that fallback and uses the address core now sends.
+
+- **One run's tool results could land in another run's transcript.** The same ambient-state bug one layer down: an observe hook receives only the result, so a paw recording tool calls had to consult its own "current session". Those lines are then replayed into that chat's prompt on its next turn. Core now stamps each result with the run's own conversation — absent for a heartbeat or a board task, which have none and whose tool traffic belongs in no transcript.
+
+- **The Tasks list no longer grows into the Live Events feed.** It was sized to stretch between 190px and 400px, so every task that arrived pushed the feed further down the page while you were reading it. The list now holds one height and scrolls inside itself. It also gained a **When** column: the existing time column is a duration, so a finished task told you it took four seconds but not whether that was this morning or last week. Hovering it gives the full queued/started/finished trail.
+
+- **`vole upgrade` no longer overwrites a customized `BRAIN.md`.** It used to move the local file to `BRAIN.md.old` and write the package version over it. BRAIN.md is the agent's system prompt and the most likely file to be hand-tuned, and now that one command walks every agent on a server, that would replace every customized prompt at once. A changed default is written alongside as `BRAIN.md.dist` instead.
+
+### Removed
+
+- The **ClawHub Skills** link is gone from the dashboard footer.
+
+### Security
+
+- **A project root can never widen the sandbox.** An external `root` must already resolve inside `security.allowedPaths` (the agent's own directory always counts); creation is refused otherwise and names the path a human would have to grant. Symlinks are resolved before the check, so a link inside the workspace cannot smuggle access out of it. `project_scan` authorizes against the same set — scanning must not reach further than creating.
+
+- **A project's `toolProfile` narrows only.** Denials union and allowlists intersect, so a project cannot hand its agent a tool the agent did not already have. This matters because the agent writes its own project manifests.
+
+- **The scratch tools can no longer damage project records.** `workspace_write` and `workspace_delete` refuse `.project.json` and `tasks.jsonl`, and refuse to delete a project folder or the workspace root — `workspace_delete` is recursive, so the dangerous case was never the manifest by name but the folder containing it. Reads are unaffected.
+
 ## v4.16.2 (2026-08-06)
 
 > Ships as `openvole` 4.16.2 (`@openvole/dashboard-server` unchanged at 0.13.1). Tool-call validation fix, found by an agent field-testing the demo-studio skill.

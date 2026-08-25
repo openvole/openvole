@@ -155,7 +155,14 @@ export class VoleNetSync {
 		// Clean old entries (keep last 5 minutes)
 		setTimeout(() => this.recentSyncs.delete(syncKey), 300_000)
 
-		const message = createMessage('memory:sync', this.instanceId, '*', entry, this.privateKey, this.pqPrivateKey)
+		const message = createMessage(
+			'memory:sync',
+			this.instanceId,
+			'*',
+			entry,
+			this.privateKey,
+			this.pqPrivateKey,
+		)
 
 		const sent = await this.transport.broadcast(message)
 		if (sent > 0) {
@@ -224,7 +231,14 @@ export class VoleNetSync {
 		this.recentSyncs.add(syncKey)
 		setTimeout(() => this.recentSyncs.delete(syncKey), 300_000)
 
-		const message = createMessage('session:sync', this.instanceId, '*', entry, this.privateKey, this.pqPrivateKey)
+		const message = createMessage(
+			'session:sync',
+			this.instanceId,
+			'*',
+			entry,
+			this.privateKey,
+			this.pqPrivateKey,
+		)
 
 		await this.transport.broadcast(message)
 	}

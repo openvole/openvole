@@ -66,6 +66,10 @@ async function main(): Promise<void> {
 			await handleToolCommand(args.slice(1), projectRoot)
 			break
 
+		case 'project':
+			await handleProjectCommand(args.slice(1), projectRoot)
+			break
+
 		case 'task':
 			await handleTaskCommand(args.slice(1), projectRoot)
 			break
@@ -135,6 +139,7 @@ OpenVole — Micro Agent Core
 
 Usage:
   vole serve                             Start the control-plane dashboard — manage all agents (main entrypoint)
+  vole upgrade                           Upgrade openvole packages — every agent when run at a server root, otherwise the current agent
 
 Paw management:
   vole paw create <name>                 Scaffold a new Paw in paws/
@@ -152,6 +157,18 @@ Skill management:
   vole skill uninstall <name>            Remove a VoleHub skill
   vole skill publish [path]              Prepare a skill for VoleHub publishing
   vole skill hub                         List installed VoleHub skills
+
+Projects & tasks (what the agent is working on):
+  vole project list [--all]              List projects in this agent's workspace
+  vole project scan <path>               Inspect a directory before making it a project (read-only)
+  vole project create <id> [--name <n>] [--kind <k>] [--root <path>]
+  vole project open <id>                 Show a project, its context docs and open tasks
+  vole project archive <id>              Retire a project (keeps all files and history)
+  vole task list [projectId] [--state <s>]         List work items (default: open)
+  vole task add <projectId> <goal...> [--criteria "..."] [--priority <n>]
+  vole task next [projectId]             Show the next queued task
+  vole task update <projectId> <taskId> --state <s> [--note "..."]
+  vole task cancel <projectId> <taskId>  Cancel a task
 
 Tool management:
   vole tool list                         List all registered tools (from manifests)
@@ -201,7 +218,23 @@ Options:
 `)
 }
 
-async function handleUpgrade(projectRoot: string): Promise<void> {
+interface UpgradeResult {
+	/** Lines like "@openvole/paw-session: ^2.3.0 → ^2.3.2". */
+	upgraded: string[]
+	unchanged: string[]
+	/** Scaffolding notes — new files written, prompts left alone. */
+	notes: string[]
+	/** Set when this directory could not be upgraded at all. */
+	error?: string
+}
+
+/**
+ * Upgrade every openvole package in one agent directory.
+ *
+ * Returns what changed instead of exiting, so a whole server can be walked and summarised —
+ * one agent failing to resolve must not abandon the rest.
+ */
+async function upgradeAgentDir(projectRoot: string): Promise<UpgradeResult> {
 	const fs = await import('node:fs/promises')
 	const { execa: execaFn } = await import('execa')
 
@@ -211,8 +244,7 @@ async function handleUpgrade(projectRoot: string): Promise<void> {
 	try {
 		pkgJson = JSON.parse(await fs.readFile(pkgPath, 'utf-8'))
 	} catch {
-		logger.error('package.json not found — run "npm init" first')
-		process.exit(1)
+		return { upgraded: [], unchanged: [], notes: [], error: 'no package.json' }
 	}
 
 	const deps = (pkgJson.dependencies ?? {}) as Record<string, string>
@@ -225,8 +257,7 @@ async function handleUpgrade(projectRoot: string): Promise<void> {
 	)
 
 	if (packages.length === 0) {
-		logger.info('No openvole packages found in package.json')
-		return
+		return { upgraded: [], unchanged: [], notes: [] }
 	}
 
 	// Record versions before upgrade
@@ -235,39 +266,53 @@ async function handleUpgrade(projectRoot: string): Promise<void> {
 		beforeVersions[pkg] = allDeps[pkg]
 	}
 
-	logger.info(`Upgrading ${packages.length} package(s) to latest...`)
-
 	// Install all packages @latest in a single command to resolve peer deps together
 	const installArgs = packages.map((pkg) => `${pkg}@latest`)
-	logger.info(`  npm install ${installArgs.join(' ')}`)
-	await execaFn('npm', ['install', ...installArgs], {
-		cwd: projectRoot,
-		stdio: 'inherit',
-	})
+	try {
+		await execaFn('npm', ['install', ...installArgs], { cwd: projectRoot, stdio: 'inherit' })
+	} catch (err) {
+		return {
+			upgraded: [],
+			unchanged: [],
+			notes: [],
+			error: `npm install failed: ${err instanceof Error ? err.message.split('\n')[0] : err}`,
+		}
+	}
 
 	// Ensure paw data directories exist and scaffold BRAIN.md for brain paws
+	const notes: string[] = []
 	const pawPackages = packages.filter((p) => p.startsWith('@openvole/paw-'))
 	for (const pkg of pawPackages) {
 		const pawName = pkg.replace('@openvole/', '')
 		const pawDataDir = path.join(projectRoot, '.openvole', 'paws', pawName)
 		await fs.mkdir(pawDataDir, { recursive: true })
 
-		// Scaffold BRAIN.md for brain paws
+		// Scaffold BRAIN.md for brain paws.
+		//
+		// BRAIN.md is the agent's system prompt and the most likely file to have been hand-tuned,
+		// so an upgrade must never overwrite one that exists. It used to move the local copy to
+		// BRAIN.md.old and write the package version over it — survivable for one agent, but this
+		// command now walks a whole server, which would replace every customized prompt at once.
+		// A changed default is offered alongside instead, and the running prompt is left alone.
 		const pkgBrainPath = path.join(projectRoot, 'node_modules', pkg, 'BRAIN.md')
 		try {
 			const brainContent = await fs.readFile(pkgBrainPath, 'utf-8')
 			if (brainContent.trim()) {
 				const localBrainPath = path.join(pawDataDir, 'BRAIN.md')
+				let existing: string | null = null
 				try {
-					await fs.access(localBrainPath)
-					// Existing BRAIN.md — back it up and replace with new version
-					await fs.rename(localBrainPath, path.join(pawDataDir, 'BRAIN.md.old'))
-					logger.info(`  Backed up ${pawName}/BRAIN.md → BRAIN.md.old`)
+					existing = await fs.readFile(localBrainPath, 'utf-8')
 				} catch {
-					// No existing BRAIN.md
+					/* none yet */
 				}
-				await fs.writeFile(localBrainPath, brainContent, 'utf-8')
-				logger.info(`  Scaffolded ${pawName}/BRAIN.md`)
+				if (existing === null) {
+					await fs.writeFile(localBrainPath, brainContent, 'utf-8')
+					notes.push(`scaffolded ${pawName}/BRAIN.md`)
+				} else if (existing !== brainContent) {
+					const distPath = path.join(pawDataDir, 'BRAIN.md.dist')
+					await fs.writeFile(distPath, brainContent, 'utf-8')
+					notes.push(`${pawName}/BRAIN.md kept (yours); new default written to BRAIN.md.dist`)
+				}
 			}
 		} catch {
 			// No BRAIN.md in package — not a brain paw
@@ -288,24 +333,129 @@ async function handleUpgrade(projectRoot: string): Promise<void> {
 		const before = beforeVersions[pkg]
 		const after = updatedDeps[pkg]
 		if (before !== after) {
-			upgraded.push(`  ${pkg}: ${before} → ${after}`)
+			upgraded.push(`${pkg}: ${before} → ${after}`)
 		} else {
 			unchanged.push(pkg)
 		}
 	}
 
-	if (upgraded.length > 0) {
-		logger.info(`\nUpgraded:`)
-		for (const line of upgraded) {
-			logger.info(line)
+	return { upgraded, unchanged, notes }
+}
+
+/**
+ * `vole upgrade` — one agent, or every agent on a server.
+ *
+ * Run inside an agent directory it upgrades that agent. Run at a vole server root (the directory
+ * holding `agents.json`) it walks every registered agent instead.
+ *
+ * The server form exists because paws are installed per agent: a fix published to npm reaches an
+ * agent only when someone upgrades *that* directory, so on a multi-agent server the natural
+ * outcome was agents silently sitting on old paws — and a stale paw looks like a live bug, not a
+ * missed upgrade.
+ */
+async function handleUpgrade(projectRoot: string): Promise<void> {
+	const fs = await import('node:fs/promises')
+
+	const registryPath = await findAgentRegistry(projectRoot)
+	if (!registryPath) {
+		// A plain agent directory — upgrade it and report as before.
+		const result = await upgradeAgentDir(projectRoot)
+		if (result.error) {
+			logger.error(
+				result.error === 'no package.json'
+					? 'package.json not found — run "npm init" first'
+					: result.error,
+			)
+			process.exit(1)
+		}
+		if (result.upgraded.length > 0) {
+			logger.info('\nUpgraded:')
+			for (const line of result.upgraded) logger.info(`  ${line}`)
+		}
+		for (const note of result.notes) logger.info(`  ${note}`)
+		if (result.unchanged.length > 0) logger.info(`\nAlready latest: ${result.unchanged.join(', ')}`)
+		if (result.upgraded.length === 0) logger.info('\nAll packages are already up to date.')
+		return
+	}
+
+	const registry = JSON.parse(await fs.readFile(registryPath, 'utf-8')) as {
+		agents?: Array<{ id: string; name: string; path: string }>
+		spaces?: Array<{ id: string; name: string; path: string }>
+	}
+	const agents = registry.agents ?? registry.spaces ?? []
+	if (agents.length === 0) {
+		logger.info('No agents registered on this server.')
+		return
+	}
+
+	logger.info(`Upgrading ${agents.length} agent(s) on this server…\n`)
+
+	const changed: string[] = []
+	const current: string[] = []
+	const failed: string[] = []
+
+	for (const agent of agents) {
+		logger.info(`── ${agent.name || agent.id}`)
+		const result = await upgradeAgentDir(agent.path)
+		if (result.error) {
+			logger.error(`   ${result.error}`)
+			failed.push(`${agent.name || agent.id} (${result.error})`)
+			continue
+		}
+		for (const note of result.notes) logger.info(`   ${note}`)
+		if (result.upgraded.length > 0) {
+			for (const line of result.upgraded) logger.info(`   ${line}`)
+			changed.push(agent.name || agent.id)
+		} else {
+			logger.info('   already up to date')
+			current.push(agent.name || agent.id)
 		}
 	}
-	if (unchanged.length > 0) {
-		logger.info(`\nAlready latest: ${unchanged.join(', ')}`)
+
+	logger.info('')
+	if (changed.length > 0) {
+		logger.info(`Upgraded: ${changed.join(', ')}`)
+		// Paws are loaded when an engine starts, so nothing changes for a running agent until it
+		// is restarted — which is exactly how an upgrade appears to have done nothing.
+		logger.info('Restart the server for running agents to pick these up.')
 	}
-	if (upgraded.length === 0) {
-		logger.info('\nAll packages are already up to date.')
+	if (current.length > 0) logger.info(`Already latest: ${current.join(', ')}`)
+	if (failed.length > 0) logger.error(`Failed: ${failed.join(', ')}`)
+}
+
+/**
+ * The agent registry governing this directory, if any.
+ *
+ * Checked in the order that matches intent: the directory you are standing in, then VOLE_HOME,
+ * so `vole upgrade` at a server root always means "this server" even when VOLE_HOME points
+ * somewhere else.
+ */
+export async function findAgentRegistry(cwd: string): Promise<string | null> {
+	const fs = await import('node:fs/promises')
+	const os = await import('node:os')
+
+	const candidates = [cwd]
+	if (process.env.VOLE_HOME) candidates.push(process.env.VOLE_HOME)
+	else candidates.push(path.join(os.homedir(), '.openvole'))
+
+	for (const dir of candidates) {
+		// An agent directory wins over any registry: standing inside one means that agent.
+		try {
+			await fs.access(path.join(dir, 'vole.config.json'))
+			return null
+		} catch {
+			/* not an agent dir */
+		}
+		for (const name of ['agents.json', 'spaces.json']) {
+			try {
+				await fs.access(path.join(dir, name))
+				return path.join(dir, name)
+			} catch {
+				/* keep looking */
+			}
+		}
 	}
+	return null
 }
 
 async function handlePawCommand(args: string[], projectRoot: string): Promise<void> {
@@ -812,27 +962,258 @@ async function handleToolCommand(args: string[], projectRoot: string): Promise<v
 	}
 }
 
-async function handleTaskCommand(args: string[], _projectRoot: string): Promise<void> {
+/**
+ * Open this agent's project stores straight from disk.
+ *
+ * Deliberately not routed through a running engine: projects and their task queues are files, so
+ * `vole project list` works on a stopped agent — which is exactly when you want to look.
+ */
+async function openProjectStores(projectRoot: string) {
+	const { ProjectStore } = await import('./project/store.js')
+	const { TaskStore } = await import('./project/tasks.js')
+	const { loadConfig } = await import('./config/index.js')
+
+	let allowedPaths: string[] = []
+	try {
+		const config = await loadConfig(path.resolve(projectRoot, 'vole.config.json'))
+		allowedPaths = config.security?.allowedPaths ?? []
+	} catch {
+		// No config (or an unreadable one) only limits external roots, not listing.
+	}
+
+	const projects = new ProjectStore(path.resolve(projectRoot, '.openvole', 'workspace'), {
+		agentRoot: projectRoot,
+		allowedPaths,
+	})
+	await projects.init()
+	return { projects, tasks: new TaskStore(projects), allowedPaths }
+}
+
+/** Collect repeated `--flag value` occurrences. */
+function flagValues(args: string[], flag: string): string[] {
+	const out: string[] = []
+	for (let i = 0; i < args.length; i++) {
+		if (args[i] === flag && args[i + 1]) out.push(args[++i])
+	}
+	return out
+}
+
+function flagValue(args: string[], flag: string): string | undefined {
+	return flagValues(args, flag)[0]
+}
+
+async function handleProjectCommand(args: string[], projectRoot: string): Promise<void> {
 	const subcommand = args[0]
+	const { projects, tasks, allowedPaths } = await openProjectStores(projectRoot)
 
 	switch (subcommand) {
-		case 'list':
-			logger.info('Task list requires a running vole instance.')
+		case 'list': {
+			const status = args.includes('--all') ? ('all' as const) : undefined
+			const list = await projects.list(status ? { status } : undefined)
+			if (list.length === 0) {
+				logger.info('No projects yet. Create one with: vole project create <id> [--root <path>]')
+				break
+			}
+			for (const p of list) {
+				const where = p.root ?? '(self-contained)'
+				const open = (await tasks.list({ projectId: p.id })).length
+				logger.info(`${p.id}  [${p.kind}/${p.status}]  ${open} open  ${where}`)
+			}
 			break
+		}
 
-		case 'cancel': {
-			const id = args[1]
-			if (!id) {
-				logger.error('Usage: vole task cancel <id>')
+		case 'scan': {
+			const root = args[1]
+			if (!root) {
+				logger.error('Usage: vole project scan <path>')
 				process.exit(1)
 			}
-			logger.info('Task cancellation requires a running vole instance.')
+			const { scanProjectRoot } = await import('./project/scan.js')
+			try {
+				const result = await scanProjectRoot(root, allowedPaths)
+				logger.info(result.summary)
+				logger.info(`  root:  ${result.root}`)
+				logger.info(`  kind:  ${result.kind}`)
+				if (result.stack.length) logger.info(`  stack: ${result.stack.join(', ')}`)
+				if (result.readFirst.length) logger.info(`  docs:  ${result.readFirst.join(', ')}`)
+				for (const t of result.suggestedTasks) logger.info(`  task?  ${t}`)
+			} catch (err) {
+				logger.error(err instanceof Error ? err.message : String(err))
+				process.exit(1)
+			}
+			break
+		}
+
+		case 'create': {
+			const id = args[1]
+			if (!id) {
+				logger.error(
+					'Usage: vole project create <id> [--name <name>] [--kind <kind>] [--root <path>]',
+				)
+				process.exit(1)
+			}
+			try {
+				const created = await projects.create({
+					id,
+					name: flagValue(args, '--name'),
+					kind: flagValue(args, '--kind') as never,
+					root: flagValue(args, '--root'),
+				})
+				logger.info(`Created project "${created.id}" at ${projects.dirFor(created.id)}`)
+				if (created.root) logger.info(`  files: ${created.root}`)
+			} catch (err) {
+				logger.error(err instanceof Error ? err.message : String(err))
+				process.exit(1)
+			}
+			break
+		}
+
+		case 'open': {
+			const id = args[1]
+			if (!id) {
+				logger.error('Usage: vole project open <id>')
+				process.exit(1)
+			}
+			const manifest = await projects.get(id)
+			if (!manifest) {
+				logger.error(`No such project: ${id}`)
+				process.exit(1)
+			}
+			logger.info(`${manifest.name} [${manifest.kind}/${manifest.status}]`)
+			logger.info(`  folder: ${projects.dirFor(id)}`)
+			logger.info(`  files:  ${manifest.root ?? '(self-contained)'}`)
+			if (manifest.stack?.length) logger.info(`  stack:  ${manifest.stack.join(', ')}`)
+			const docs = await projects.readContextFiles(id)
+			if (docs.inlined.length === 0)
+				logger.info('  (no context docs yet — VOLE.md is the one to write)')
+			for (const doc of docs.inlined) logger.info(`\n--- ${doc.name} ---\n${doc.body.trim()}\n`)
+			const open = await tasks.list({ projectId: id })
+			if (open.length === 0) logger.info('  no open tasks')
+			for (const t of open) logger.info(`  [${t.state}] ${t.id}  ${t.goal}`)
+			break
+		}
+
+		case 'archive': {
+			const id = args[1]
+			if (!id) {
+				logger.error('Usage: vole project archive <id>')
+				process.exit(1)
+			}
+			try {
+				await projects.archive(id)
+				logger.info(`Archived "${id}" — files and task history are kept.`)
+			} catch (err) {
+				logger.error(err instanceof Error ? err.message : String(err))
+				process.exit(1)
+			}
 			break
 		}
 
 		default:
-			logger.error(`Unknown task command: ${subcommand}`)
-			logger.info('Available: list, cancel')
+			logger.error(`Unknown project command: ${subcommand ?? '(none)'}`)
+			logger.info('Available: list, scan, create, open, archive')
+			process.exit(1)
+	}
+}
+
+/**
+ * Durable work items inside projects — not the in-memory run queue this command used to stub out
+ * (which only ever printed "requires a running vole instance"). These live in tasks.jsonl, so they
+ * are readable and editable with the agent stopped.
+ */
+async function handleTaskCommand(args: string[], projectRoot: string): Promise<void> {
+	const subcommand = args[0]
+	const { projects, tasks } = await openProjectStores(projectRoot)
+
+	const show = (t: { state: string; id: string; goal: string; projectId: string }) =>
+		logger.info(`[${t.state}] ${t.projectId}/${t.id}  ${t.goal}`)
+
+	switch (subcommand) {
+		case 'list': {
+			const projectId = args[1] && !args[1].startsWith('--') ? args[1] : undefined
+			const state = flagValue(args, '--state') as never
+			const list = await tasks.list({ projectId, state })
+			if (list.length === 0) {
+				logger.info('No matching tasks.')
+				break
+			}
+			for (const t of list) show(t)
+			break
+		}
+
+		case 'add': {
+			const projectId = args[1]
+			const goal = args.slice(2).filter((a, i, arr) => {
+				if (a.startsWith('--')) return false
+				return !(i > 0 && arr[i - 1].startsWith('--'))
+			})
+			if (!projectId || goal.length === 0) {
+				logger.error(
+					'Usage: vole task add <projectId> <goal...> [--criteria "..."] [--priority <n>]',
+				)
+				process.exit(1)
+			}
+			try {
+				const priority = Number(flagValue(args, '--priority') ?? 0)
+				const task = await tasks.create({
+					projectId,
+					goal: goal.join(' '),
+					doneCriteria: flagValues(args, '--criteria'),
+					priority: Number.isFinite(priority) ? priority : 0,
+				})
+				logger.info(`Added ${task.projectId}/${task.id}: ${task.goal}`)
+				if (task.doneCriteria.length === 0) {
+					logger.warn('No done-criteria — the agent cannot verify this task before finishing it.')
+				}
+			} catch (err) {
+				logger.error(err instanceof Error ? err.message : String(err))
+				process.exit(1)
+			}
+			break
+		}
+
+		case 'next': {
+			const task = await tasks.next(args[1])
+			if (!task) {
+				logger.info('No queued tasks.')
+				break
+			}
+			show(task)
+			for (const c of task.doneCriteria) logger.info(`   done when: ${c}`)
+			break
+		}
+
+		case 'update':
+		case 'cancel': {
+			const projectId = args[1]
+			const taskId = args[2]
+			if (!projectId || !taskId) {
+				logger.error(
+					subcommand === 'cancel'
+						? 'Usage: vole task cancel <projectId> <taskId>'
+						: 'Usage: vole task update <projectId> <taskId> --state <state> [--note "..."]',
+				)
+				process.exit(1)
+			}
+			try {
+				const state = subcommand === 'cancel' ? 'cancelled' : (flagValue(args, '--state') as never)
+				const note = flagValue(args, '--note')
+				const updated = await tasks.update(projectId, taskId, {
+					...(state ? { state } : {}),
+					...(note ? { note } : {}),
+				})
+				show(updated)
+			} catch (err) {
+				logger.error(err instanceof Error ? err.message : String(err))
+				process.exit(1)
+			}
+			break
+		}
+
+		default:
+			logger.error(`Unknown task command: ${subcommand ?? '(none)'}`)
+			logger.info('Available: list, add, next, update, cancel')
+			logger.info(`Projects: ${(await projects.list()).map((p) => p.id).join(', ') || '(none)'}`)
 			process.exit(1)
 	}
 }
@@ -1355,7 +1736,13 @@ async function handleNetCommand(args: string[], projectRoot: string): Promise<vo
 			const fsp = await import('node:fs/promises')
 			if (sub === 'list' || sub === 'accept' || sub === 'deny') {
 				const reqPath = path.join(netDir, 'pair_requests.json')
-				let requests: Array<{ id: string; name: string; publicKey: string; note?: string; ts: number }> = []
+				let requests: Array<{
+					id: string
+					name: string
+					publicKey: string
+					note?: string
+					ts: number
+				}> = []
 				try {
 					requests = JSON.parse(await fsp.readFile(reqPath, 'utf-8'))
 				} catch {
@@ -1367,7 +1754,9 @@ async function handleNetCommand(args: string[], projectRoot: string): Promise<vo
 						break
 					}
 					for (const r of requests) {
-						logger.info(`${r.name}  (${r.id.substring(0, 8)})  ${new Date(r.ts).toLocaleString()}${r.note ? `  — ${r.note}` : ''}`)
+						logger.info(
+							`${r.name}  (${r.id.substring(0, 8)})  ${new Date(r.ts).toLocaleString()}${r.note ? `  — ${r.note}` : ''}`,
+						)
 					}
 					break
 				}
@@ -1376,7 +1765,9 @@ async function handleNetCommand(args: string[], projectRoot: string): Promise<vo
 					logger.error(`Usage: vole net pair ${sub} <name-or-id>`)
 					process.exit(1)
 				}
-				const idx = requests.findIndex((r) => r.id === ref || r.name === ref || r.id.startsWith(ref))
+				const idx = requests.findIndex(
+					(r) => r.id === ref || r.name === ref || r.id.startsWith(ref),
+				)
 				if (idx < 0) {
 					logger.error(`No pending pair request matching "${ref}"`)
 					process.exit(1)
@@ -1466,7 +1857,12 @@ async function handleNetCommand(args: string[], projectRoot: string): Promise<vo
 					body: JSON.stringify({ publicKey: keyPair.publicKeyString, name: myName, note }),
 					signal: AbortSignal.timeout(8000),
 				})
-				const resp = (await r.json()) as { ok?: boolean; pending?: boolean; alreadyTrusted?: boolean; error?: string }
+				const resp = (await r.json()) as {
+					ok?: boolean
+					pending?: boolean
+					alreadyTrusted?: boolean
+					error?: string
+				}
 				if (resp.alreadyTrusted) {
 					logger.info('The peer already trusts this node — pairing is complete.')
 				} else if (resp.pending) {
@@ -1493,7 +1889,9 @@ async function handleNetCommand(args: string[], projectRoot: string): Promise<vo
 			const toIdx = args.indexOf('--to')
 			const to = toIdx >= 0 ? args[toIdx + 1] : undefined
 			if (!file || file.startsWith('--') || !to) {
-				logger.error('Usage: vole net send <file> --to <peer> [--note <text>] [--agent <name>] [--wait]')
+				logger.error(
+					'Usage: vole net send <file> --to <peer> [--note <text>] [--agent <name>] [--wait]',
+				)
 				process.exit(1)
 			}
 			const noteIdx = args.indexOf('--note')
@@ -1516,20 +1914,23 @@ async function handleNetCommand(args: string[], projectRoot: string): Promise<vo
 			}
 			const port = Number(process.env.VOLE_DASHBOARD_PORT) || 3000
 			const mcpCall = async (tool: string, argsObj: Record<string, unknown>) => {
-				const res = await fetch(`http://127.0.0.1:${port}/mcp/${encodeURIComponent(agentArg ?? '')}?token=${encodeURIComponent(token)}`, {
-					method: 'POST',
-					headers: {
-						'content-type': 'application/json',
-						accept: 'application/json, text/event-stream',
+				const res = await fetch(
+					`http://127.0.0.1:${port}/mcp/${encodeURIComponent(agentArg ?? '')}?token=${encodeURIComponent(token)}`,
+					{
+						method: 'POST',
+						headers: {
+							'content-type': 'application/json',
+							accept: 'application/json, text/event-stream',
+						},
+						body: JSON.stringify({
+							jsonrpc: '2.0',
+							id: 1,
+							method: 'tools/call',
+							params: { name: tool, arguments: argsObj },
+						}),
+						signal: AbortSignal.timeout(20_000),
 					},
-					body: JSON.stringify({
-						jsonrpc: '2.0',
-						id: 1,
-						method: 'tools/call',
-						params: { name: tool, arguments: argsObj },
-					}),
-					signal: AbortSignal.timeout(20_000),
-				})
+				)
 				const text = await res.text()
 				if (!res.ok) throw new Error(`MCP HTTP ${res.status}: ${text.slice(0, 200)}`)
 				// Stateless MCP replies JSON (or a single SSE data: line) — parse either.
@@ -1566,7 +1967,13 @@ async function handleNetCommand(args: string[], projectRoot: string): Promise<vo
 			for (;;) {
 				await new Promise((r) => setTimeout(r, 2000))
 				const st = (await mcpCall('net_file_status', { transfer_id: sent.transferId })) as {
-					transfer?: { state: string; bytesDone: number; size: number; error?: string; savedPath?: string }
+					transfer?: {
+						state: string
+						bytesDone: number
+						size: number
+						error?: string
+						savedPath?: string
+					}
 				}
 				const t = st.transfer
 				if (!t) continue
@@ -1619,7 +2026,7 @@ async function handleNetCommand(args: string[], projectRoot: string): Promise<vo
 					logger.error('To connect two of your OWN nodes, use static trust instead:')
 					logger.error('  1. On each node:  vole net show-key')
 					logger.error('  2. On each node:  vole net trust "<the other node\'s key>"')
-					logger.error('  3. Add the other node\'s URL under net.peers in vole.config.json')
+					logger.error("  3. Add the other node's URL under net.peers in vole.config.json")
 					process.exit(1)
 				}
 				try {

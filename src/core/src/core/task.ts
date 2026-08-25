@@ -2,6 +2,7 @@ import * as crypto from 'node:crypto'
 import type { RateLimits } from '../config/index.js'
 import type { MessageBus } from './bus.js'
 import { createLogger } from './logger.js'
+import { replyAddressFor } from './reply-address.js'
 import type { RateLimiter } from './rate-limiter.js'
 
 /** Task states */
@@ -246,6 +247,7 @@ export class TaskQueue {
 				taskId: task.id,
 				result: task.result,
 				sessionId: task.sessionId,
+				replyTo: replyAddressFor(task),
 				source: task.source,
 			})
 			// Notify parent if this was a sub-agent task
@@ -270,6 +272,7 @@ export class TaskQueue {
 				error: err,
 				result: task.result,
 				sessionId: task.sessionId,
+				replyTo: replyAddressFor(task),
 				source: task.source,
 			})
 			if (task.parentTaskId) {

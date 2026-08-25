@@ -1,6 +1,7 @@
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 import type { ActiveSkill, ToolSummary } from '../context/types.js'
+import type { ProjectContextInfo } from '../project/types.js'
 import { createLogger } from './logger.js'
 
 const logger = createLogger('system-prompt')
@@ -133,6 +134,17 @@ export function buildSystemPrompt(
 	// is nobody's intent. The workspace_* tools already confine themselves here; this tells
 	// the agent so it also holds for shell commands and any absolute-path tool.
 	if (content.workspaceDir) {
+		// A project scopes the default write target one level deeper: work belonging to a project
+		// goes in that project's folder, not loose in the workspace root, or a long-running agent
+		// ends up with everything from every project in one flat pile.
+		const activeProject = metadata?.project as ProjectContextInfo | undefined
+		const projectLine = activeProject
+			? `\n- Work for the current project belongs in \`${activeProject.dir}\` (see **Current Project** below).${
+					activeProject.root
+						? ` Its source files live at \`${activeProject.root}\` — edit those in place.`
+						: ''
+				}`
+			: ''
 		parts.push('')
 		parts.push(`## Files & Workspace
 Your working directory is \`${content.workspaceDir}\` — put every file you create there
@@ -143,7 +155,7 @@ Your working directory is \`${content.workspaceDir}\` — put every file you cre
   so use an absolute path under the workspace, or \`cd\` into it first.
 - Never write into the agent root or \`.openvole/\` itself: those hold config, identity, memory,
   and paw data that the engine manages.
-- Secrets belong in the vault, not in files.`)
+- Secrets belong in the vault, not in files.${projectLine}`)
 	}
 
 	// Semi-static: Channels — the agent's only way to start a conversation with its human.
@@ -216,6 +228,108 @@ Your working directory is \`${content.workspaceDir}\` — put every file you cre
 - Date: ${now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
 - Time: ${now.toLocaleTimeString('en-US', { hour12: true })}
 - Platform: ${process.platform}`)
+
+	// Which conversation this run answers into. Stated rather than left implicit: the agent decides
+	// where to report, and without being told it defaulted every proactive message to the general
+	// chat — so project work reported somewhere other than the project.
+	if (typeof metadata?.replyTo === 'string' && metadata.replyTo) {
+		parts.push(
+			`- Reporting to: \`${metadata.replyTo}\` — your reply to this run, and anything you send with \`chat_send\`, lands in that conversation. Send it there; do not re-route a report to another session unless you were asked to.`,
+		)
+	}
+
+	// Dynamic: what projects exist at all. Without this the agent can only discover its own
+	// projects by calling project_list, which it has no reason to do mid-conversation — so
+	// "carry on with the openvole work" would reach an agent that cannot see that project.
+	if (Array.isArray(metadata?.projectRoster) && metadata.projectRoster.length > 0) {
+		const roster = metadata.projectRoster as Array<{
+			id: string
+			name: string
+			kind: string
+			openTasks: number
+		}>
+		const activeId = (metadata?.project as ProjectContextInfo | undefined)?.id
+		const lines = ['## Projects']
+		lines.push(
+			'Your work is organized into projects, each with its own context and task queue. Open one with `project_open`, or set up new work with `project_scan` then `project_create` — never by asking your human to edit AGENT.md.',
+		)
+		for (const entry of roster) {
+			const current = entry.id === activeId ? ' ← current' : ''
+			const work = entry.openTasks === 1 ? '1 open task' : `${entry.openTasks} open tasks`
+			lines.push(`- \`${entry.id}\` — ${entry.name} (${entry.kind}, ${work})${current}`)
+		}
+		parts.push('')
+		parts.push(lines.join('\n'))
+	}
+
+	// Dynamic: the project this task belongs to.
+	//
+	// Placement matters. Everything above is static or semi-static so providers can cache the
+	// prefix; project context changes whenever the agent switches projects, so it sits in the
+	// dynamic tail. Putting it above the tool list would re-cache tools and identity on every
+	// project switch.
+	//
+	// This is also the tier that removes the restart: identity files are read once at engine
+	// start and cached, so before this existed the only place to say what an agent was working
+	// on was AGENT.md — a file edit plus a restart. This arrives per task, via metadata.
+	if (metadata?.project && typeof metadata.project === 'object') {
+		const project = metadata.project as ProjectContextInfo
+		const lines = ['## Current Project']
+		lines.push(`- **${project.name}** (${project.kind}) — id \`${project.id}\``)
+		lines.push(
+			project.root
+				? `- Files: \`${project.root}\` — this is the project's own tree; work there, not in the workspace copy.`
+				: '- Files: self-contained — this project has no external root, so its folder below *is* the project.',
+		)
+		lines.push(`- Project folder (notes, drafts, state): \`${project.dir}\``)
+		// Without this the model reaches for shell or a filesystem paw and hits the sandbox, or
+		// works in the wrong tree entirely — the scoped tools are the shortest correct path.
+		lines.push(
+			`- Use the \`project_file_*\` tools for these files: their paths are relative to this project and cannot address anything outside it. \`root\` means the files above; \`workspace\` means the project folder.`,
+		)
+		if (project.task) {
+			lines.push(`- Current task: ${project.task.goal}`)
+			if (project.task.doneCriteria.length > 0) {
+				lines.push('- Done when **all** of these hold:')
+				for (const criterion of project.task.doneCriteria) {
+					lines.push(`  - ${criterion}`)
+				}
+				lines.push(
+					'  Check them yourself before reporting the task finished. If one does not hold, say which and stop — do not report success.',
+				)
+			}
+			// Delegation is where a project silently loses its history: the work happens in another
+			// agent, the coordinator moves on, and the task still reads as untouched afterwards.
+			if (availableTools.some((t) => t.pawName === '__orchestrate__')) {
+				lines.push(
+					'- If this work belongs to a sibling agent, delegating it is **not** finishing it: record `assignee` and `delegatedTaskId` with task_update and leave the task running. When that agent reports back, write its outcome and artifact paths onto the task before you verify and close it. This project is the only record that any of it happened.',
+				)
+			}
+		}
+		// The project's own docs, each under its filename so the agent can tell them apart and knows
+		// which one to update. Any markdown file in the project folder lands here — the folder is
+		// the context, rather than one hardcoded filename being the context.
+		if (project.contextFiles?.length) {
+			for (const doc of project.contextFiles) {
+				lines.push('')
+				lines.push(`### ${doc.name}`)
+				lines.push(doc.body.trim())
+			}
+			lines.push('')
+			lines.push(
+				`_When you learn something about this project that a future run would need, write it into one of these files with project_file_write (root \`workspace\`) — they are how this section stays true. A new .md file in the project folder joins them._`,
+			)
+		}
+		// Named but not inlined: the agent should know they exist rather than work without them.
+		if (project.otherFiles?.length) {
+			lines.push('')
+			lines.push(
+				`- Other docs in this project's folder, not included above — read them with project_file_read (root \`workspace\`) if relevant: ${project.otherFiles.join(', ')}`,
+			)
+		}
+		parts.push('')
+		parts.push(lines.join('\n'))
+	}
 
 	// Dynamic: VoleNet context
 	if (metadata?.volenet && typeof metadata.volenet === 'object') {

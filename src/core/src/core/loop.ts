@@ -5,15 +5,19 @@ import { createAgentContext } from '../context/types.js'
 import type { VoleIO } from '../io/types.js'
 import type { PawRegistry } from '../paw/registry.js'
 import type { AgentPlan, PlannedAction } from '../paw/types.js'
+import { narrowToolAccess } from '../project/context.js'
+import type { ProjectContextInfo } from '../project/types.js'
 import type { SkillRegistry } from '../skill/registry.js'
 import { buildActiveSkills } from '../skill/resolver.js'
 import type { ToolRegistry } from '../tool/registry.js'
+import type { ToolContext } from '../tool/types.js'
 import type { MessageBus } from './bus.js'
 import { ContextBudgetManager } from './context-budget.js'
 import { CostTracker } from './cost-tracker.js'
 import { type ActionResult, createActionError, failureResult, successResult } from './errors.js'
 import { PHASE_ORDER } from './hooks.js'
 import type { RateLimiter } from './rate-limiter.js'
+import { replyAddressFor } from './reply-address.js'
 import { type SystemPromptContent, buildSystemPrompt } from './system-prompt.js'
 import type { AgentTask } from './task.js'
 
@@ -35,6 +39,18 @@ export interface LoopDependencies {
 	rateLimiter?: RateLimiter
 	/** Cached system prompt content (loaded on engine start) */
 	systemPromptContent?: SystemPromptContent
+	/**
+	 * Resolve the project this task belongs to, if any. Called once per task — project context is
+	 * constant for a task's lifetime, unlike the per-iteration prompt rebuild.
+	 *
+	 * Injected rather than imported so the loop stays free of project storage, and so scope always
+	 * arrives *with the task* instead of from ambient state: tasks interleave (a heartbeat can
+	 * start mid-chat), and a global "current project" would hand one task another's context — the
+	 * same bug shape that filed brain replies under the wrong session.
+	 */
+	resolveProject?: (task: AgentTask) => Promise<ProjectContextInfo | null>
+	/** Every active project, so the agent can see and switch between them from any run. */
+	listProjects?: () => Promise<Array<{ id: string; name: string; kind: string; openTasks: number }>>
 }
 
 /**
@@ -89,11 +105,57 @@ export async function runAgentLoop(task: AgentTask, deps: LoopDependencies): Pro
 	if (task.metadata) {
 		Object.assign(context.metadata, task.metadata)
 	}
+	// Where this run's report goes. Derived from the task and written AFTER the metadata merge, so
+	// it is authoritative: a paw or a browser cannot hand the loop a reply address, for the same
+	// reason it cannot hand it allowTools. Identical to the address `task:completed` is emitted
+	// with — one rule, so the tool the agent reports through and the transcript it lands in agree.
+	context.metadata.replyTo = replyAddressFor(task)
 	if (config.maxContextTokens) {
 		context.metadata.maxContextTokens = config.maxContextTokens
 	}
 	if (task.source === 'heartbeat') {
 		context.metadata.heartbeat = true
+	}
+
+	if (deps.listProjects) {
+		try {
+			const roster = await deps.listProjects()
+			if (roster.length > 0) context.metadata.projectRoster = roster
+		} catch (err) {
+			logger.warn(`Could not list projects for task ${task.id}: ${err}`)
+		}
+	}
+
+	// Project context — the tier that lets an agent switch what it works on without editing
+	// AGENT.md and restarting. Resolved once per task; a task with no project leaves the prompt
+	// exactly as it was before projects existed.
+	if (deps.resolveProject) {
+		try {
+			const project = await deps.resolveProject(task)
+			if (project) {
+				context.metadata.project = project
+				logger.info(
+					`Task ${task.id} scoped to project "${project.id}"${project.task ? ` — ${project.task.goal}` : ''}`,
+				)
+				// A project may restrict which tools this task can reach, never widen them, so an
+				// agent writing its own project manifests can't grant itself capability.
+				if (project.toolProfile) {
+					const narrowed = narrowToolAccess(
+						{
+							allow: context.metadata.allowTools as string[] | undefined,
+							deny: context.metadata.denyTools as string[] | undefined,
+						},
+						project.toolProfile,
+					)
+					context.metadata.allowTools = narrowed.allow
+					context.metadata.denyTools = narrowed.deny
+				}
+			}
+		} catch (err) {
+			// A missing or unreadable project must not kill the task: the agent simply runs
+			// without project context, which is the pre-projects behaviour.
+			logger.warn(`Could not resolve project for task ${task.id}: ${err}`)
+		}
 	}
 
 	// For sub-agents: inject parent context and agent instructions before the task input
@@ -659,8 +721,15 @@ export async function runAgentLoop(task: AgentTask, deps: LoopDependencies): Pro
 					})
 				}
 
-				// Fire observe hooks
-				pawRegistry.runObserveHooks(result)
+				// Fire observe hooks, stamped with this run's conversation. A hook sees only the
+				// result, so without this a paw that records tool results has to consult its own
+				// module-level "current session" — the same ambient-state bug that filed brain
+				// replies under the wrong chat. Undefined here is correct and meaningful: this run
+				// is not part of a conversation, so its tool traffic belongs in no transcript.
+				pawRegistry.runObserveHooks({
+					...result,
+					sessionId: context.metadata.sessionId as string | undefined,
+				})
 			}
 		}
 
@@ -754,16 +823,23 @@ async function runAct(
 		await pawRegistry.runLazyPerceive(pawName, context)
 	}
 
+	// Built per batch from this task's context, never held in a module-level "current project" —
+	// tasks can run concurrently and a shared ref would answer for the wrong one.
+	const toolCtx: ToolContext = {
+		project: context.metadata.project as ProjectContextInfo | undefined,
+		replyTo: context.metadata.replyTo as string | undefined,
+	}
+
 	if (execution === 'parallel') {
 		return Promise.all(
-			actions.map((action) => executeSingleAction(action, toolRegistry, pawRegistry)),
+			actions.map((action) => executeSingleAction(action, toolRegistry, pawRegistry, toolCtx)),
 		)
 	}
 
 	// Sequential execution
 	const results: ActionResult[] = []
 	for (const action of actions) {
-		const result = await executeSingleAction(action, toolRegistry, pawRegistry)
+		const result = await executeSingleAction(action, toolRegistry, pawRegistry, toolCtx)
 		results.push(result)
 	}
 	return results
@@ -774,6 +850,7 @@ async function executeSingleAction(
 	action: PlannedAction,
 	toolRegistry: ToolRegistry,
 	pawRegistry: PawRegistry,
+	toolCtx?: ToolContext,
 ): Promise<ActionResult> {
 	const startTime = Date.now()
 	const tool = toolRegistry.get(action.tool)
@@ -812,7 +889,7 @@ async function executeSingleAction(
 			tool.parameters.parse(action.params)
 		}
 
-		const output = await tool.execute(action.params)
+		const output = await tool.execute(action.params, toolCtx)
 		return successResult(action.tool, tool.pawName, output, Date.now() - startTime)
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err)

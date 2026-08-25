@@ -38,6 +38,32 @@ export type {
 export { listChannels, channelIdFor, pickSendTool } from './channel/registry.js'
 export type { ChannelInfo } from './channel/registry.js'
 export { buildSystemPrompt, loadSystemPromptContent } from './core/system-prompt.js'
+export {
+	CONTEXT_NAME,
+	MANIFEST_NAME,
+	ProjectStore,
+	RESERVED_BASENAMES,
+	TASKS_NAME,
+	isValidProjectId,
+	validateProjectRoot,
+} from './project/store.js'
+export { TaskStore } from './project/tasks.js'
+export { ProjectFileError, ProjectFiles } from './project/files.js'
+export type { FileContent, FileEntry, FileListing, FileRoot, FileRootKey } from './project/files.js'
+export { listProjectRoster, narrowToolAccess, resolveProjectContext } from './project/context.js'
+export {
+	ProjectError,
+	ProjectRootError,
+	TASK_TRANSITIONS,
+	TERMINAL_TASK_STATES,
+	type ProjectContextInfo,
+	type ProjectKind,
+	type ProjectManifest,
+	type ProjectStatus,
+	type ProjectTask,
+	type TaskBudget,
+	type TaskState,
+} from './project/types.js'
 export type { SystemPromptContent } from './core/system-prompt.js'
 export { Vault } from './core/vault.js'
 export type { VaultEntry } from './core/vault.js'
@@ -112,12 +138,16 @@ import { runAgentLoop } from './core/loop.js'
 import { RateLimiter } from './core/rate-limiter.js'
 import { SchedulerStore } from './core/scheduler.js'
 import { type SystemPromptContent, loadSystemPromptContent } from './core/system-prompt.js'
-import { TaskQueue } from './core/task.js'
+import { type AgentTask, TaskQueue } from './core/task.js'
 import { Vault } from './core/vault.js'
 import { createTtyIO } from './io/tty.js'
 import type { VoleIO } from './io/types.js'
 import { peekPawCategory } from './paw/manifest.js'
 import { PawRegistry } from './paw/registry.js'
+import { listProjectRoster, resolveProjectContext } from './project/context.js'
+import { ProjectStore } from './project/store.js'
+import { TaskStore } from './project/tasks.js'
+import type { ProjectContextInfo } from './project/types.js'
 import { SkillRegistry } from './skill/registry.js'
 import { createCoreTools } from './tool/core-tools.js'
 import { ToolRegistry } from './tool/registry.js'
@@ -131,6 +161,10 @@ export interface VoleEngine {
 	scheduler: SchedulerStore
 	io: VoleIO
 	config: VoleConfig
+	/** Projects in this agent's workspace. */
+	projects: ProjectStore
+	/** Durable work items inside those projects (distinct from the in-memory TaskQueue). */
+	projectTasks: TaskStore
 
 	/** Start the engine — load Paws and Skills */
 	start(): Promise<void>
@@ -139,6 +173,8 @@ export interface VoleEngine {
 		input: string,
 		source?: 'user' | 'schedule' | 'heartbeat' | 'paw' | 'agent',
 		sessionId?: string,
+		/** Task metadata — notably `projectId`/`projectTaskId` to scope the run to a project. */
+		metadata?: Record<string, unknown>,
 	): string
 	/** Graceful shutdown */
 	shutdown(): Promise<void>
@@ -188,14 +224,34 @@ export async function createEngine(
 	)
 	const scheduler = new SchedulerStore()
 	scheduler.setPersistence(path.resolve(projectRoot, '.openvole', 'schedules.json'))
-	scheduler.setTickHandler((input) => {
-		taskQueue.enqueue(input, 'schedule')
+	scheduler.setTickHandler((input, opts) => {
+		taskQueue.enqueue(input, 'schedule', {
+			...(opts?.projectId ? { metadata: { projectId: opts.projectId } } : {}),
+		})
 	})
 	const vault = new Vault(
 		path.resolve(projectRoot, '.openvole', 'vault.json'),
 		process.env.VOLE_VAULT_KEY,
 	)
 	await vault.init()
+
+	// Projects live in the workspace the agent already writes to; allowedPaths is what bounds an
+	// external project root, so the store is the only thing that needs to know about it.
+	const projects = new ProjectStore(path.resolve(projectRoot, '.openvole', 'workspace'), {
+		agentRoot: projectRoot,
+		allowedPaths: config.security?.allowedPaths,
+	})
+	await projects.init()
+	const projectTasks = new TaskStore(projects)
+
+	/** Resolve a task's project scope — see project/context.ts for why scope travels with the task. */
+	const resolveProject = async (task: AgentTask): Promise<ProjectContextInfo | null> =>
+		resolveProjectContext(projects, projectTasks, task.metadata, {
+			// Self-initiated runs have no instruction of their own, so they pull the project's
+			// next queued work. A user's chat message IS the instruction and must not be
+			// overridden by whatever happens to sit at the top of the queue.
+			autoSelectTask: task.source === 'schedule' || task.source === 'heartbeat',
+		})
 
 	// Register built-in core tools
 	const coreTools = createCoreTools(
@@ -206,6 +262,7 @@ export async function createEngine(
 		vault,
 		toolRegistry,
 		bus,
+		{ projects, tasks: projectTasks },
 	)
 	toolRegistry.register('__core__', coreTools, true)
 
@@ -258,6 +315,8 @@ export async function createEngine(
 			toolProfiles: config.toolProfiles,
 			rateLimiter,
 			systemPromptContent: promptContent,
+			resolveProject,
+			listProjects: () => listProjectRoster(projects, projectTasks),
 		})
 	})
 
@@ -272,6 +331,8 @@ export async function createEngine(
 		scheduler,
 		io,
 		config,
+		projects,
+		projectTasks,
 
 		async start() {
 			engineLogger.info('Starting OpenVole...')
@@ -393,11 +454,34 @@ export async function createEngine(
 								// No HEARTBEAT.md — use default prompt
 							}
 
-							const input = heartbeatContent
-								? `Heartbeat wake-up. Review your HEARTBEAT.md jobs and act on what is needed:\n\n${heartbeatContent}`
-								: 'Heartbeat wake-up. Check active skills and decide if any actions are needed.'
+							// The heartbeat is the recurring trigger, so it is what turns a queued task
+							// into work actually being done. Without this a task sits in `queued`
+							// forever unless a human asks for it in chat, which defeats the point of a
+							// queue. HEARTBEAT.md jobs still run: both go in, and the agent decides.
+							const queued = await projectTasks.next().catch(() => null)
 
-							taskQueue.enqueue(input, 'heartbeat')
+							const parts: string[] = []
+							if (heartbeatContent) {
+								parts.push(
+									`Review your HEARTBEAT.md jobs and act on what is needed:\n\n${heartbeatContent}`,
+								)
+							}
+							if (queued) {
+								parts.push(
+									`You have queued project work. The next task is "${queued.goal}" in project "${queued.projectId}" — its context and done-criteria are in your Current Project section. Mark it running with task_update before you start, check the criteria yourself when you think it is finished, and only then mark it done. If a criterion does not hold, mark it blocked with the reason instead.`,
+								)
+							}
+							if (parts.length === 0) {
+								parts.push('Check active skills and decide if any actions are needed.')
+							}
+
+							taskQueue.enqueue(
+								`Heartbeat wake-up. ${parts.join('\n\n')}`,
+								'heartbeat',
+								queued
+									? { metadata: { projectId: queued.projectId, projectTaskId: queued.id } }
+									: undefined,
+							)
 						},
 						undefined,
 						config.heartbeat.runOnStart ?? false,
@@ -436,8 +520,11 @@ export async function createEngine(
 			)
 		},
 
-		run(input, source = 'user', sessionId?) {
-			return taskQueue.enqueue(input, source, sessionId ? { sessionId } : undefined).id
+		run(input, source = 'user', sessionId?, metadata?) {
+			return taskQueue.enqueue(input, source, {
+				...(sessionId ? { sessionId } : {}),
+				...(metadata ? { metadata } : {}),
+			}).id
 		},
 
 		async shutdown() {

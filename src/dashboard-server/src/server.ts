@@ -34,6 +34,52 @@ export interface DashboardCallbacks {
 	createAgent?: (name: string) => Promise<unknown>
 	/** Change an agent's display name (its id and directory are unaffected). */
 	renameAgent?: (agentId: string, name: string) => Promise<unknown>
+	/**
+	 * Project and task management. Served straight from the agent's files by the control plane,
+	 * so these work while the agent is stopped — which is exactly when you queue work for it.
+	 */
+	projectList?: (agentId: string, status?: string) => Promise<unknown>
+	projectOpen?: (agentId: string, id: string) => Promise<unknown>
+	projectScan?: (agentId: string, root: string) => Promise<unknown>
+	/** Server-side directory listing — a browser cannot hand back an absolute path. */
+	listDirectories?: (agentId: string, dirPath?: string) => Promise<unknown>
+	/** Add a directory to the agent's security.allowedPaths. A human action, not an agent one. */
+	grantPath?: (agentId: string, dirPath: string) => Promise<unknown>
+	projectCreate?: (agentId: string, input: Record<string, unknown>) => Promise<unknown>
+	projectUpdate?: (agentId: string, id: string, patch: Record<string, unknown>) => Promise<unknown>
+	projectArchive?: (agentId: string, id: string) => Promise<unknown>
+	/**
+	 * Browse and edit a project's files — `op` is list/read/write/mkdir/delete/rename/roots.
+	 *
+	 * One callback for the whole verb set: they share an address (agent, project, root, path) and
+	 * the boundary lives in core, so splitting them would only widen this interface.
+	 */
+	projectFiles?: (
+		agentId: string,
+		projectId: string,
+		op: string,
+		args: Record<string, unknown>,
+	) => Promise<unknown>
+	/**
+	 * Absolute path an uploaded file should be written to inside a project, already authorized.
+	 * The route never joins a client-supplied name onto a directory itself.
+	 */
+	resolveProjectUpload?: (
+		agentId: string,
+		projectId: string,
+		root: string,
+		dir: string,
+		name: string,
+	) => Promise<string>
+	taskAdd?: (agentId: string, input: Record<string, unknown>) => Promise<unknown>
+	/** Hand a queued task to the agent now, instead of waiting for its heartbeat. */
+	taskRun?: (agentId: string, projectId: string, taskId: string) => Promise<unknown>
+	taskUpdate?: (
+		agentId: string,
+		projectId: string,
+		taskId: string,
+		patch: Record<string, unknown>,
+	) => Promise<unknown>
 	removeAgent?: (agentId: string) => Promise<unknown>
 	startAgent?: (agentId: string) => Promise<unknown>
 	stopAgent?: (agentId: string) => Promise<unknown>
@@ -43,6 +89,8 @@ export interface DashboardCallbacks {
 	chatHistory?: (sessionId?: string, agentId?: string) => Promise<unknown>
 	chatSessions?: (agentId?: string) => Promise<unknown>
 	chatClear?: (sessionId: string, agentId?: string) => Promise<unknown>
+	/** Replace a transcript's older half with a brain-written summary. Runs the brain, so it is slow. */
+	chatCompact?: (sessionId: string, keepLast: number, agentId?: string) => Promise<unknown>
 	volenetInstances?: (agentId?: string) => Promise<unknown>
 	volenetChatHistory?: (peerId?: string, agentId?: string) => Promise<unknown>
 	volenetChatSend?: (peerId: string, text: string, agentId?: string) => Promise<unknown>
@@ -301,6 +349,65 @@ export function createDashboardServer(
 			return
 		}
 
+		// Drag-and-drop into a project's file browser. Same shape as the VoleDrop spool below —
+		// streamed to disk, token and same-origin gated — but the destination is resolved by the
+		// project layer, so an upload can only ever land inside that project's own roots.
+		if (req.method === 'POST' && req.url?.startsWith('/project-upload/')) {
+			if (!tokenOk(req) || !sameOrigin(req) || !callbacks.resolveProjectUpload) {
+				res.writeHead(callbacks.resolveProjectUpload ? 401 : 404)
+				res.end()
+				return
+			}
+			void (async () => {
+				let dest: string | undefined
+				try {
+					const u = new URL(req.url as string, 'http://localhost')
+					const agentId = decodeURIComponent(u.pathname.split('/')[2] ?? '')
+					const projectId = u.searchParams.get('project') ?? ''
+					if (!projectId) throw new Error('missing project')
+
+					dest = await callbacks.resolveProjectUpload?.(
+						agentId,
+						projectId,
+						u.searchParams.get('root') ?? 'workspace',
+						u.searchParams.get('dir') ?? '',
+						u.searchParams.get('name') ?? 'file',
+					)
+					if (!dest) throw new Error('no destination')
+
+					const MAX_UPLOAD_BYTES =
+						Number(process.env.VOLE_UPLOAD_MAX_BYTES) || 4 * 1024 * 1024 * 1024
+					const { pipeline } = await import('node:stream/promises')
+					const { Transform } = await import('node:stream')
+					// Budget enforced inside the pipeline, for the same reason as the spool route: a
+					// bare data listener starts the stream flowing across the awaits above.
+					let received = 0
+					const budget = new Transform({
+						transform(chunk: Buffer, _enc, cb) {
+							received += chunk.length
+							if (received > MAX_UPLOAD_BYTES) cb(new Error('upload too large'))
+							else cb(null, chunk)
+						},
+					})
+					await pipeline(req, budget, fs.createWriteStream(dest))
+
+					res.writeHead(200, { 'Content-Type': 'application/json' })
+					res.end(JSON.stringify({ ok: true, name: path.basename(dest), size: received }))
+				} catch (err) {
+					// A half-written file in a project folder reads as a real one; clean it up.
+					if (dest) fs.rmSync(dest, { force: true })
+					if (!res.headersSent) res.writeHead(400, { 'Content-Type': 'application/json' })
+					res.end(
+						JSON.stringify({
+							ok: false,
+							error: err instanceof Error ? err.message : 'upload failed',
+						}),
+					)
+				}
+			})()
+			return
+		}
+
 		// VoleDrop: browser → agent-outbox upload spool. The file streams to disk (never
 		// buffered), then the UI issues net_file_send with the returned path. Token AND
 		// same-origin gated — this endpoint writes to the filesystem.
@@ -514,6 +621,11 @@ export function createDashboardServer(
 					)
 					break
 				}
+				case 'chat_compact': {
+					const p = cmd.params as { sessionId: string; keepLast?: number }
+					respond(await callbacks.chatCompact?.(p?.sessionId, p?.keepLast ?? 6, sel()))
+					break
+				}
 				case 'chat_clear': {
 					const p = cmd.params as { sessionId: string }
 					respond(await callbacks.chatClear?.(p?.sessionId, sel()))
@@ -628,6 +740,81 @@ export function createDashboardServer(
 				case 'remove_agent': {
 					const p = cmd.params as { agentId: string }
 					respond(await callbacks.removeAgent?.(p?.agentId))
+					break
+				}
+
+				// --- Projects & tasks ---
+				// Every one resolves its agent through sel(), so an explicit agentId on the command
+				// wins over the socket's last selection — the same rule the rest of the dashboard
+				// follows, and what stops a switch mid-request from answering for the wrong agent.
+				case 'project_list': {
+					const p = cmd.params as { status?: string }
+					respond(await callbacks.projectList?.(sel() ?? '', p?.status))
+					break
+				}
+				case 'project_open': {
+					const p = cmd.params as { id: string }
+					respond(await callbacks.projectOpen?.(sel() ?? '', p?.id))
+					break
+				}
+				case 'project_scan': {
+					const p = cmd.params as { root: string }
+					respond(await callbacks.projectScan?.(sel() ?? '', p?.root))
+					break
+				}
+				case 'list_directories': {
+					const p = cmd.params as { path?: string }
+					respond(await callbacks.listDirectories?.(sel() ?? '', p?.path))
+					break
+				}
+				case 'grant_path': {
+					const p = cmd.params as { path: string }
+					respond(await callbacks.grantPath?.(sel() ?? '', p?.path))
+					break
+				}
+				case 'project_create': {
+					const p = cmd.params as { project: Record<string, unknown> }
+					respond(await callbacks.projectCreate?.(sel() ?? '', p?.project ?? {}))
+					break
+				}
+				case 'project_update': {
+					const p = cmd.params as { id: string; patch: Record<string, unknown> }
+					respond(await callbacks.projectUpdate?.(sel() ?? '', p?.id, p?.patch ?? {}))
+					break
+				}
+				case 'project_archive': {
+					const p = cmd.params as { id: string }
+					respond(await callbacks.projectArchive?.(sel() ?? '', p?.id))
+					break
+				}
+				case 'project_files': {
+					const p = cmd.params as {
+						id: string
+						op: string
+						args?: Record<string, unknown>
+					}
+					respond(await callbacks.projectFiles?.(sel() ?? '', p?.id, p?.op, p?.args ?? {}))
+					break
+				}
+				case 'task_add': {
+					const p = cmd.params as { task: Record<string, unknown> }
+					respond(await callbacks.taskAdd?.(sel() ?? '', p?.task ?? {}))
+					break
+				}
+				case 'task_run': {
+					const p = cmd.params as { projectId: string; taskId: string }
+					respond(await callbacks.taskRun?.(sel() ?? '', p?.projectId, p?.taskId))
+					break
+				}
+				case 'task_update': {
+					const p = cmd.params as {
+						projectId: string
+						taskId: string
+						patch: Record<string, unknown>
+					}
+					respond(
+						await callbacks.taskUpdate?.(sel() ?? '', p?.projectId, p?.taskId, p?.patch ?? {}),
+					)
 					break
 				}
 				case 'start_agent': {

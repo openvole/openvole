@@ -1,4 +1,6 @@
 import type { ChildProcess } from 'node:child_process'
+import * as fsp from 'node:fs/promises'
+import * as os from 'node:os'
 import * as path from 'node:path'
 import {
 	type AgentSummary,
@@ -6,12 +8,27 @@ import {
 	createDashboardServer,
 } from '@openvole/dashboard-server'
 import { execa } from 'execa'
+import { loadConfig } from '../config/index.js'
 import { createLogger } from '../core/logger.js'
+import { type FileRootKey, ProjectFiles } from '../project/files.js'
+import { scanProjectRoot } from '../project/scan.js'
+import { ProjectStore } from '../project/store.js'
+import { TaskStore } from '../project/tasks.js'
 import { EventLog, dayKey } from './event-log.js'
 import { AgentManager } from './manager.js'
 
 const logger = createLogger('control-plane')
+
+/** True when `target` is one of `roots` or sits beneath one. */
+function isInsideAny(target: string, roots: string[]): boolean {
+	return roots.some((root) => {
+		const resolved = path.resolve(root)
+		return target === resolved || target.startsWith(resolved + path.sep)
+	})
+}
 const RPC_TIMEOUT_MS = 15_000
+/** For control requests that invoke the brain. A CLI-backed brain routinely takes minutes. */
+const BRAIN_RPC_TIMEOUT_MS = 600_000
 const STOP_GRACE_MS = 5000
 const STATE_DEBOUNCE_MS = 150
 /** Max tasks included in an orchestrator's agent_state summary. */
@@ -82,6 +99,22 @@ export class ControlPlane {
 				stopAgent: (id) => this.stopAgent(id),
 				createAgent: (name) => this.createAgent(name),
 				renameAgent: (id, name) => this.renameAgent(id, name),
+				projectList: (agentId, status) => this.projectList(agentId, status as never),
+				projectOpen: (agentId, id) => this.projectOpen(agentId, id),
+				projectScan: (agentId, root) => this.projectScan(agentId, root),
+				listDirectories: (agentId, dirPath) => this.listDirectories(agentId, dirPath),
+				grantPath: (agentId, dirPath) => this.grantPath(agentId, dirPath),
+				projectCreate: (agentId, input) => this.projectCreate(agentId, input),
+				projectUpdate: (agentId, id, patch) => this.projectUpdate(agentId, id, patch),
+				projectArchive: (agentId, id) => this.projectArchive(agentId, id),
+				projectFiles: (agentId, id, op, args) => this.projectFiles(agentId, id, op, args),
+				resolveProjectUpload: (agentId, projectId, root, dir, name) =>
+					this.resolveProjectUpload(agentId, projectId, root, dir, name),
+				taskAdd: (agentId, input) => this.taskAdd(agentId, input),
+				taskRun: (agentId, projectId, taskId) =>
+					this.callAgent(agentId, 'project_task_run', { projectId, taskId }),
+				taskUpdate: (agentId, projectId, taskId, patch) =>
+					this.taskUpdate(agentId, projectId, taskId, patch),
 				removeAgent: (id) => this.removeAgent(id),
 				fetchState: (id) => this.callAgent(id, 'state'),
 				readConfig: (id) => this.callAgent(id, 'read_config'),
@@ -96,6 +129,9 @@ export class ControlPlane {
 				chatHistory: (sessionId, id) => this.callAgent(id, 'chat_history', { sessionId }),
 				chatSessions: (id) => this.callAgent(id, 'chat_sessions'),
 				chatClear: (sessionId, id) => this.callAgent(id, 'chat_clear', { sessionId }),
+				// Runs the brain — give it the same room a think gets, not the 15s lookup deadline.
+				chatCompact: (sessionId, keepLast, id) =>
+					this.callAgent(id, 'chat_compact', { sessionId, keepLast }, BRAIN_RPC_TIMEOUT_MS),
 				volenetInstances: (id) => this.callAgent(id, 'volenet_instances'),
 				volenetChatHistory: (peerId, id) => this.callAgent(id, 'volenet_chat_history', { peerId }),
 				volenetChatSend: (peerId, text, id) =>
@@ -230,6 +266,294 @@ export class ControlPlane {
 		return { ok: true, id: entry.id, name: entry.name }
 	}
 
+	/**
+	 * Open an agent's project stores.
+	 *
+	 * Projects are files in the agent's own directory, so the control plane reads and writes them
+	 * directly instead of round-tripping through the agent process. That means the dashboard shows
+	 * an agent's projects and tasks while it is **stopped** — which is exactly when you want to
+	 * queue work for it — and needs no IPC surface for any of this.
+	 *
+	 * Safe to do concurrently with a running agent: neither store caches, manifests are written
+	 * atomically, and the task log is append-only with last-line-wins. Two writers racing the same
+	 * task can lose one update; they cannot corrupt the file.
+	 */
+	private async projectStoresFor(
+		agentId: string,
+	): Promise<{ projects: ProjectStore; tasks: TaskStore }> {
+		const reg = await this.manager.readRegistry()
+		const entry = reg.agents.find(
+			(a) => a.id === agentId || a.name.toLowerCase() === agentId.toLowerCase(),
+		)
+		if (!entry) throw new Error(`Agent not found: "${agentId}"`)
+
+		let allowedPaths: string[] = []
+		try {
+			const config = await loadConfig(path.resolve(entry.path, 'vole.config.json'))
+			allowedPaths = config.security?.allowedPaths ?? []
+		} catch {
+			// An unreadable config only limits external roots, not listing what already exists.
+		}
+
+		const projects = new ProjectStore(path.resolve(entry.path, '.openvole', 'workspace'), {
+			agentRoot: entry.path,
+			allowedPaths,
+		})
+		await projects.init()
+		return { projects, tasks: new TaskStore(projects) }
+	}
+
+	/** Projects with their open-task counts — what the dashboard's Projects tab lists. */
+	async projectList(agentId: string, status?: 'active' | 'paused' | 'archived' | 'all') {
+		const { projects, tasks } = await this.projectStoresFor(agentId)
+		const list = await projects.list(status ? { status } : undefined)
+		return {
+			ok: true as const,
+			projects: await Promise.all(
+				list.map(async (p) => ({
+					...p,
+					dir: projects.dirFor(p.id),
+					openTasks: (await tasks.list({ projectId: p.id })).length,
+				})),
+			),
+		}
+	}
+
+	async projectOpen(agentId: string, id: string) {
+		const { projects, tasks } = await this.projectStoresFor(agentId)
+		const project = await projects.get(id)
+		if (!project) throw new Error(`No such project: "${id}"`)
+		return {
+			ok: true as const,
+			project,
+			dir: projects.dirFor(id),
+			contextFiles: (await projects.readContextFiles(id, project.contextFiles)).inlined,
+			tasks: await tasks.list({ projectId: id, state: 'all' }),
+			// Reconstructed from the same tasks.jsonl the list came from — one extra pass over a
+			// file already in the page cache, not a second round trip per task card.
+			history: Object.fromEntries(await tasks.history(id)),
+		}
+	}
+
+	/**
+	 * List sub-directories of a path, for the dashboard's directory picker.
+	 *
+	 * A browser cannot supply an absolute path — `webkitdirectory` gives relative names and the
+	 * File System Access API gives an opaque handle — so choosing a project root has to be done
+	 * against the filesystem the agent actually runs on.
+	 *
+	 * Not restricted to `allowedPaths`, deliberately: the whole point is to pick a directory that
+	 * is *not* granted yet and then grant it. That is not a widening of what this dashboard can
+	 * already do — `writeConfig` lets the same operator set `allowedPaths` to `/` outright — so a
+	 * lister is strictly weaker than what the token already carries. Each response says whether
+	 * the path is currently granted so the UI can be honest about it.
+	 */
+	async listDirectories(agentId: string, dirPath?: string) {
+		const { projects } = await this.projectStoresFor(agentId)
+		const target = path.resolve(dirPath?.trim() || os.homedir())
+
+		const entries = await fsp.readdir(target, { withFileTypes: true })
+		const dirs: Array<{ name: string; path: string }> = []
+		for (const entry of entries) {
+			// Skip dotfiles: they are noise in a project picker, and .git/node_modules dominate.
+			if (entry.name.startsWith('.')) continue
+			if (!entry.isDirectory()) {
+				// A symlink to a directory is a legitimate project root; readdir types it as a link.
+				if (!entry.isSymbolicLink()) continue
+				try {
+					if (!(await fsp.stat(path.join(target, entry.name))).isDirectory()) continue
+				} catch {
+					continue
+				}
+			}
+			dirs.push({ name: entry.name, path: path.join(target, entry.name) })
+		}
+		dirs.sort((a, b) => a.name.localeCompare(b.name))
+
+		const parent = path.dirname(target)
+		return {
+			ok: true as const,
+			path: target,
+			parent: parent === target ? null : parent,
+			home: os.homedir(),
+			dirs,
+			allowed: isInsideAny(target, projects.allowedRoots),
+			allowedRoots: projects.allowedRoots,
+		}
+	}
+
+	/**
+	 * Add a path to the agent's `security.allowedPaths`.
+	 *
+	 * Written straight to vole.config.json rather than through the running engine, so it works on
+	 * a stopped agent like the rest of the projects surface. This is a human action from an
+	 * authenticated dashboard — the boundary it protects is the *agent* granting itself reach, not
+	 * the operator doing it deliberately.
+	 */
+	async grantPath(agentId: string, dirPath: string) {
+		const reg = await this.manager.readRegistry()
+		const entry = reg.agents.find(
+			(a) => a.id === agentId || a.name.toLowerCase() === agentId.toLowerCase(),
+		)
+		if (!entry) throw new Error(`Agent not found: "${agentId}"`)
+
+		const resolved = path.resolve(dirPath)
+		const stat = await fsp.stat(resolved).catch(() => null)
+		if (!stat?.isDirectory()) throw new Error(`Not a directory: ${resolved}`)
+
+		const configPath = path.resolve(entry.path, 'vole.config.json')
+		const raw = JSON.parse(await fsp.readFile(configPath, 'utf-8')) as Record<string, unknown>
+		const security = (raw.security as Record<string, unknown> | undefined) ?? {}
+		const current = Array.isArray(security.allowedPaths) ? (security.allowedPaths as string[]) : []
+
+		if (!current.includes(resolved)) {
+			security.allowedPaths = [...current, resolved]
+			raw.security = security
+			await fsp.writeFile(configPath, `${JSON.stringify(raw, null, 2)}\n`, 'utf-8')
+			logger.info(`Granted ${resolved} to agent ${entry.id}`)
+		}
+
+		return {
+			ok: true as const,
+			path: resolved,
+			allowedPaths: security.allowedPaths as string[],
+			// allowedPaths is read when the engine loads its config, so a running agent keeps the
+			// old set until it restarts. The control plane re-reads per request and is current.
+			restartRequired: this.children.has(entry.id),
+		}
+	}
+
+	async projectScan(agentId: string, root: string) {
+		const { projects } = await this.projectStoresFor(agentId)
+		return { ok: true as const, ...(await scanProjectRoot(root, projects.allowedRoots)) }
+	}
+
+	async projectCreate(agentId: string, input: Record<string, unknown>) {
+		const { projects } = await this.projectStoresFor(agentId)
+		const project = await projects.create(input as never)
+		this.broadcastAgents()
+		return { ok: true as const, project }
+	}
+
+	async projectUpdate(agentId: string, id: string, patch: Record<string, unknown>) {
+		const { projects } = await this.projectStoresFor(agentId)
+		const { context, ...rest } = patch as { context?: string; [k: string]: unknown }
+		const hasPatch = Object.values(rest).some((v) => v !== undefined)
+		const project = hasPatch ? await projects.update(id, rest as never) : await projects.get(id)
+		if (!project) throw new Error(`No such project: "${id}"`)
+		if (context !== undefined) await projects.writeContext(id, context)
+		return { ok: true as const, project }
+	}
+
+	async projectArchive(agentId: string, id: string) {
+		const { projects } = await this.projectStoresFor(agentId)
+		return { ok: true as const, project: await projects.archive(id) }
+	}
+
+	/**
+	 * The project file browser and manager — one entry point, dispatching on `op`.
+	 *
+	 * Kept as a single method rather than nine callbacks because every operation takes the same
+	 * (agent, project, root, path) address and differs only in verb; splitting them multiplied the
+	 * plumbing without separating anything. `ProjectFiles` holds the boundary — this only routes.
+	 */
+	async projectFiles(
+		agentId: string,
+		projectId: string,
+		op: string,
+		args: Record<string, unknown> = {},
+	) {
+		const { projects } = await this.projectStoresFor(agentId)
+		const files = new ProjectFiles(projects)
+		const root = (args.root as FileRootKey) || 'workspace'
+		const rel = typeof args.path === 'string' ? args.path : ''
+
+		switch (op) {
+			case 'roots':
+				return { ok: true as const, roots: await files.roots(projectId) }
+			case 'list':
+				return {
+					ok: true as const,
+					roots: await files.roots(projectId),
+					listing: await files.list(projectId, root, rel),
+				}
+			case 'read':
+				return { ok: true as const, file: await files.read(projectId, root, rel) }
+			case 'write':
+				return {
+					ok: true as const,
+					...(await files.write(projectId, root, rel, String(args.content ?? ''))),
+				}
+			case 'create':
+				return { ok: true as const, ...(await files.create(projectId, root, rel)) }
+			case 'mkdir':
+				return { ok: true as const, ...(await files.mkdir(projectId, root, rel)) }
+			case 'delete':
+				return { ok: true as const, ...(await files.remove(projectId, root, rel)) }
+			case 'rename':
+				return {
+					ok: true as const,
+					...(await files.rename(projectId, root, rel, String(args.to ?? ''))),
+				}
+			default:
+				throw new Error(`Unknown file operation: "${op}"`)
+		}
+	}
+
+	/**
+	 * Where an uploaded file should land inside a project, authorized before a byte is written.
+	 *
+	 * The upload route streams straight to this path, so the whole boundary check happens here —
+	 * the HTTP layer never joins a client-supplied name onto a directory itself.
+	 */
+	async resolveProjectUpload(
+		agentId: string,
+		projectId: string,
+		root: string,
+		dir: string,
+		name: string,
+	): Promise<string> {
+		const { projects } = await this.projectStoresFor(agentId)
+		const files = new ProjectFiles(projects)
+		const target = await files.uploadTarget(
+			projectId,
+			(root as FileRootKey) || 'workspace',
+			dir,
+			name,
+		)
+		return target.path
+	}
+
+	async taskAdd(agentId: string, input: Record<string, unknown>) {
+		const { tasks } = await this.projectStoresFor(agentId)
+		const { projectId, goal, doneCriteria, priority, maxIterations } = input as {
+			projectId: string
+			goal: string
+			doneCriteria?: string[]
+			priority?: number
+			maxIterations?: number
+		}
+		const task = await tasks.create({
+			projectId,
+			goal,
+			doneCriteria,
+			priority,
+			...(maxIterations ? { budget: { maxIterations } } : {}),
+		})
+		return { ok: true as const, task }
+	}
+
+	async taskUpdate(
+		agentId: string,
+		projectId: string,
+		taskId: string,
+		patch: Record<string, unknown>,
+	) {
+		const { tasks } = await this.projectStoresFor(agentId)
+		const defined = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined))
+		return { ok: true as const, task: await tasks.update(projectId, taskId, defined as never) }
+	}
+
 	async removeAgent(id: string): Promise<{ ok: true }> {
 		const proc = this.children.get(id)?.proc
 		await this.stopAgent(id)
@@ -288,6 +612,12 @@ export class ControlPlane {
 		id: string | undefined,
 		method: string,
 		params: Record<string, unknown> = {},
+		/**
+		 * Override the default deadline. Nearly every control request is a lookup and 15s is
+		 * generous; the exceptions are the ones that run the brain, where 15s is a guaranteed
+		 * failure — a CLI-backed brain routinely takes minutes.
+		 */
+		timeoutMs = RPC_TIMEOUT_MS,
 	): Promise<unknown> {
 		const child = id ? this.children.get(id) : undefined
 		if (!id || !child) {
@@ -300,7 +630,7 @@ export class ControlPlane {
 					const timeout = setTimeout(() => {
 						child.pending.delete(reqId)
 						reject(new Error(`Control request timed out: ${method}`))
-					}, RPC_TIMEOUT_MS)
+					}, timeoutMs)
 					child.pending.set(reqId, { resolve, reject, timeout })
 					child.proc.send?.({ id: reqId, method, params })
 				}),

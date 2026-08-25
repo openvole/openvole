@@ -12,6 +12,8 @@ interface ScheduleEntry {
 	cron: string
 	job: Cron
 	createdAt: number
+	/** Scopes this schedule to one project — the run gets that project's context. */
+	projectId?: string
 }
 
 /** Persisted schedule data (no job handle) */
@@ -20,13 +22,14 @@ interface PersistedSchedule {
 	input: string
 	cron: string
 	createdAt: number
+	projectId?: string
 }
 
 /** Persistent store for recurring schedules using cron expressions */
 export class SchedulerStore {
 	private schedules = new Map<string, ScheduleEntry>()
 	private savePath: string | undefined
-	private tickHandler: ((input: string) => void) | undefined
+	private tickHandler: ((input: string, opts?: { projectId?: string }) => void) | undefined
 	private writeChain: Promise<void> = Promise.resolve()
 	private restoring = false
 
@@ -36,7 +39,7 @@ export class SchedulerStore {
 	}
 
 	/** Set the handler called when a schedule ticks */
-	setTickHandler(handler: (input: string) => void): void {
+	setTickHandler(handler: (input: string, opts?: { projectId?: string }) => void): void {
 		this.tickHandler = handler
 	}
 
@@ -57,6 +60,7 @@ export class SchedulerStore {
 					cron: s.cron,
 					job,
 					createdAt: s.createdAt,
+					...(s.projectId ? { projectId: s.projectId } : {}),
 				})
 			}
 		} catch {
@@ -81,9 +85,11 @@ export class SchedulerStore {
 					s.input,
 					s.cron,
 					() => {
-						this.tickHandler!(s.input)
+						this.tickHandler!(s.input, s.projectId ? { projectId: s.projectId } : undefined)
 					},
 					s.createdAt,
+					false,
+					s.projectId,
 				)
 			}
 			this.restoring = false
@@ -94,7 +100,11 @@ export class SchedulerStore {
 		} catch (err) {
 			this.restoring = false
 			// ENOENT is expected on first run — no schedules file yet
-			if (err instanceof Error && 'code' in err && (err as NodeJS.ErrnoException).code === 'ENOENT') {
+			if (
+				err instanceof Error &&
+				'code' in err &&
+				(err as NodeJS.ErrnoException).code === 'ENOENT'
+			) {
 				return
 			}
 			logger.warn(`Could not restore schedules: ${err}`)
@@ -109,6 +119,7 @@ export class SchedulerStore {
 		onTick: () => void,
 		createdAt?: number,
 		immediate = false,
+		projectId?: string,
 	): void {
 		// Cancel existing schedule with same ID (idempotent upsert)
 		if (this.schedules.has(id)) {
@@ -127,6 +138,7 @@ export class SchedulerStore {
 			cron,
 			job,
 			createdAt: createdAt ?? Date.now(),
+			...(projectId ? { projectId } : {}),
 		})
 
 		const next = job.nextRun()
@@ -134,6 +146,18 @@ export class SchedulerStore {
 			`Schedule "${id}" created — cron: ${cron} (next: ${next?.toISOString() ?? 'unknown'}): "${input.substring(0, 80)}"`,
 		)
 		this.persist()
+	}
+
+	/**
+	 * Fire a schedule now without waiting for its next cron tick, leaving the schedule itself
+	 * untouched. Runs the entry's own callback, so a project-scoped schedule triggers scoped.
+	 */
+	trigger(id: string): boolean {
+		const entry = this.schedules.get(id)
+		if (!entry) return false
+		entry.job.trigger()
+		logger.info(`Schedule "${id}" triggered manually`)
+		return true
 	}
 
 	/** Cancel a schedule by ID */
@@ -149,14 +173,24 @@ export class SchedulerStore {
 	}
 
 	/** List all active schedules */
-	list(): Array<{ id: string; input: string; cron: string; nextRun?: string; createdAt: number }> {
-		return Array.from(this.schedules.values()).map(({ id, input, cron, job, createdAt }) => ({
-			id,
-			input,
-			cron,
-			nextRun: job.nextRun()?.toISOString(),
-			createdAt,
-		}))
+	list(): Array<{
+		id: string
+		input: string
+		cron: string
+		nextRun?: string
+		createdAt: number
+		projectId?: string
+	}> {
+		return Array.from(this.schedules.values()).map(
+			({ id, input, cron, job, createdAt, projectId }) => ({
+				id,
+				input,
+				cron,
+				nextRun: job.nextRun()?.toISOString(),
+				createdAt,
+				...(projectId ? { projectId } : {}),
+			}),
+		)
 	}
 
 	/** Clear all schedules (for shutdown). Disables persistence so the file is never overwritten. */
@@ -180,11 +214,12 @@ export class SchedulerStore {
 		// Don't persist the heartbeat — it's recreated from config on startup
 		const toSave: PersistedSchedule[] = Array.from(this.schedules.values())
 			.filter((s) => s.id !== '__heartbeat__')
-			.map(({ id, input, cron, createdAt }) => ({
+			.map(({ id, input, cron, createdAt, projectId }) => ({
 				id,
 				input,
 				cron,
 				createdAt,
+				...(projectId ? { projectId } : {}),
 			}))
 
 		// Chain writes to prevent concurrent fs.writeFile corruption

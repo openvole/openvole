@@ -11,12 +11,20 @@ export type BusEvents = {
 	'task:started': { taskId: string }
 	// `source` travels with the outcome so a subscriber can tell a person's chat message from a
 	// heartbeat, an orchestrator's brief, or channel traffic without re-reading the task list.
-	'task:completed': { taskId: string; result?: string; sessionId?: string; source?: string }
+	/** `replyTo` is where the report is delivered — see core/reply-address.ts. Always set. */
+	'task:completed': {
+		taskId: string
+		result?: string
+		sessionId?: string
+		replyTo?: string
+		source?: string
+	}
 	'task:failed': {
 		taskId: string
 		error?: unknown
 		result?: string
 		sessionId?: string
+		replyTo?: string
 		source?: string
 	}
 	'task:cancelled': { taskId: string }

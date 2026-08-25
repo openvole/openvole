@@ -82,6 +82,54 @@ An agent flagged as **orchestrator** gets a set of `agent_*` tools when it runs 
 - Detached agents (`vole agent start`) have no control channel — orchestrator tools require `vole serve`.
 - Creating (or granting) an orchestrator **seeds an orchestrator `AGENT.md` brief** — unless you've already customized the identity, which is never overwritten. The system prompt also states the authority whenever the `agent_*` tools are registered, so the agent always knows what it is.
 
+## Upgrading
+
+```bash
+vole upgrade
+```
+
+Run at a **vole server root** — the directory holding `agents.json` — it upgrades the openvole
+packages in every registered agent and prints a per-agent summary. Run inside a single **agent
+directory**, it upgrades just that agent.
+
+This matters because paws are installed per agent: a fix published to npm reaches an agent only
+when someone upgrades that directory, so on a multi-agent server it was easy to end up with agents
+quietly running old paws — which looks like a live bug rather than a missed upgrade.
+
+Paws load when an engine starts, so **restart the server** for running agents to pick up an
+upgrade.
+
+A customized `BRAIN.md` is never overwritten. If the package ships a newer default, it is written
+alongside as `BRAIN.md.dist` and your prompt is left as-is.
+
+## Projects & Tasks
+
+What the agent is working on. See [Projects & Tasks](/projects) for the full model.
+
+```bash
+vole project list [--all]              # projects in this agent's workspace
+vole project scan <path>               # inspect a directory before adopting it (read-only)
+vole project create <id> [--name <n>] [--kind <k>] [--root <path>]
+vole project open <id>                 # manifest, CONTEXT.md and open tasks
+vole project archive <id>              # retire a project, keeping all files and history
+
+vole task list [projectId] [--state <s>]         # default: open tasks
+vole task add <projectId> <goal...> [--criteria "..."] [--priority <n>]
+vole task next [projectId]             # the next queued task
+vole task update <projectId> <taskId> --state <s> [--note "..."]
+vole task cancel <projectId> <taskId>
+```
+
+`--kind` is one of `code`, `writing`, `media`, `research`, `general`.
+
+`--root` attaches the project to files outside the workspace. It must already resolve inside
+`security.allowedPaths`; if it does not, the command fails and names the path to grant.
+
+Give every task criteria you can check — a task moves `running → verifying → done` and cannot be
+marked done without passing verification against them.
+
+These commands read project files directly, so they work while the agent is stopped.
+
 ## Paw Management
 
 ### `vole paw add`

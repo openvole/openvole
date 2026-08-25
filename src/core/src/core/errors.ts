@@ -19,6 +19,15 @@ export interface ActionError {
 
 /** Result of a single tool execution during the Act phase */
 export interface ActionResult {
+	/**
+	 * The conversation this result belongs to, when the run is a turn in one.
+	 *
+	 * Observe hooks receive results with no other way to tell which run produced them, so a paw
+	 * recording them had to consult its own "current session" — module state that answers for
+	 * whichever task bootstrapped last. Absent means the run has no conversation (a heartbeat, a
+	 * board task), and a recorder should skip it rather than pick one.
+	 */
+	sessionId?: string
 	toolName: string
 	pawName: string
 	success: boolean
