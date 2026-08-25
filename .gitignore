@@ -43,3 +43,9 @@ CLAUDE.md
 # VitePress
 docs/.vitepress/dist
 docs/.vitepress/cache
+
+# npm/yarn lockfiles — this is a pnpm workspace, and a second lockfile resolves a
+# different tree than pnpm-lock.yaml. Ignored rather than tracked so a stray
+# `npm install` cannot commit one.
+package-lock.json
+yarn.lock
