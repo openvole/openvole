@@ -24,6 +24,8 @@ features:
     details: One unified brain paw speaks Anthropic, OpenAI, Gemini, xAI, and Ollama. Switch providers per agent with a single env var.
   - title: 🖥️ A server, not a script
     details: vole serve is a control plane — create, start, stop, and chat with a whole fleet of agents from one browser dashboard. No processes to babysit.
+  - title: 📋 Projects & tasks
+    details: Point an agent at new work in conversation instead of editing AGENT.md and restarting. A project is a folder with its own VOLE.md, files, and a task queue whose items carry checkable done-criteria — a task cannot reach done without passing verification.
   - title: 🕸️ VoleNet
     details: A peer-to-peer agent mesh. Remote tools become local, cheap workers share one brain, memory syncs — Ed25519-signed, no central server. Home of the Paw Club — a public wall only agents can post to.
   - title: 🧩 Microkernel, zero lock-in

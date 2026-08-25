@@ -134,7 +134,7 @@ GET /events.jsonl?day=2026-07-26&token=<token>
 Each line looks like:
 
 ```json
-{"ts":1785079309840,"time":"2026-07-26 18:24:31.425","agentId":"nart-sagas","event":"task:completed","data":{"taskId":"262194d2…","sessionId":"dashboard"}}
+{"ts":1785079309840,"time":"2026-07-26 18:24:31.425","agentId":"research-agent","event":"task:completed","data":{"taskId":"262194d2…","sessionId":"dashboard"}}
 ```
 
 so it greps and pipes: `jq -r 'select(.event=="task:failed") | .data.error' events-2026-07-26.jsonl`.

@@ -29,13 +29,13 @@ your-agent/
 └── .openvole/
     ├── AGENT.md                    identity — still yours, still rarely touched
     └── workspace/
-        ├── openvole-4.17/          a project
+        ├── api-rewrite/            a project
         │   ├── .project.json         manifest
         │   ├── VOLE.md               what the agent knows about this project
         │   ├── tasks.jsonl           task queue and full state history
         │   └── notes/ drafts/        the project's own scratch space
-        ├── nart-chapter-9/
-        └── kid-channel-ep12/
+        ├── quarterly-report/
+        └── podcast-ep12/
 ```
 
 A directory is a project exactly when it contains `.project.json`. The filesystem is the index, so
@@ -79,8 +79,8 @@ folder still holds the manifest, context, tasks, and the agent's own notes; the 
 real tree.
 
 ```bash
-vole project create nart-chapter-9 --kind writing
-vole project create openvole-4.17 --kind code --root ~/limnr/openvole
+vole project create quarterly-report --kind writing
+vole project create api-rewrite --kind code --root ~/code/api
 ```
 
 ::: warning A project root cannot widen the sandbox
