@@ -224,6 +224,17 @@ coordinator records its artifacts and outcome on the task before verifying and c
 into another agent's workspace would cross the isolation boundary and put two writers on the same
 `tasks.jsonl`.
 
+**The sibling inherits nothing.** A project lives in one agent's workspace, and `agent_submit`
+carries a prompt, not a scope — so the worker sees none of the project's `VOLE.md`, none of its
+done-criteria, and none of the conversation the coordinator has been having about it. Write the
+brief self-contained: name the files by absolute path, state the criteria, and repeat the
+operational facts that matter, however obvious they seem from the coordinator's side. A brief that
+reads fine to someone holding the project context is the usual way a delegated task goes wrong.
+
+Passing `sessionId: "project:<id>"` scopes the run *if the sibling has a project of that id* — the
+same prefix the dashboard's project chat uses. It is continuity between two agents that both own a
+copy, not a way to lend your project context to someone who lacks it.
+
 ## In the dashboard
 
 The agent view has a **Projects** tab: projects on the left, and for the selected one a task

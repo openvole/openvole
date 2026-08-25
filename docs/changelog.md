@@ -1,6 +1,6 @@
 # Changelog
 
-## v4.17.0 (2026-08-18)
+## v4.17.0 (2026-08-25)
 
 > Ships as `openvole` 4.17.0 alongside `@openvole/dashboard-server` 0.14.0, `@openvole/paw-sdk` 3.2.0 and `@openvole/paw-session` 2.4.0. Projects and tasks — an agent can now be pointed at new work in conversation instead of by editing `AGENT.md`.
 
