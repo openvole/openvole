@@ -363,11 +363,34 @@ vole net status
 
 ### `vole upgrade`
 
-Upgrade OpenVole and all installed paws to their latest versions.
+Upgrade OpenVole, the installed paws, and the installed VoleHub skills.
 
 ```bash
 vole upgrade
 ```
+
+Run inside an agent directory it upgrades that agent. Run at a **vole server root** — the directory
+holding `agents.json` — it walks every registered agent instead, because paws and skills are
+installed per agent and a published fix otherwise reaches an agent only when someone remembers to
+upgrade that particular directory.
+
+Paws are npm packages and are installed at `@latest` together, so peer dependencies resolve as a
+set. Skills come from VoleHub instead, and are checked against the registry and refreshed when
+behind. A registry that cannot be reached is reported as a note rather than failing the run.
+
+Two things are never overwritten:
+
+- **`BRAIN.md`** — the agent's system prompt, and the file most likely to be hand-tuned. A changed
+  package default is written alongside as `BRAIN.md.dist`.
+- **A skill in `skills/<name>`** — hand-authored, or a published skill deliberately edited. Only
+  skills under `skills/volehub/` are rewritten. A local one is reported when the registry has a
+  newer release, with the command to take the published copy if you want it.
+
+::: warning Run it somewhere deliberate
+With no `agents.json` above the working directory and no `VOLE_HOME` set, `vole upgrade` falls back
+to the home-directory install at `~/.openvole` — so running it in an unrelated folder can upgrade a
+server you were not thinking about. Run it inside the agent, or at the server root you mean.
+:::
 
 ### `vole --version`
 

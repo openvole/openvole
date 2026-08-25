@@ -53,6 +53,25 @@ export interface VoleHubIndex {
 	skills: VoleHubSkill[]
 }
 
+/**
+ * True when `a` is an older release than `b`.
+ *
+ * Compared segment by segment as numbers, because string order gets the common case backwards:
+ * "0.9.0" sorts after "0.10.0" lexically, so a skill would look current when it is nine releases
+ * behind. Missing segments count as zero; anything non-numeric falls back to string order.
+ */
+export function isOlder(a: string, b: string): boolean {
+	const pa = a.split('.')
+	const pb = b.split('.')
+	for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+		const x = Number.parseInt(pa[i] ?? '0', 10)
+		const y = Number.parseInt(pb[i] ?? '0', 10)
+		if (Number.isNaN(x) || Number.isNaN(y)) return a !== b && a < b
+		if (x !== y) return x < y
+	}
+	return false
+}
+
 export class VoleHubClient {
 	private registryUrl: string
 

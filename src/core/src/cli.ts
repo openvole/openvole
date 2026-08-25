@@ -257,7 +257,9 @@ async function upgradeAgentDir(projectRoot: string): Promise<UpgradeResult> {
 	)
 
 	if (packages.length === 0) {
-		return { upgraded: [], unchanged: [], notes: [] }
+		// Still refresh skills: they come from VoleHub, not npm, so "no openvole packages here"
+		// says nothing about whether this agent's skills are current.
+		return { upgraded: [], unchanged: [], notes: await upgradeSkills(projectRoot) }
 	}
 
 	// Record versions before upgrade
@@ -339,7 +341,102 @@ async function upgradeAgentDir(projectRoot: string): Promise<UpgradeResult> {
 		}
 	}
 
+	notes.push(...(await upgradeSkills(projectRoot)))
+
 	return { upgraded, unchanged, notes }
+}
+
+/** `version:` from a SKILL.md frontmatter block, or null. */
+async function skillVersion(skillMdPath: string): Promise<string | null> {
+	const fs = await import('node:fs/promises')
+	try {
+		const head = (await fs.readFile(skillMdPath, 'utf-8')).slice(0, 2000)
+		return head.match(/^version:\s*["']?([^"'\s]+)/m)?.[1] ?? null
+	} catch {
+		return null
+	}
+}
+
+/**
+ * Bring VoleHub skills up to date alongside the paws.
+ *
+ * Skills come from a different registry than paws — files fetched from VoleHub rather than npm
+ * packages — so `npm install` never touched them and an agent could sit on a year-old skill with
+ * nothing to say so. Paws had this fixed; skills did not.
+ *
+ * Only skills under `skills/volehub/` are rewritten, because those are ours to manage: the
+ * installer put them there and the config names them `volehub/<name>`. A skill sitting directly in
+ * `skills/<name>` is somebody's own work — hand-authored, or a copy deliberately edited — and
+ * overwriting it would be the `BRAIN.md` mistake again. Those are reported when the registry has a
+ * newer release and left exactly as they are.
+ *
+ * A registry that cannot be reached is not an upgrade failure. The paws still upgraded.
+ */
+async function upgradeSkills(projectRoot: string): Promise<string[]> {
+	const fs = await import('node:fs/promises')
+	const notes: string[] = []
+	const skillsRoot = path.join(projectRoot, '.openvole', 'skills')
+
+	let entries: string[]
+	try {
+		entries = (await fs.readdir(skillsRoot, { withFileTypes: true }))
+			.filter((e) => e.isDirectory())
+			.map((e) => e.name)
+	} catch {
+		return notes
+	}
+
+	const managedDir = path.join(skillsRoot, 'volehub')
+	let managed: string[] = []
+	try {
+		managed = (await fs.readdir(managedDir, { withFileTypes: true }))
+			.filter((e) => e.isDirectory())
+			.map((e) => e.name)
+	} catch {
+		/* none installed from the hub */
+	}
+	const local = entries.filter((n) => n !== 'volehub' && n !== 'clawhub')
+	if (managed.length === 0 && local.length === 0) return notes
+
+	const { VoleHubClient, isOlder } = await import('./skill/volehub.js')
+	const hub = new VoleHubClient()
+	let index: Awaited<ReturnType<typeof hub.fetchIndex>>
+	try {
+		index = await hub.fetchIndex()
+	} catch (err) {
+		notes.push(
+			`skills not checked — VoleHub unreachable (${err instanceof Error ? err.message : err})`,
+		)
+		return notes
+	}
+	const available = new Map((index.skills ?? []).map((s) => [s.name, s.version]))
+
+	for (const name of managed) {
+		const latest = available.get(name)
+		if (!latest) continue
+		const have = await skillVersion(path.join(managedDir, name, 'SKILL.md'))
+		if (have && !isOlder(have, latest)) continue
+		try {
+			await hub.install(name, projectRoot)
+			notes.push(`skill ${name}: ${have ?? 'unknown'} → ${latest}`)
+		} catch (err) {
+			notes.push(`skill ${name} failed to upgrade: ${err instanceof Error ? err.message : err}`)
+		}
+	}
+
+	for (const name of local) {
+		const latest = available.get(name)
+		if (!latest) continue
+		const have = await skillVersion(path.join(skillsRoot, name, 'SKILL.md'))
+		if (have && isOlder(have, latest)) {
+			notes.push(
+				`skill ${name} is ${have}, VoleHub has ${latest} — kept (yours, in skills/${name}). ` +
+					`Run "vole skill install ${name}" to take the published copy.`,
+			)
+		}
+	}
+
+	return notes
 }
 
 /**

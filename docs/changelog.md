@@ -1,5 +1,19 @@
 # Changelog
 
+## v4.18.0 (2026-08-25)
+
+> Ships as `openvole` 4.18.0 (`@openvole/dashboard-server` unchanged at 0.14.0). `vole upgrade` now covers skills as well as paws.
+
+### Fixed
+
+- **`vole upgrade` left skills behind.** Paws are npm packages, so `npm install` reached them; skills are files fetched from VoleHub into `.openvole/skills/`, and nothing ever refreshed them. An agent could sit on a skill from months ago with no signal that a newer one existed — including fixes it was actively hitting. `vole upgrade` now checks each installed skill against the registry and refreshes the ones that are behind, reporting per skill exactly as it already does per package. At a server root it does this for every registered agent.
+
+  Only skills under `skills/volehub/` are rewritten: the installer put them there and the config names them `volehub/<name>`, so they are the registry's to manage. A skill sitting directly in `skills/<name>` is somebody's own work — hand-authored, or a copy deliberately edited — and is reported when the registry has something newer but never overwritten, the same care `BRAIN.md` already gets.
+
+  A registry that cannot be reached is a note, not a failure: the paws still upgraded.
+
+- **Skill versions compared as strings.** `0.9.0` sorts after `0.10.0` lexically, so a skill nine releases behind looked current. Comparison is now numeric per segment (`isOlder`, exported from `skill/volehub.ts`).
+
 ## v4.17.0 (2026-08-25)
 
 > Ships as `openvole` 4.17.0 alongside `@openvole/dashboard-server` 0.14.0, `@openvole/paw-sdk` 3.2.0 and `@openvole/paw-session` 2.4.0. Projects and tasks — an agent can now be pointed at new work in conversation instead of by editing `AGENT.md`.
