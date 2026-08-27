@@ -20,6 +20,11 @@ export interface ToolContext {
 	 * of defaulting to the general chat.
 	 */
 	replyTo?: string
+	/**
+	 * How many agent-to-agent hops this run is already deep, so a message it sends carries the
+	 * count onward. Without it every reply looks like a fresh conversation and nothing ever stops.
+	 */
+	hops?: number
 }
 
 /** A tool definition as provided by a Paw */

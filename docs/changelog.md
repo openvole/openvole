@@ -2,7 +2,17 @@
 
 ## v4.18.0 (2026-08-25)
 
-> Ships as `openvole` 4.18.0 alongside `@openvole/dashboard-server` 0.15.0. `vole upgrade` covers skills as well as paws, and VoleDrop carries video-sized files.
+> Ships as `openvole` 4.18.0 alongside `@openvole/dashboard-server` 0.15.0. Agents can talk to each other, `vole upgrade` covers skills as well as paws, and VoleDrop carries video-sized files.
+
+### Added
+
+- **Agents can hold a conversation.** `agent_message` says something to a sibling and has it read: the message lands in an ongoing thread with that agent, wakes it, and its reply comes back the same way. No polling. Until now a coordinator could only `agent_submit` and poll `agent_task_status`, and the worker's answer landed in the worker's own session — so when a worker responded, nobody was told.
+
+  A thread is named from each side (`agent:orchestrator` on the worker, `agent:video-editor` on the coordinator), so both keep history and the pair needs no shared registry. A run started by a message answers the agent that sent it, the same way a chat turn answers its chat.
+
+  **Waking is the default**, because a person's chat message already works that way and a colleague's word should not sit unread for arriving over a different channel. What keeps that from running away is a hop count, not restraint: a reply is itself a message, so an exchange where every arrival wakes the receiver has each side politely answering the answer at one brain call per turn. Six hops leaves room for ask → clarify → answer → confirm; past it the message is still **delivered**, only the waking stops, so the last word is read on the next run rather than lost.
+
+  **Messaging is not orchestration.** Every agent gets `agent_message`; the `agent_*` management family — submitting work, rewriting config or identity, restarting, creating — stays behind the orchestrator flag. Both travel the same reverse-RPC channel, so the split is enforced server-side in the control plane, not only by which tools are registered.
 
 ### Fixed
 

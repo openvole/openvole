@@ -15,6 +15,7 @@ import { scanProjectRoot } from '../project/scan.js'
 import { ProjectStore } from '../project/store.js'
 import { TaskStore } from '../project/tasks.js'
 import { EventLog, dayKey } from './event-log.js'
+import { agentFromSession } from '../core/reply-address.js'
 import { AgentManager } from './manager.js'
 
 const logger = createLogger('control-plane')
@@ -643,6 +644,54 @@ export class ControlPlane {
 	 * `vole agent orchestrate <name> off` takes effect immediately. Never throws — errors go
 	 * back to the sender as `{cres:{id,error}}`. Public (with an injectable reply) for tests.
 	 */
+	/**
+	 * Carry a finished run's answer back to the agent that asked for it.
+	 *
+	 * This is what makes a cross-agent reply address mean anything. A run started by another
+	 * agent's message answers that agent, but the answer is produced inside the worker and would
+	 * otherwise land in a transcript nobody else reads — which is the original complaint: when the
+	 * worker responds, the asker is never told.
+	 *
+	 * Routed here rather than from the worker because the plane already receives every agent's
+	 * events and already knows how to reach the others; the worker would need a second RPC channel
+	 * to do the same job.
+	 *
+	 * A reply is delivered as an ordinary message, so it appears in the asker's thread and wakes it
+	 * exactly like any other — carrying the hop count that eventually ends the exchange.
+	 */
+	private async deliverAgentReply(fromId: string, data: unknown): Promise<void> {
+		const d = data as { replyTo?: string; result?: string; taskId?: string }
+		const to = agentFromSession(d?.replyTo)
+		if (!to || !d.result?.trim()) return
+		try {
+			const reg = await this.manager.readRegistry()
+			const sender = reg.agents.find((a) => a.id === fromId)
+			const target = reg.agents.find((a) => a.id === to || a.name === to)
+			if (!target || target.id === fromId) return
+			await this.callAgent(target.id, 'agent_message', {
+				from: sender?.name ?? fromId,
+				text: d.result,
+				hops: await this.hopsOfTask(fromId, d.taskId),
+			})
+		} catch {
+			// A reply that cannot be delivered must not take the sending agent down with it. The
+			// answer is still in the worker's own transcript.
+		}
+	}
+
+	/** The hop depth of a finished task, so its reply carries the count onward. */
+	private async hopsOfTask(agentId: string, taskId?: string): Promise<number> {
+		if (!taskId) return 0
+		try {
+			const t = (await this.callAgent(agentId, 'task_status', { taskId })) as {
+				metadata?: { hops?: number }
+			}
+			return Number(t?.metadata?.hops) || 0
+		} catch {
+			return 0
+		}
+	}
+
 	async handleOrchestrateRequest(
 		senderId: string,
 		req: { id: number; method: string; params?: Record<string, unknown> },
@@ -662,7 +711,11 @@ export class ControlPlane {
 		try {
 			const reg = await this.manager.readRegistry()
 			const sender = reg.agents.find((s) => s.id === senderId)
-			if (sender?.orchestrator !== true) {
+			// Messaging is not orchestration. Talking to a colleague is open to every agent;
+			// assigning them work, rewriting their identity or restarting them is not, and that
+			// whole `agent_*` family stays behind the flag. The split is the caller's intent, not
+			// the transport — both arrive on the same channel, so the exemption is named here.
+			if (req.method !== 'message' && sender?.orchestrator !== true) {
 				throw new Error(`Agent "${senderId}" is not an orchestrator`)
 			}
 			const result = await this.dispatchOrchestrate(senderId, req.method, req.params ?? {})
@@ -734,6 +787,18 @@ export class ControlPlane {
 				return this.startAgent(entry.id)
 			case 'stop':
 				return this.stopAgent(entry.id)
+			case 'message': {
+				// Deliver into the recipient's conversation with the sender, and wake it to read —
+				// the same treatment a person's chat message already gets. An agent's word should
+				// not be second-class to a human's just because it came over a different channel.
+				const senderName = sender?.name ?? senderId
+				const hops = Number(params.hops) || 0
+				return this.callAgent(entry.id, 'agent_message', {
+					from: senderName,
+					text: String(params.text ?? ''),
+					hops,
+				})
+			}
 			default:
 				// Deliberately no 'remove' — destroying an agent stays a human decision.
 				throw new Error(`Unknown orchestrate method: ${method}`)
@@ -813,6 +878,7 @@ export class ControlPlane {
 		if (m.event) {
 			this.eventLog.append(m.event, m.data, agentId)
 			this.server?.broadcast('event', m.data, m.event, agentId)
+			if (m.event === 'task:completed') void this.deliverAgentReply(agentId, m.data)
 			this.scheduleStateRefresh(agentId)
 		}
 	}

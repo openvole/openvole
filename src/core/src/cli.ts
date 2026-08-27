@@ -2568,18 +2568,30 @@ async function runAgentDaemon(projectRoot: string): Promise<void> {
 	// signal): register the agent_* sibling-management tools. The reverse-RPC client is
 	// created once per process — only the tools re-register per engine instance.
 	let installOrchestrateTools: (eng: typeof engine) => void = () => {}
-	if (process.send && process.env.VOLE_ORCHESTRATOR === '1') {
+	// Any agent under the server can talk to a colleague; only an orchestrator can manage one.
+	// Both use the same reverse-RPC channel, so the two are registered separately here and the
+	// split is enforced again server-side in handleOrchestrateRequest.
+	if (process.send) {
 		const { createParentClient } = await import('./agent/orchestrate-client.js')
-		const { createOrchestrateTools } = await import('./tool/orchestrate-tools.js')
+		const { createAgentMessageTool, createOrchestrateTools } = await import(
+			'./tool/orchestrate-tools.js'
+		)
 		const client = createParentClient()
 		const selfId = process.env.VOLE_AGENT_ID ?? process.env.VOLE_SPACE_ID ?? ''
+		const orchestrator = process.env.VOLE_ORCHESTRATOR === '1'
 		installOrchestrateTools = (eng) => {
 			eng.toolRegistry.register(
 				'__orchestrate__',
-				createOrchestrateTools(client.call, selfId),
+				orchestrator
+					? [
+							createAgentMessageTool(client.call, selfId),
+							...createOrchestrateTools(client.call, selfId),
+						]
+					: [createAgentMessageTool(client.call, selfId)],
 				true,
 			)
-			// Keep agent_* visible under tool horizon — an orchestrator's core job.
+			// Keep these visible under tool horizon — reaching a sibling is not a niche action,
+			// and a message that arrived is unanswerable if the tool to answer it is hidden.
 			eng.toolRegistry.addAlwaysVisiblePaw('__orchestrate__')
 		}
 	}

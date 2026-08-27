@@ -53,8 +53,50 @@ export function replyAddressFor(task: Addressable | undefined): string {
 	const sessionId = task?.sessionId
 	if (typeof sessionId === 'string' && sessionId) return sessionId
 
+	// A run started by another agent's message answers that agent, the same way a chat turn
+	// answers its chat. Set from the message itself, never inferred.
+	const from = task?.metadata?.fromAgent
+	if (typeof from === 'string' && from) return agentSessionId(from)
+
 	const projectId = task?.metadata?.projectId
 	if (typeof projectId === 'string' && projectId) return projectSessionId(projectId)
 
 	return CHAT_DEFAULT_SESSION
+}
+
+/** Marks a session as a conversation with another agent rather than with a person. */
+export const AGENT_SESSION_PREFIX = 'agent:'
+
+/**
+ * The session an agent's conversation with `name` lives in.
+ *
+ * Named from each side, so the pair needs no shared registry: a thread between A and B is B's
+ * `agent:A` and A's `agent:B`. Both ends therefore keep history, which is what makes it a
+ * conversation rather than two streams of one-way messages.
+ */
+export function agentSessionId(name: string): string {
+	return `${AGENT_SESSION_PREFIX}${name}`
+}
+
+/** The agent a session belongs to, or null when it is not an agent conversation. */
+export function agentFromSession(sessionId: string | undefined): string | null {
+	if (!sessionId?.startsWith(AGENT_SESSION_PREFIX)) return null
+	return sessionId.slice(AGENT_SESSION_PREFIX.length) || null
+}
+
+/**
+ * How many agent-to-agent hops a run is already deep.
+ *
+ * A reply is itself a message, so an exchange where every arrival wakes the receiver has no natural
+ * end: each agent answers the answer, politely, forever, at one brain call per turn. This is the
+ * thing that stops it — not a rate limit, which caps the damage without ending the exchange.
+ *
+ * A message from a person starts at zero. Delivery past the budget still happens; only the *waking*
+ * stops, so the last word lands in the transcript and is read on the next run instead of vanishing.
+ */
+export const MAX_AGENT_HOPS = 6
+
+export function hopsOf(task: Addressable | undefined): number {
+	const h = task?.metadata?.hops
+	return typeof h === 'number' && Number.isFinite(h) && h > 0 ? Math.floor(h) : 0
 }

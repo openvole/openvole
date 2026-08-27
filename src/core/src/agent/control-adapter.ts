@@ -6,6 +6,7 @@ import {
 } from '../config/index.js'
 import { createAgentContext } from '../context/types.js'
 import type { BusEvents } from '../core/bus.js'
+import { MAX_AGENT_HOPS, agentSessionId } from '../core/reply-address.js'
 import type { VoleEngine } from '../index.js'
 
 /** Bus events forwarded to the control plane (mirrors the dashboard's subscriptions). */
@@ -143,6 +144,8 @@ export function installControlAdapter(engine: VoleEngine, projectRoot: string): 
 			eng.bus.on(event, handler as never)
 			return () => eng.bus.off(event, handler as never)
 		})
+
+
 		unbindBus = () => {
 			for (const off of offs) off()
 		}
@@ -256,6 +259,50 @@ export function installControlAdapter(engine: VoleEngine, projectRoot: string): 
 							undefined,
 							{ projectId, projectTaskId: taskId },
 						),
+					}
+					break
+				}
+				/**
+				 * A message from another agent: record it, then wake to read it.
+				 *
+				 * Waking is the default because a person's chat message already works this way — a
+				 * colleague's word should not sit unread just because it arrived over a different
+				 * channel. What keeps that from running away is the hop count, not restraint: a
+				 * reply is itself a message, so an exchange where every arrival wakes the receiver
+				 * would have each side politely answering the answer at one brain call per turn.
+				 *
+				 * Past the budget the message is still *delivered* — only the waking stops. The last
+				 * word lands in the transcript and is read on the next run rather than vanishing.
+				 */
+				case 'agent_message': {
+					const from = String(params.from ?? '').trim()
+					const text = String(params.text ?? '').trim()
+					if (!from || !text) {
+						result = { ok: false, error: 'message needs a sender and text' }
+						break
+					}
+					const hops = Number(params.hops) || 0
+					const session = agentSessionId(from)
+
+					const append = current.toolRegistry.get('session_append')
+					if (append) {
+						await append
+							.execute({ sessionId: session, role: 'user', content: text })
+							.catch(() => undefined)
+					}
+
+					const woke = hops < MAX_AGENT_HOPS
+					result = {
+						ok: true,
+						session,
+						delivered: true,
+						woke,
+						taskId: woke
+							? current.run(text, 'agent', session, { fromAgent: from, hops: hops + 1 })
+							: undefined,
+						note: woke
+							? undefined
+							: `delivered to "${session}" but not woken — ${hops} hops deep, the limit is ${MAX_AGENT_HOPS}. It will be read on the next run.`,
 					}
 					break
 				}

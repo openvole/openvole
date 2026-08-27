@@ -17,7 +17,7 @@ import { CostTracker } from './cost-tracker.js'
 import { type ActionResult, createActionError, failureResult, successResult } from './errors.js'
 import { PHASE_ORDER } from './hooks.js'
 import type { RateLimiter } from './rate-limiter.js'
-import { replyAddressFor } from './reply-address.js'
+import { hopsOf, replyAddressFor } from './reply-address.js'
 import { type SystemPromptContent, buildSystemPrompt } from './system-prompt.js'
 import type { AgentTask } from './task.js'
 
@@ -828,6 +828,7 @@ async function runAct(
 	const toolCtx: ToolContext = {
 		project: context.metadata.project as ProjectContextInfo | undefined,
 		replyTo: context.metadata.replyTo as string | undefined,
+		hops: hopsOf({ metadata: context.metadata }),
 	}
 
 	if (execution === 'parallel') {
