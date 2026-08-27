@@ -321,6 +321,12 @@ export function installControlAdapter(engine: VoleEngine, projectRoot: string): 
 								error: t.error ?? null,
 								createdAt: t.createdAt,
 								completedAt: t.completedAt ?? null,
+								// Just the hop depth, not the whole metadata bag — that also carries
+								// allowTools and the resolved config, which a caller polling a task
+								// has no business reading. Without this the reply router reads
+								// undefined, resets the count to zero on every hop, and the guard
+								// that stops two agents answering each other forever never fires.
+								hops: Number((t.metadata as { hops?: number } | undefined)?.hops) || 0,
 							}
 						: { ok: false, error: `Task not found: ${params.taskId}` }
 					break

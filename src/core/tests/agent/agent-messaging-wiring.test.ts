@@ -64,4 +64,21 @@ describe('agent messaging wiring', () => {
 		// A failed delivery must not take the finishing agent down with it.
 		expect(fn).toMatch(/catch\s*\{/)
 	})
+
+	it('carries the hop depth across the round trip', async () => {
+		const adapter = await read('agent/control-adapter.ts')
+		const status = adapter.slice(
+			adapter.indexOf("case 'task_status'"),
+			adapter.indexOf("case 'chat_history'"),
+		)
+		// The reply router reads this back to decide whether to keep waking. Without it the count
+		// resets to zero on every hop and two agents answer each other indefinitely.
+		expect(status).toContain('hops:')
+		// Only the hop count — the metadata bag also holds allowTools and the resolved config.
+		expect(status).not.toMatch(/metadata: t\.metadata\b/)
+
+		const plane = await read('agent/control-plane.ts')
+		const fn = plane.slice(plane.indexOf('private async hopsOfTask'))
+		expect(fn).toContain('t?.hops')
+	})
 })

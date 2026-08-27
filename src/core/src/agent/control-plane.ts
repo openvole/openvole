@@ -683,10 +683,8 @@ export class ControlPlane {
 	private async hopsOfTask(agentId: string, taskId?: string): Promise<number> {
 		if (!taskId) return 0
 		try {
-			const t = (await this.callAgent(agentId, 'task_status', { taskId })) as {
-				metadata?: { hops?: number }
-			}
-			return Number(t?.metadata?.hops) || 0
+			const t = (await this.callAgent(agentId, 'task_status', { taskId })) as { hops?: number }
+			return Number(t?.hops) || 0
 		} catch {
 			return 0
 		}
