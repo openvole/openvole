@@ -427,14 +427,29 @@ Send a file from one vole to another — machine-independently, end-to-end encry
 
 | Setting | Default | Applies to |
 |---|---|---|
-| `net.files.maxBytes` | 2 GiB (`0` = unlimited) | what this node accepts over a **direct** transfer |
+| `net.files.maxBytes` | 16 GiB (`0` = unlimited) | what this node accepts over a **direct** transfer |
 | `net.files.relayMaxBytes` | 512 MiB | the largest single blob this node will host **as a relay hub** |
 | `net.files.relayQuotaBytes` | 512 MiB | total relay storage per peer pair |
-| `VOLE_UPLOAD_MAX_BYTES` | 4 GiB | the browser → agent upload spool behind the dashboard's 📎 button |
+| `VOLE_UPLOAD_MAX_BYTES` | 32 GiB | the browser → agent upload spool behind the dashboard's 📎 button |
 
 The relay limits are deliberately independent of `maxBytes`: raising what you accept for yourself should not turn your hub into unbounded storage for other people's traffic. Set `maxBytes: 0` for a trusted fleet where the disk is the only real boundary.
 
-A rejected offer says which limit it hit and by how much (`too-large: 3.4 GiB exceeds this node's limit of 2 GiB`), and a receiver also declines an offer it has no room for (`no-space`) rather than filling its disk and failing mid-transfer.
+The default is set for the files people actually move — a gameplay capture or a camera master runs
+6-14 GB — and the disk is the real guard: a receiver declines an offer it has no room for
+(`no-space`) rather than filling its disk and failing mid-transfer.
+
+Every refusal names the limit it hit and what to do about it:
+
+- **direct** — `too-large: 18.2 GiB exceeds this node's limit of 16 GiB (net.files.maxBytes)`
+- **relay** — names the hub's own ceiling and points at pairing, because a direct route has no hub
+  limit at all; the bytes only have to fit on a third party's disk when they travel through one
+- **upload** — refused from `Content-Length` before anything transfers, rather than after streaming
+  the whole file, and it names `VOLE_UPLOAD_MAX_BYTES` and suggests `net_send_file` for a path that
+  skips the browser round-trip
+
+**Sending a very large file, skip the browser.** The dashboard's 📎 button uploads into the agent
+before the transfer starts, so a big file crosses the machine twice. `net_send_file` (or
+`vole net send <file> --to <peer>`) reads it from disk where it already is.
 
 > Reverse-proxied hubs (the [`/mesh` pattern](#behind-a-reverse-proxy-hiding-the-volenet-port)): raise nginx's `client_max_body_size` for the `/mesh/volenet/blob/` path, or relay uploads will be rejected at the proxy.
 

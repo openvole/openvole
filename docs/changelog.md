@@ -2,9 +2,15 @@
 
 ## v4.18.0 (2026-08-25)
 
-> Ships as `openvole` 4.18.0 (`@openvole/dashboard-server` unchanged at 0.14.0). `vole upgrade` now covers skills as well as paws.
+> Ships as `openvole` 4.18.0 alongside `@openvole/dashboard-server` 0.15.0. `vole upgrade` covers skills as well as paws, and VoleDrop carries video-sized files.
 
 ### Fixed
+
+- **VoleDrop refused the files people most want to move.** A gameplay capture is routinely 6-14 GB and the transfer limit was 2 GiB, so the exact use case — hand a recording from the machine that made it to the machine that edits it — was the one that failed. `net.files.maxBytes` now defaults to **16 GiB**, and the disk is the real boundary: free space is already checked before an offer is accepted, and `0` lifts the byte ceiling entirely. The pipeline was never the problem; it streams and chunks throughout, and the arithmetic holds past a terabyte.
+
+- **An over-sized upload transferred in full before being refused.** The dashboard streamed the whole file, noticed the running total had crossed the budget, and failed with `upload too large` — naming neither the limit nor the way to raise it. A 6 GB file therefore spent minutes uploading to be told no. Both upload routes now check `Content-Length` first and refuse in milliseconds with the limit, the setting that governs it, and the suggestion to send from a path with `net_send_file` instead. The in-pipeline budget stays, because `Content-Length` is a hint and can lie.
+
+- **A relayed transfer that was too big said only "too-large".** Read as "VoleDrop cannot do this", when a direct route carries any size — the hub ceiling exists because relayed bytes land on somebody else's disk. Hub denials for size and quota now name the hub's limit, the setting behind it, and pairing as the way around it. The relay limit itself is unchanged at 512 MiB, deliberately.
 
 - **`vole upgrade` left skills behind.** Paws are npm packages, so `npm install` reached them; skills are files fetched from VoleHub into `.openvole/skills/`, and nothing ever refreshed them. An agent could sit on a skill from months ago with no signal that a newer one existed — including fixes it was actively hitting. `vole upgrade` now checks each installed skill against the registry and refreshes the ones that are behind, reporting per skill exactly as it already does per package. At a server root it does this for every registered agent.
 

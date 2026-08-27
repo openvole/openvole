@@ -170,6 +170,45 @@ const PANEL_SHIM =
 	'});}' +
 	'return _f.apply(window,arguments);};})();</script>'
 
+/**
+ * How big an upload this dashboard will spool to disk.
+ *
+ * Deliberately well above VoleNet's own transfer limit (`net.files.maxBytes`), so that when a file
+ * is too big to send, the refusal comes from the receiving node — which names its own limit and the
+ * setting that governs it — rather than from the browser half of the trip, which knows neither.
+ */
+function uploadLimitBytes(): number {
+	return Number(process.env.VOLE_UPLOAD_MAX_BYTES) || 32 * 1024 * 1024 * 1024
+}
+
+/**
+ * Refuse an over-sized upload before a byte moves.
+ *
+ * Without this the request streams until the running total crosses the limit and only then errors,
+ * so a 6 GB file spends minutes uploading to be told no at 32 GiB — and the error said only
+ * "upload too large", naming neither the limit nor the way to raise it. `Content-Length` is a hint
+ * and can lie, which is why the in-pipeline budget stays; this is the fast path for the honest case.
+ *
+ * Returns true when it has answered the request and the caller should stop.
+ */
+function refusedOversizeUpload(req: http.IncomingMessage, res: http.ServerResponse): boolean {
+	const declared = Number(req.headers['content-length'])
+	const limit = uploadLimitBytes()
+	if (!Number.isFinite(declared) || declared <= limit) return false
+	const gib = (n: number) => `${(n / 1024 ** 3).toFixed(2)} GiB`
+	res.writeHead(413, { 'Content-Type': 'application/json' })
+	res.end(
+		JSON.stringify({
+			ok: false,
+			error:
+				`file is ${gib(declared)}, over this dashboard's upload limit of ${gib(limit)}. ` +
+				`Raise VOLE_UPLOAD_MAX_BYTES on the server to allow it. For a file this size, ` +
+				`sending it from a path with net_send_file avoids the browser round-trip entirely.`,
+		}),
+	)
+	return true
+}
+
 export function createDashboardServer(
 	port: number,
 	callbacks: DashboardCallbacks,
@@ -358,6 +397,7 @@ export function createDashboardServer(
 				res.end()
 				return
 			}
+			if (refusedOversizeUpload(req, res)) return
 			void (async () => {
 				let dest: string | undefined
 				try {
@@ -375,8 +415,7 @@ export function createDashboardServer(
 					)
 					if (!dest) throw new Error('no destination')
 
-					const MAX_UPLOAD_BYTES =
-						Number(process.env.VOLE_UPLOAD_MAX_BYTES) || 4 * 1024 * 1024 * 1024
+					const MAX_UPLOAD_BYTES = uploadLimitBytes()
 					const { pipeline } = await import('node:stream/promises')
 					const { Transform } = await import('node:stream')
 					// Budget enforced inside the pipeline, for the same reason as the spool route: a
@@ -385,7 +424,8 @@ export function createDashboardServer(
 					const budget = new Transform({
 						transform(chunk: Buffer, _enc, cb) {
 							received += chunk.length
-							if (received > MAX_UPLOAD_BYTES) cb(new Error('upload too large'))
+							if (received > MAX_UPLOAD_BYTES)
+								cb(new Error(`upload exceeded ${MAX_UPLOAD_BYTES} bytes (VOLE_UPLOAD_MAX_BYTES)`))
 							else cb(null, chunk)
 						},
 					})
@@ -417,6 +457,7 @@ export function createDashboardServer(
 				res.end()
 				return
 			}
+			if (refusedOversizeUpload(req, res)) return
 			void (async () => {
 				try {
 					const u = new URL(req.url as string, 'http://localhost')
@@ -431,8 +472,7 @@ export function createDashboardServer(
 					// The browser→agent spool for VoleDrop. Streamed to disk, so this bounds disk
 					// use, not memory. Kept well above the transfer limit so the upload is never
 					// the thing that fails; tune with VOLE_UPLOAD_MAX_BYTES.
-					const MAX_UPLOAD_BYTES =
-						Number(process.env.VOLE_UPLOAD_MAX_BYTES) || 4 * 1024 * 1024 * 1024
+					const MAX_UPLOAD_BYTES = uploadLimitBytes()
 					const { pipeline } = await import('node:stream/promises')
 					const { Transform } = await import('node:stream')
 					// Budget enforced INSIDE the pipeline — a bare req.on('data') counter would
@@ -441,7 +481,8 @@ export function createDashboardServer(
 					const budget = new Transform({
 						transform(chunk: Buffer, _enc, cb) {
 							received += chunk.length
-							if (received > MAX_UPLOAD_BYTES) cb(new Error('upload too large'))
+							if (received > MAX_UPLOAD_BYTES)
+								cb(new Error(`upload exceeded ${MAX_UPLOAD_BYTES} bytes (VOLE_UPLOAD_MAX_BYTES)`))
 							else cb(null, chunk)
 						},
 					})

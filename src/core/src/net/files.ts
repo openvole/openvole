@@ -63,7 +63,12 @@ export interface VoleNetFilesConfig {
 }
 
 /** 2 GiB — generous enough for video and disk images, bounded enough to be a safety net. */
-const DEFAULT_MAX_BYTES = 2 * 1024 * 1024 * 1024
+// Media moves through this: a gameplay capture is routinely 6-14 GB, and a 2 GiB ceiling refused
+// the exact files people most want to hand between machines. The disk is the real boundary and is
+// already checked before an offer is accepted (see freeSpace), so this is the cruder second guard —
+// generous enough not to be the thing that fails, low enough that an unattended agent does not
+// accept something absurd. Set `net.files.maxBytes` to 0 to lift it entirely.
+const DEFAULT_MAX_BYTES = 16 * 1024 * 1024 * 1024
 /** A relay hub stores other people's bytes, so it stays capped regardless of endpoint limits. */
 const DEFAULT_RELAY_MAX_BYTES = 512 * 1024 * 1024
 
@@ -1264,7 +1269,16 @@ export class VoleNetFiles {
 
 		const created = this.blobStore.create(msg.from, p.to, p.transferId, p.cipherSize)
 		if ('error' in created) {
-			await deny(created.error)
+			// Say what the hub's limit is and where the file *can* go. A bare "too-large" from a
+			// relay reads as "VoleDrop cannot do this", when in fact a direct route carries any
+			// size — the ceiling exists because a relayed file lands on somebody else's disk.
+			await deny(
+				created.error === 'too-large'
+					? `too-large: this hub relays at most ${fmtBytes(this.opts.config.relayMaxBytes ?? DEFAULT_RELAY_MAX_BYTES)} per file (its net.files.relayMaxBytes). Pair the two nodes so the transfer goes direct — a direct route has no hub limit.`
+					: created.error === 'quota'
+						? `quota: this hub's storage budget for this pair is spent (its net.files.relayQuotaBytes). Pair the two nodes to send direct, or retry once earlier transfers expire.`
+						: created.error,
+			)
 			return
 		}
 		const token = this.mintToken(created.blobId, msg.from, 'upload')
