@@ -2,7 +2,7 @@
 
 ## v4.18.0 (2026-08-25)
 
-> Ships as `openvole` 4.18.0 alongside `@openvole/dashboard-server` 0.15.0. Agents can talk to each other, `vole upgrade` covers skills as well as paws, and VoleDrop carries video-sized files.
+> Ships as `openvole` 4.18.0 alongside `@openvole/dashboard-server` 0.16.0. Agents can talk to each other, `vole upgrade` covers skills as well as paws, and VoleDrop carries video-sized files.
 
 ### Added
 
@@ -15,6 +15,10 @@
   **A delegated task reports back too.** `agent_submit` now records who asked, so a worker's finished answer is delivered to the coordinator as a message rather than sitting in the worker's own session waiting to be polled for. This is the case the complaint was actually about: a coordinator that delegates and then hears nothing.
 
   **Messaging is not orchestration**, and the registry says so. `agent_message` lives in its own module under its own paw name (`__agent_chat__`), separate from the `__orchestrate__` family — filing both under one source made messaging read as orchestration to anything inspecting the registry. Every agent gets `agent_message`; the `agent_*` management family — submitting work, rewriting config or identity, restarting, creating — stays behind the orchestrator flag. Both travel the same reverse-RPC channel, so the split is enforced server-side in the control plane, not only by which tools are registered.
+
+- **The Chat tab has a sidebar instead of a dropdown.** Conversations are listed newest-first, the way every other chat client does it, rather than hidden behind a picker you have to open to find out what is in it. Every message now carries a **timestamp** — previously "when was this said" was unanswerable anywhere in chat, which made a transcript impossible to line up against the event log or against what an agent claimed.
+
+  Agent-to-agent threads get their own view behind a toggle, showing one set or the other rather than mixing them. They are **read-only** — you are not a participant, so there is no composer offering to post as one of them and no button to delete their transcript — and **both speakers are named**, since in that thread neither voice is yours. Without this they would simply have appeared in your session list and raised unread badges on your own inbox every time an orchestrator delegated on its heartbeat, which is exactly what pulling project chats out of this tab was meant to stop.
 
 ### Security
 

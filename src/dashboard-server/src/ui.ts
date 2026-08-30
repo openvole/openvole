@@ -950,14 +950,41 @@ export function getDashboardHtml(wsPort: number): string {
   }
 
   /* ── Chat tab ── */
-  .chat-page { display: flex; flex-direction: column; max-width: 860px; width: 100%; margin: 0 auto; padding: 16px 24px; height: calc(100vh - 210px); min-height: 320px; }
-  .chat-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+  /* Sidebar + thread, the shape every chat client has: the list is the navigation, not a
+     dropdown you have to open to find out what is in it. */
+  .chat-shell { display: grid; grid-template-columns: 250px 1fr; gap: 16px; max-width: 1100px; width: 100%; margin: 0 auto; padding: 16px 24px; height: calc(100vh - 210px); min-height: 320px; }
+  .chat-side { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--border); padding-right: 14px; }
+  .chat-side-head { display: flex; gap: 6px; margin-bottom: 8px; }
+  .chat-side-toggle { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-dim); cursor: pointer; padding: 4px 0 8px; user-select: none; }
+  .chat-side-toggle:hover { color: var(--text); }
+  .chat-side-list { flex: 1; overflow-y: auto; min-height: 0; display: flex; flex-direction: column; gap: 2px; }
+  .chat-side-note { font-size: 10px; color: var(--text-dim); padding-top: 8px; }
+  .chat-item { text-align: left; background: none; border: 1px solid transparent; border-radius: 6px; padding: 7px 9px; cursor: pointer; color: var(--text); font: inherit; display: flex; flex-direction: column; gap: 2px; }
+  .chat-item:hover { background: var(--surface-hover); }
+  .chat-item.active { background: var(--surface-hover); border-color: var(--accent); }
+  .chat-item-top { display: flex; align-items: center; gap: 6px; }
+  .chat-item-name { font-size: 12px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+  .chat-item-when { font-size: 10px; color: var(--text-dim); font-family: var(--mono); flex-shrink: 0; }
+  .chat-item-sub { font-size: 10px; color: var(--text-dim); }
+  .chat-item-unread { font-size: 10px; font-family: var(--mono); line-height: 1; padding: 2px 6px; border-radius: 999px; background: var(--accent); color: var(--bg); flex-shrink: 0; }
+  .chat-main { display: flex; flex-direction: column; min-height: 0; }
+  .chat-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+  .chat-head-title { font-size: 13px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .chat-readonly { font-size: 11px; color: var(--text-dim); text-align: center; padding: 10px; border-top: 1px solid var(--border); margin-top: 10px; }
+  @media (max-width: 760px) { .chat-shell { grid-template-columns: 1fr; } .chat-side { border-right: none; border-bottom: 1px solid var(--border); padding-right: 0; padding-bottom: 10px; max-height: 34vh; } }
   .chat-messages { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding: 4px; min-height: 0; }
   .chat-msg { max-width: 78%; padding: 10px 14px; border-radius: 12px; font-size: 13px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
   .chat-msg-user { align-self: flex-end; background: var(--accent); color: #fff; border-bottom-right-radius: 4px; }
   .chat-msg-brain { align-self: flex-start; background: var(--surface); border: 1px solid var(--border); color: var(--text); border-bottom-left-radius: 4px; }
   .chat-msg-error { align-self: flex-start; background: rgba(255,80,80,0.12); border: 1px solid var(--red); color: var(--text); border-bottom-left-radius: 4px; }
   .chat-msg-pending { color: var(--text-dim); font-style: italic; }
+  /* Wraps a bubble so the stamp sits under it without joining the bubble's own text flow. */
+  .chat-row { display: flex; flex-direction: column; gap: 3px; max-width: 78%; }
+  .chat-row-user { align-self: flex-end; align-items: flex-end; }
+  .chat-row-brain, .chat-row-error { align-self: flex-start; align-items: flex-start; }
+  .chat-row .chat-msg { max-width: 100%; }
+  .chat-meta { font-size: 10px; color: var(--text-dim); font-family: var(--mono); padding: 0 4px; display: flex; gap: 6px; }
+  .chat-meta-who { font-family: var(--font); font-weight: 500; }
   .chat-composer { display: flex; gap: 8px; margin-top: 10px; }
   .chat-empty { color: var(--text-dim); text-align: center; margin-top: 40px; font-size: 13px; }
   #tab-panel { padding: 0; }
@@ -1211,19 +1238,32 @@ export function getDashboardHtml(wsPort: number): string {
   </div>
 
   <div id="tab-chat" class="tab-content" style="display:none">
-    <div class="chat-page">
-      <div class="chat-toolbar">
-        <span style="color:var(--text-dim);font-size:12px">Session</span>
-        <select class="form-select" id="chat-session" onchange="onChatSessionChange()" style="width:auto"></select>
-        <button class="btn-restart" type="button" onclick="newChatSession()" title="Start a fresh conversation">+ New session</button>
-        <button class="btn-restart" type="button" id="btn-chat-clear" onclick="clearChatSession()" title="Delete this session's transcript">Clear</button>
-        <button class="btn-restart" type="button" id="btn-chat-read-all" style="display:none" onclick="chatMarkAllRead()" title="Clear unread on every session of this agent">Mark all read</button>
-        <span id="chat-note" style="color:var(--text-dim);font-size:11px"></span>
-      </div>
-      <div class="chat-messages" id="chat-messages"></div>
-      <div class="chat-composer">
-        <input type="text" class="form-input" id="chat-input" placeholder="Message the brain&hellip;" onkeydown="if(event.key==='Enter'){sendChat();}">
-        <button class="btn-primary" id="chat-send" onclick="sendChat()">Send</button>
+    <div class="chat-shell">
+      <aside class="chat-side">
+        <div class="chat-side-head">
+          <button class="btn-restart btn-sm" type="button" onclick="newChatSession()" title="Start a fresh conversation">+ New</button>
+          <button class="btn-restart btn-sm" id="btn-chat-read-all" style="display:none" onclick="chatMarkAllRead()" title="Clear unread on every session of this agent">Mark read</button>
+        </div>
+        <label class="chat-side-toggle" title="Conversations between this agent and its siblings. Read-only — you are not a participant.">
+          <input type="checkbox" id="chat-show-agents" onchange="chatToggleAgents()">
+          <span>Inter-agent chats</span>
+        </label>
+        <div class="chat-side-list" id="chat-side-list"></div>
+        <div class="chat-side-note" id="chat-note"></div>
+      </aside>
+      <div class="chat-main">
+        <div class="chat-head">
+          <div class="chat-head-title" id="chat-head-title">dashboard</div>
+          <button class="btn-restart btn-sm" type="button" id="btn-chat-clear" onclick="clearChatSession()" title="Delete this session's transcript">Clear</button>
+        </div>
+        <div class="chat-messages" id="chat-messages"></div>
+        <div class="chat-composer" id="chat-composer">
+          <input type="text" class="form-input" id="chat-input" placeholder="Message the brain&hellip;" onkeydown="if(event.key==='Enter'){sendChat();}">
+          <button class="btn-primary" id="chat-send" onclick="sendChat()">Send</button>
+        </div>
+        <div class="chat-readonly" id="chat-readonly" style="display:none">
+          You are reading a conversation between two agents. Only they can post here.
+        </div>
       </div>
     </div>
   </div>
@@ -2243,19 +2283,44 @@ function initChatTab() {
   // already-loaded chat would keep its badge forever.
   chatClearUnread(currentAgentId, chatSessionId);
   var key = currentAgentId + ':' + chatSessionId;
+  chatApplyMode();
   if (chatLoadedKey === key) return;
   loadChatSessions();
   loadChatHistory();
 }
 var localChatSessions = []; // created this page, not yet persisted by paw-session
+/** Show inter-agent threads instead of your own. Exclusive: one list or the other, never mixed. */
+var chatShowAgents = false;
+
+function chatToggleAgents() {
+  chatShowAgents = !!document.getElementById('chat-show-agents').checked;
+  // Leaving a set means leaving whatever was selected in it. Fall back to the default
+  // conversation rather than showing a thread that is no longer in the visible list.
+  if (chatShowAgents !== isAgentSession(chatSessionId)) {
+    chatSelectSession(chatShowAgents ? '' : 'dashboard');
+  }
+  loadChatSessions();
+}
+
+function isAgentSession(id) {
+  return String(id || '').indexOf('agent:') === 0;
+}
+
+/** Who the other side of an inter-agent thread is. */
+function agentPeerOf(id) {
+  return isAgentSession(id) ? String(id).slice('agent:'.length) : '';
+}
+
 function loadChatSessions() {
   var epoch = viewEpoch;
   sendCommand('chat_sessions').then(function(res) {
     if (viewChanged(epoch)) return;
-    var sel = document.getElementById('chat-session');
+    var list = document.getElementById('chat-side-list');
     var note = document.getElementById('chat-note');
-    var opts = ['<option value="dashboard">dashboard</option>'];
-    var seen = { dashboard: true };
+    if (!list) return;
+
+    var rows = [];
+    var seen = {};
     if (res && res.ok && res.sessions) {
       for (var i = 0; i < res.sessions.length; i++) {
         var s = res.sessions[i];
@@ -2267,25 +2332,106 @@ function loadChatSessions() {
         if (s.sessionId.indexOf('project:') === 0) continue;
         seen[s.sessionId] = true;
         chatNoteTs(currentAgentId, s.sessionId, s.lastActive);
-        var unread = (chatUnreadFor(currentAgentId)[s.sessionId] || 0);
-        var label = s.sessionId + (s.source ? ' (' + s.source + ')' : '') + ' — ' + (s.messageCount || 0) + ' msgs'
-          + (unread ? ' · ' + unread + ' unread' : '');
-        opts.push('<option value="' + esc(s.sessionId) + '">' + esc(label) + '</option>');
+        rows.push({
+          id: s.sessionId,
+          count: s.messageCount || 0,
+          source: s.source || '',
+          at: tsMs(s.lastActive) || 0,
+        });
       }
       note.textContent = '';
     } else {
       note.textContent = "paw-session not loaded — history won't persist";
     }
+    // Sessions opened this page that paw-session has not written yet.
     for (var j = 0; j < localChatSessions.length; j++) {
       if (!seen[localChatSessions[j]]) {
-        opts.push('<option value="' + esc(localChatSessions[j]) + '">' + esc(localChatSessions[j]) + ' — new</option>');
+        rows.push({ id: localChatSessions[j], count: 0, source: 'new', at: Date.now() });
+        seen[localChatSessions[j]] = true;
       }
     }
-    sel.innerHTML = opts.join('');
-    sel.value = chatSessionId;
-    if (sel.value !== chatSessionId) { sel.value = 'dashboard'; chatSessionId = 'dashboard'; }
+    if (!chatShowAgents && !seen.dashboard) {
+      rows.push({ id: 'dashboard', count: 0, source: '', at: 0 });
+    }
+
+    var mine = rows.filter(function(r) { return !isAgentSession(r.id); });
+    var theirs = rows.filter(function(r) { return isAgentSession(r.id); });
+    var shown = chatShowAgents ? theirs : mine;
+    // Most recent first — the one you want is nearly always the one that just moved.
+    shown.sort(function(a, b) { return b.at - a.at; });
+
+    var toggle = document.getElementById('chat-show-agents');
+    if (toggle) toggle.parentNode.title = theirs.length
+      ? theirs.length + ' conversation(s) between this agent and its siblings — read-only'
+      : 'No agent-to-agent conversations yet';
+
+    if (!shown.length) {
+      list.innerHTML = '<div class="chat-item-sub" style="padding:8px 9px">'
+        + (chatShowAgents ? 'No agent-to-agent conversations yet.' : 'No conversations yet.')
+        + '</div>';
+    } else {
+      var html = '';
+      for (var k = 0; k < shown.length; k++) {
+        var r = shown[k];
+        var unread = chatUnreadFor(currentAgentId)[r.id] || 0;
+        var name = isAgentSession(r.id) ? (agentName(currentAgentId) + ' ↔ ' + agentPeerOf(r.id)) : r.id;
+        var sub = r.count + (r.count === 1 ? ' msg' : ' msgs') + (r.source ? ' · ' + r.source : '');
+        html += '<button class="chat-item' + (r.id === chatSessionId ? ' active' : '') + '"'
+          + ' onclick="chatSelectSession(this.dataset.id)" data-id="' + esc(r.id) + '">'
+          + '<span class="chat-item-top">'
+          + '<span class="chat-item-name">' + esc(name) + '</span>'
+          + (unread ? '<span class="chat-item-unread">' + unread + '</span>' : '')
+          + '<span class="chat-item-when">' + (r.at ? fmtStamp(r.at) : '') + '</span>'
+          + '</span>'
+          + '<span class="chat-item-sub">' + esc(sub) + '</span>'
+          + '</button>';
+      }
+      list.innerHTML = html;
+    }
+
+    // Selected thread vanished from the visible set (agent switch, toggle) — fall back.
+    if (shown.length && !shown.some(function(r) { return r.id === chatSessionId; })) {
+      chatSelectSession(shown[0].id);
+    }
   }).catch(function() {});
 }
+
+/** This agent's display name, for labelling its own side of an inter-agent thread. */
+function agentName(id) {
+  var a = (lastAgents || []).filter(function(x) { return x.id === id; })[0];
+  return (a && a.name) || 'this agent';
+}
+
+function chatSelectSession(id) {
+  chatSessionId = id || 'dashboard';
+  chatLoadedKey = null;
+  chatApplyMode();
+  chatClearUnread(currentAgentId, chatSessionId);
+  loadChatSessions();
+  loadChatHistory();
+}
+
+/**
+ * An inter-agent thread is somebody else's conversation. You can read it — that is the whole
+ * point of surfacing it — but you are not a participant, so the composer goes away rather than
+ * offering to post as one of them.
+ */
+function chatApplyMode() {
+  var agent = isAgentSession(chatSessionId);
+  var composer = document.getElementById('chat-composer');
+  var readonly = document.getElementById('chat-readonly');
+  var title = document.getElementById('chat-head-title');
+  var clear = document.getElementById('btn-chat-clear');
+  if (composer) composer.style.display = agent ? 'none' : '';
+  if (readonly) readonly.style.display = agent ? '' : 'none';
+  if (clear) clear.style.display = agent ? 'none' : '';
+  if (title) {
+    title.textContent = agent
+      ? agentName(currentAgentId) + ' ↔ ' + agentPeerOf(chatSessionId)
+      : chatSessionId;
+  }
+}
+
 /**
  * Clear unread across every session of this agent.
  *
@@ -2299,11 +2445,12 @@ function chatMarkAllRead() {
   var m = chatUnreadFor(currentAgentId);
   var ids = [];
   for (var k in m) ids.push(k);
-  var sel = document.getElementById('chat-session');
-  if (sel && sel.options) {
-    for (var i = 0; i < sel.options.length; i++) {
-      if (ids.indexOf(sel.options[i].value) === -1) ids.push(sel.options[i].value);
-    }
+  // Include every thread the sidebar is showing, not only the ones already carrying a badge —
+  // "mark all read" should also settle a session whose count is about to arrive.
+  var items = document.querySelectorAll('#chat-side-list .chat-item');
+  for (var i = 0; i < items.length; i++) {
+    var id = items[i].dataset.id;
+    if (id && ids.indexOf(id) === -1) ids.push(id);
   }
   for (var j = 0; j < ids.length; j++) chatClearUnread(currentAgentId, ids[j]);
   chatSaveUnread();
@@ -2331,6 +2478,12 @@ function newChatSession() {
   localChatSessions.push(id);
   chatSessionId = id;
   chatLoadedKey = currentAgentId + ':' + id;
+  // A new conversation is one of yours, so leave the inter-agent view if it is on — otherwise
+  // the thing you just created is filtered out of the list the moment it exists.
+  chatShowAgents = false;
+  var toggle = document.getElementById('chat-show-agents');
+  if (toggle) toggle.checked = false;
+  chatApplyMode();
   document.getElementById('chat-messages').innerHTML = '<div class="chat-empty">New session — say hi to the brain.</div>';
   document.getElementById('chat-note').textContent = '';
   loadChatSessions();
@@ -2347,15 +2500,7 @@ function clearChatSession() {
     loadChatHistory();
   }).catch(function(e) { showToast(e.message, 'error'); });
 }
-function onChatSessionChange() {
-  chatSessionId = document.getElementById('chat-session').value || 'dashboard';
-  chatClearUnread(currentAgentId, chatSessionId);
-  chatLoadedKey = null;
-  document.getElementById('chat-messages').innerHTML = '';
-  var note = document.getElementById('chat-note');
-  note.textContent = chatSessionId === 'dashboard' ? '' : 'channel session — replies appear here, not on the channel';
-  loadChatHistory();
-}
+
 function loadChatHistory() {
   var box = document.getElementById('chat-messages');
   box.innerHTML = '<div class="chat-empty">Loading&hellip;</div>';
@@ -2370,10 +2515,20 @@ function loadChatHistory() {
     var h = (res && res.ok !== false) ? res.history : null;
     if (Array.isArray(h)) {
       // paw-session >= 2.1: messages [{ts, role, content}] with newlines preserved
+      // In an inter-agent thread neither voice is yours: 'user' is the agent that wrote in, and
+      // 'brain' is the agent whose transcript this is. Both get named.
+      var agentThread = isAgentSession(chatSessionId);
+      var themName = agentThread ? agentPeerOf(chatSessionId) : '';
+      var usName = agentThread ? agentName(currentAgentId) : '';
       for (var i = 0; i < h.length; i++) {
         var role = h[i].role;
-        if (role === 'user') { addChatBubble('user', h[i].content); added++; }
-        else if (role === 'brain') { setBubbleMarkdown(addChatBubble('brain', ''), h[i].content); added++; }
+        if (role === 'user') {
+          addChatBubble('user', h[i].content, '', h[i].ts, themName);
+          added++;
+        } else if (role === 'brain') {
+          setBubbleMarkdown(addChatBubble('brain', '', '', h[i].ts, usName), h[i].content);
+          added++;
+        }
         // tool:* entries are skipped — chat shows the conversation only
       }
     } else if (h) {
@@ -2485,14 +2640,45 @@ function setBubbleMarkdown(el, text) {
   el.classList.add('chat-md');
   el.innerHTML = renderMarkdown(text);
 }
-function addChatBubble(kind, text, extraClass) {
+/**
+ * One message in the thread.
+ *
+ * The bubble is wrapped in a row so a timestamp can sit under it without joining the bubble's own
+ * text — "when was this said" was previously unanswerable anywhere in chat, which made a
+ * transcript impossible to line up against the event log or against what an agent claimed.
+ *
+ * The who argument names the speaker, which only matters when neither side is you: in an
+ * inter-agent thread both roles are somebody else, and an unlabelled bubble gives no way to
+ * tell them apart.
+ */
+function addChatBubble(kind, text, extraClass, ts, who) {
   var box = document.getElementById('chat-messages');
   var empty = box.querySelector('.chat-empty');
   if (empty) empty.remove();
+  var row = document.createElement('div');
+  row.className = 'chat-row chat-row-' + (kind === 'error' ? 'error' : kind);
   var el = document.createElement('div');
   el.className = 'chat-msg chat-msg-' + kind + (extraClass ? ' ' + extraClass : '');
   el.textContent = text;
-  box.appendChild(el);
+  row.appendChild(el);
+  var stamp = ts ? fmtStamp(tsMs(ts)) : '';
+  if (stamp || who) {
+    var meta = document.createElement('div');
+    meta.className = 'chat-meta';
+    if (who) {
+      var w = document.createElement('span');
+      w.className = 'chat-meta-who';
+      w.textContent = who;
+      meta.appendChild(w);
+    }
+    if (stamp) {
+      var t = document.createElement('span');
+      t.textContent = stamp;
+      meta.appendChild(t);
+    }
+    row.appendChild(meta);
+  }
+  box.appendChild(row);
   box.scrollTop = box.scrollHeight;
   return el;
 }
