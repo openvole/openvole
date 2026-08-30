@@ -2538,9 +2538,9 @@ function loadChatHistory() {
         var m = lines[j].match(/^\\[(\\d\\d:\\d\\d:\\d\\d)\\] (\\w+): (.*)$/);
         if (!m) continue;
         if (m[2] === 'user') {
-          addChatBubble('user', m[3]);
+          addChatBubble('user', m[3], '', clockToday(m[1]));
         } else {
-          setBubbleMarkdown(addChatBubble('brain', ''), m[3]);
+          setBubbleMarkdown(addChatBubble('brain', '', '', clockToday(m[1])), m[3]);
         }
         added++;
       }
@@ -2588,7 +2588,7 @@ function restorePendingChat() {
     var empty = box.querySelector('.chat-empty');
     if (empty) empty.remove();
     if (t.input && box.textContent.indexOf(t.input.slice(0, 40)) === -1) {
-      addChatBubble('user', t.input);
+      addChatBubble('user', t.input, '', t.createdAt);
     }
     var el = addChatBubble('brain', '', 'chat-msg-pending');
     var timer = startChatWait(el);
@@ -2661,33 +2661,57 @@ function addChatBubble(kind, text, extraClass, ts, who) {
   el.className = 'chat-msg chat-msg-' + kind + (extraClass ? ' ' + extraClass : '');
   el.textContent = text;
   row.appendChild(el);
-  var stamp = ts ? fmtStamp(tsMs(ts)) : '';
-  if (stamp || who) {
-    var meta = document.createElement('div');
-    meta.className = 'chat-meta';
-    if (who) {
-      var w = document.createElement('span');
-      w.className = 'chat-meta-who';
-      w.textContent = who;
-      meta.appendChild(w);
-    }
-    if (stamp) {
-      var t = document.createElement('span');
-      t.textContent = stamp;
-      meta.appendChild(t);
-    }
-    row.appendChild(meta);
-  }
+  stampBubble(el, ts, who);
   box.appendChild(row);
   box.scrollTop = box.scrollHeight;
   return el;
+}
+/**
+ * Put the time (and, in an agent thread, the voice) under a bubble.
+ *
+ * Only history used to carry one: it renders from stored entries that each have a ts, while a
+ * bubble made as you send — or as a reply arrives — passed none and silently got no meta at all,
+ * so the times appeared only after a reload. Safe to call twice, which is the point for a
+ * pending bubble: it is stamped again when the answer replaces the placeholder, so the time
+ * reads as when the brain answered rather than when you asked.
+ */
+function stampBubble(el, ts, who) {
+  var row = el && el.parentNode;
+  if (!row || !row.classList || !row.classList.contains('chat-row')) return el;
+  var old = row.querySelector('.chat-meta');
+  if (old) old.remove();
+  var stamp = ts ? fmtStamp(tsMs(ts)) : '';
+  if (!stamp && !who) return el;
+  var meta = document.createElement('div');
+  meta.className = 'chat-meta';
+  if (who) {
+    var w = document.createElement('span');
+    w.className = 'chat-meta-who';
+    w.textContent = who;
+    meta.appendChild(w);
+  }
+  if (stamp) {
+    var t = document.createElement('span');
+    t.textContent = stamp;
+    meta.appendChild(t);
+  }
+  row.appendChild(meta);
+  return el;
+}
+/** Older paw-session history gives a wall clock and no date; anchor it to today. */
+function clockToday(hms) {
+  var p = String(hms || '').split(':');
+  if (p.length !== 3) return 0;
+  var d = new Date();
+  d.setHours(Number(p[0]), Number(p[1]), Number(p[2]), 0);
+  return d.getTime();
 }
 function sendChat() {
   var input = document.getElementById('chat-input');
   var text = input.value.trim();
   if (!text || !currentAgentId) return;
   input.value = '';
-  addChatBubble('user', text);
+  addChatBubble('user', text, '', Date.now());
   var pendingEl = addChatBubble('brain', '', 'chat-msg-pending');
   var waitTimer = startChatWait(pendingEl);
   var epoch = viewEpoch;
@@ -2706,6 +2730,7 @@ function sendChat() {
       clearInterval(waitTimer);
       pendingEl.classList.remove('chat-msg-pending');
       pendingEl.textContent = '(submitted)';
+      stampBubble(pendingEl, Date.now());
     }
   }).catch(function(e) {
     clearInterval(waitTimer);
@@ -2765,10 +2790,12 @@ function chatOnTaskEvent(event, data, agentId) {
     stopChatWait(p);
     p.el.classList.remove('chat-msg-pending');
     setBubbleMarkdown(p.el, data.result || '(no response)');
+    stampBubble(p.el, Date.now());
   } else if (event === 'task:failed' || event === 'task:cancelled') {
     stopChatWait(p);
     p.el.className = 'chat-msg chat-msg-error';
     p.el.textContent = data && (data.result || data.error) ? String(data.result || data.error) : 'Task failed';
+    stampBubble(p.el, Date.now());
   } else {
     return;
   }
@@ -3079,7 +3106,7 @@ function chatOnChannelMessage(data, agentId) {
   chatNoteTs(target, sessionId, data.ts);
   var viewing = currentTab === 'chat' && target === currentAgentId && sessionId === chatSessionId;
   if (viewing) {
-    setBubbleMarkdown(addChatBubble('brain', ''), data.text || '');
+    setBubbleMarkdown(addChatBubble('brain', '', '', data.ts || Date.now()), data.text || '');
     var box = document.getElementById('chat-messages');
     if (box) box.scrollTop = box.scrollHeight;
     chatMarkReadAt(target, sessionId, data.ts);

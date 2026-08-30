@@ -75,13 +75,29 @@ describe('chat sidebar', () => {
 		expect(history).toMatch(/addChatBubble\('brain',[^)]*usName\)/)
 	})
 
-	it('stamps every message', async () => {
-		const body = fn(await read(), 'addChatBubble')
+	it('stamps every message, including the ones that arrive live', async () => {
+		const src = await read()
 		// "When was this said" was unanswerable anywhere in chat before, which made a transcript
 		// impossible to line up against the event log or against what an agent claimed.
-		expect(body).toContain('function addChatBubble(kind, text, extraClass, ts, who)')
-		expect(body).toContain('fmtStamp(tsMs(ts))')
-		expect(body).toContain("meta.className = 'chat-meta'")
+		expect(fn(src, 'addChatBubble')).toContain(
+			'function addChatBubble(kind, text, extraClass, ts, who)',
+		)
+
+		// The meta row is built in one place, so a bubble can be stamped after it exists.
+		const stamp = fn(src, 'stampBubble')
+		expect(stamp).toContain('fmtStamp(tsMs(ts))')
+		expect(stamp).toContain("meta.className = 'chat-meta'")
+		// Re-stamping has to replace, or a resolved reply grows a second time underneath it.
+		expect(stamp).toContain("row.querySelector('.chat-meta')")
+		expect(stamp).toContain('old.remove()')
+
+		// Only history ever passed a ts. A bubble created as you send, or as a reply arrived,
+		// passed none and silently got no meta at all — so the times showed up only after a
+		// reload, which is exactly when they are least useful.
+		expect(fn(src, 'sendChat')).toContain("addChatBubble('user', text, '', Date.now())")
+		expect(fn(src, 'chatOnChannelMessage')).toContain('data.ts || Date.now()')
+		// A reply is stamped when it lands, not when the question was asked.
+		expect(fn(src, 'chatOnTaskEvent')).toContain('stampBubble(p.el, Date.now())')
 	})
 
 	it('leaves the agent view when you start a conversation of your own', async () => {
