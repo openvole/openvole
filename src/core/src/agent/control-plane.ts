@@ -15,7 +15,7 @@ import { scanProjectRoot } from '../project/scan.js'
 import { ProjectStore } from '../project/store.js'
 import { TaskStore } from '../project/tasks.js'
 import { EventLog, dayKey } from './event-log.js'
-import { agentFromSession } from '../core/reply-address.js'
+import { agentFromSession, agentSessionId } from '../core/reply-address.js'
 import { AgentManager } from './manager.js'
 
 const logger = createLogger('control-plane')
@@ -810,12 +810,22 @@ export class ControlPlane {
 				// the same treatment a person's chat message already gets. An agent's word should
 				// not be second-class to a human's just because it came over a different channel.
 				const hops = Number(params.hops) || 0
-				return this.callAgent(entry.id, 'agent_message', {
+				const body = String(params.text ?? '')
+				const delivered = await this.callAgent(entry.id, 'agent_message', {
 					from: senderName,
-					text: String(params.text ?? ''),
+					text: body,
 					hops,
 					relayTo: typeof params.relayTo === 'string' ? params.relayTo : undefined,
 				})
+				// Keep the sender's own copy of the thread. The recipient's side is written by the
+				// run this wakes, but the sender is calling from some other conversation, so without
+				// this its thread opens on the reply and the question it asked is nowhere.
+				await this.callAgent(senderId, 'thread_append', {
+					sessionId: agentSessionId(entry.name),
+					role: 'brain',
+					content: body,
+				}).catch(() => undefined)
+				return delivered
 			}
 			default:
 				// Deliberately no 'remove' — destroying an agent stays a human decision.

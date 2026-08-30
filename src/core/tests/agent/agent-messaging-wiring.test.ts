@@ -125,4 +125,21 @@ describe('agent messaging wiring', () => {
 		)
 		expect(status).toContain('relayTo:')
 	})
+
+	it('keeps the sender’s own copy of what it said', async () => {
+		const plane = await read('agent/control-plane.ts')
+		const from = plane.indexOf("case 'message': {")
+		const block = plane.slice(from, plane.indexOf('default:', from))
+		// The recipient's side is written by the run this wakes. The sender is calling from some
+		// other conversation, so without this its thread opens on the reply and the question it
+		// asked is nowhere — which is exactly how it read the first time it was used for real.
+		expect(block).toContain("'thread_append'")
+		expect(block).toContain('agentSessionId(entry.name)')
+		expect(block).toContain("role: 'brain'")
+		// Failing to keep your own copy must not fail the delivery.
+		expect(block).toMatch(/thread_append[\s\S]{0,200}\.catch\(/)
+
+		const adapter = await read('agent/control-adapter.ts')
+		expect(adapter).toContain("case 'thread_append'")
+	})
 })

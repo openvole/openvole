@@ -327,6 +327,28 @@ export function installControlAdapter(engine: VoleEngine, projectRoot: string): 
 					}
 					break
 				}
+				/**
+				 * Record something this agent said into one of its own threads.
+				 *
+				 * A message is written to the recipient's thread by the run it wakes, but the sender
+				 * writes nothing: the call is made from whatever conversation prompted it, so its own
+				 * copy of the thread never sees what it asked. The thread then reads as if it opened
+				 * with the other side's answer, and the question is nowhere.
+				 */
+				case 'thread_append': {
+					const sessionId = String(params.sessionId ?? '')
+					const content = String(params.content ?? '')
+					const append = current.toolRegistry.get('session_append')
+					if (!sessionId || !content || !append) {
+						result = { ok: false, error: 'nothing to record' }
+						break
+					}
+					await append
+						.execute({ sessionId, role: String(params.role ?? 'brain'), content })
+						.catch(() => undefined)
+					result = { ok: true }
+					break
+				}
 				case 'task_status': {
 					// Result readback for orchestrators polling a delegated task (clipped for LLM context).
 					const t = current.taskQueue.get(params.taskId as string)
