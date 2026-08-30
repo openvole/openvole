@@ -171,10 +171,14 @@ describe('ControlPlane orchestrate reverse-RPC', () => {
 		// source 'agent': an orchestrator's brief is sibling-to-sibling work, not a person typing
 		// in the chat. As a 'user' task it raised unread chat badges nobody could clear and
 		// escaped any toolProfiles.agent restriction written for exactly this traffic.
+		// `fromAgent` names the sender so the worker's answer has somewhere to go. Without it a
+		// delegated brief is one-way: the reply lands in the worker's own session and the
+		// coordinator only ever learns anything by polling.
 		expect(callAgent).toHaveBeenCalledWith('worker', 'submit', {
 			input: 'go',
 			sessionId: 'p1',
 			source: 'agent',
+			fromAgent: 'Boss Agent',
 		})
 		await cp.handleOrchestrateRequest(
 			'boss',

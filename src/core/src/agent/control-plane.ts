@@ -741,6 +741,8 @@ export class ControlPlane {
 		const reg = await this.manager.readRegistry()
 		const entry = reg.agents.find((s) => s.id === t || s.name === t)
 		if (!entry) throw new Error(`Agent not found: ${t}`)
+		// Who is asking, by the name a sibling would recognise — the id is an opaque uuid.
+		const senderName = reg.agents.find((a) => a.id === senderId)?.name ?? senderId
 		if (['start', 'stop', 'restart'].includes(method) && entry.id === senderId) {
 			throw new Error(`Refusing to ${method} the orchestrator itself`)
 		}
@@ -761,10 +763,18 @@ export class ControlPlane {
 				// from your own messages: they raised unread chat badges you could never clear
 				// (the session is one you never open), and they bypassed any `toolProfiles.agent`
 				// restrictions meant for exactly this traffic.
+				// Record who asked, so the answer can find its way home.
+				//
+				// Delegation is the case this matters most for and the one it was missing from: a
+				// coordinator sent a brief, the worker's reply landed in the worker's own session,
+				// and the coordinator learned nothing unless it remembered to poll. Naming the
+				// sender gives the run a reply address on the far side, and the finished answer is
+				// delivered back as a message — read, not polled for.
 				return this.callAgent(entry.id, 'submit', {
 					input,
 					sessionId: params.sessionId,
 					source: 'agent',
+					fromAgent: senderName,
 				})
 			}
 			case 'read_config':
@@ -789,7 +799,6 @@ export class ControlPlane {
 				// Deliver into the recipient's conversation with the sender, and wake it to read —
 				// the same treatment a person's chat message already gets. An agent's word should
 				// not be second-class to a human's just because it came over a different channel.
-				const senderName = sender?.name ?? senderId
 				const hops = Number(params.hops) || 0
 				return this.callAgent(entry.id, 'agent_message', {
 					from: senderName,

@@ -12,6 +12,8 @@
 
   **Waking is the default**, because a person's chat message already works that way and a colleague's word should not sit unread for arriving over a different channel. What keeps that from running away is a hop count, not restraint: a reply is itself a message, so an exchange where every arrival wakes the receiver has each side politely answering the answer at one brain call per turn. Six hops leaves room for ask → clarify → answer → confirm; past it the message is still **delivered**, only the waking stops, so the last word is read on the next run rather than lost.
 
+  **A delegated task reports back too.** `agent_submit` now records who asked, so a worker's finished answer is delivered to the coordinator as a message rather than sitting in the worker's own session waiting to be polled for. This is the case the complaint was actually about: a coordinator that delegates and then hears nothing.
+
   **Messaging is not orchestration.** Every agent gets `agent_message`; the `agent_*` management family — submitting work, rewriting config or identity, restarting, creating — stays behind the orchestrator flag. Both travel the same reverse-RPC channel, so the split is enforced server-side in the control plane, not only by which tools are registered.
 
 ### Fixed

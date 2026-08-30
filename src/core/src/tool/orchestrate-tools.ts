@@ -54,7 +54,8 @@ export function createAgentMessageTool(
 			text: z.string().describe('What to say'),
 		}),
 		async execute(q: unknown, ctx?: { replyTo?: string; hops?: number }) {
-			const { to, text } = q as { to: string; text: string }
+			// `to` is read through targetOf, which also accepts the aliases models reach for.
+			const { text } = q as { text: string }
 			const body = (text ?? '').trim()
 			if (!body) return { ok: false, error: 'text is empty — nothing to send' }
 			const target = targetOf(q)

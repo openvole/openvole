@@ -225,7 +225,15 @@ export function installControlAdapter(engine: VoleEngine, projectRoot: string): 
 							// for a human message (chat badges, tool profiles, memory scoping).
 							(params.source as 'user' | 'agent') === 'agent' ? 'agent' : 'user',
 							sessionId,
-							scoped ? { projectId: scoped[1] } : undefined,
+							// `fromAgent` comes from the control plane, which knows the real sender —
+							// never from the browser, which would otherwise be able to name anyone
+							// and have a stranger's agent answer to it.
+							{
+								...(scoped ? { projectId: scoped[1] } : {}),
+								...(typeof params.fromAgent === 'string' && params.fromAgent
+									? { fromAgent: params.fromAgent, hops: Number(params.hops) || 0 }
+									: {}),
+							},
 						),
 					}
 					break
