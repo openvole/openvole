@@ -186,6 +186,25 @@ An agent can be granted **orchestrator** authority (`vole agent create <name> --
 - Hard limits: no self stop/start/restart, no agent removal, and agents created by an orchestrator are never flagged themselves.
 - The `vole-orchestrate` VoleHub skill (requires `agent_list`/`agent_submit`) supplies the supervisor playbook and only activates in agents that actually have the tools.
 
+### Agent Conversations (`agent_message`)
+
+Orchestration is management; messaging is not. **Every** agent gets `agent_message`, whether or not it is an orchestrator — talking to a colleague is not a privilege, and the `agent_*` management family stays behind the flag.
+
+- **A message lands in a thread and wakes the agent.** The pair's conversation is a session named from each side (`agent:orchestrator` on the worker, `agent:video-editor` on the coordinator), so both keep their own history and no shared registry is needed. Waking is the default: a person's chat message already works that way, and a colleague's word should not sit unread for having arrived over a different channel.
+- **A hop budget ends the exchange**, not restraint. A reply is itself a message, so if every arrival wakes the receiver, two agents will politely answer each other's answers at one brain call per turn. The count rides with the message and is enforced at `MAX_AGENT_HOPS` (4) — enough for ask → clarify → answer → confirm. Past it the message is still *delivered*; only the waking stops, so the last word is read on the next run rather than lost.
+- **A run started by a message answers the agent that sent it**, the same way a chat turn answers its chat. One rule (`replyAddressFor`) decides where any run reports: its session, else the agent that wrote in, else the project, else the dashboard.
+- **The answer reaches the person who asked.** When a human's question is what sent an agent to a colleague, the asking run's reply address travels with the message and returns on the answer, and the colleague's reply is delivered straight into that human's chat — badge, live update and all. This does not depend on the agent remembering to relay, because it reliably did not: the reply arrives in a run addressed to the *colleague*, so relaying was something the model had to think of.
+
+  The address is **spent on that answer**. It used to travel on, which made every later turn count as "on behalf of" the person — so the colleagues' wind-down ("sounds good", "happy to help") was relayed too. One question, one answer; the agents may keep talking, and that conversation stays in their own thread.
+
+- **Provenance comes from the run, never from the caller.** An agent that could name its own relay target could post into a conversation it was never part of. The reply address and hop count are read from the task being executed and attached by the control plane.
+
+::: warning Brains that expose tools to a CLI
+A brain running with `CLAUDE_CODE_EXPOSE_TOOLS=1` calls its tools over the agent's MCP endpoint rather than through the loop. That path is stateless, so the executing side resolves the calling run from the task queue — and only when exactly one task is running. Above `taskConcurrency: 1` a stateless call cannot say which run it came from, so no context is attached rather than the wrong one.
+:::
+
+Messaging is filed under its own paw name (`__agent_chat__`), separate from `__orchestrate__`. The split is what lets anything inspecting the registry tell the two apart — VoleNet withholds both from the mesh by **source** (`CONTROL_PLANE_PAWS`), so a tool added to either family later cannot be missed by forgetting to update a name pattern.
+
 ### Embedded Panels (Apps)
 
 A paw can contribute a UI to the dashboard by declaring a `panel` in its manifest; the control plane serves the static HTML at `/panel/<agent>/<paw>/` and proxies the paw's tools at `/panel/<agent>/<paw>/tool/<toolName>` — **brain-free**, directly over IPC. Everything flows through the one control-plane server, so there are **no per-paw web servers and no extra ports**. See [Build an Embedded App](/paws#build-an-embedded-app) for the authoring guide.

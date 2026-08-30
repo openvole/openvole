@@ -71,6 +71,7 @@ Full walkthrough → [Getting Started](https://openvole.com/openvole/getting-sta
 | 🧩 **Microkernel, zero lock-in** | A tiny, LLM-ignorant core. Every capability is a Paw you can swap, sandbox, or write yourself — and you can bring your own system prompt via `BRAIN.md`. |
 | 🕸️ **VoleNet** | A peer-to-peer AI agent network: remote tools become local, cheap workers share one brain, memory syncs across the mesh — signed with hybrid post-quantum signatures (Ed25519 + ML-DSA-65), with leader election, a blind relay (members chat end-to-end encrypted through hubs that cannot read it), and no central server. |
 | 🎛️ **Orchestrator agents** | Grant one agent authority over the fleet and just talk to it: it lists its siblings, delegates tasks and reads back results, writes their identity files, and manages their lifecycle. Authority is human-granted in the server registry, re-verified on every call, and hard-guarded — no self-kill, no deletes, no sandbox weakening. |
+| 💬 **Agents that talk to each other** | Any agent can message a sibling and have it read — the message wakes it, the reply comes back, and a hop budget ends the exchange instead of trusting it to stop. Ask your orchestrator to check something with a colleague and the answer lands in your chat. |
 | 🪟 **An app platform** | A Paw can ship its own UI, rendered as a panel under the dashboard's **Apps** tab — the way apps live on a desktop. The control plane becomes a self-hosted app you extend, one panel per paw. |
 
 ## Apps — paws that bring their own UI

@@ -147,6 +147,16 @@ The Chat tab is a channel, not just a reply box. The agent can [message you firs
 
 Unread counts survive a reload and a closed browser: the dashboard keeps a per-chat read watermark and recounts from the agent's session transcripts on reconnect, so a message sent at 3am is still marked unread when you open the page.
 
+### Conversations, in a sidebar
+
+Conversations are listed down the left, newest first — not hidden behind a picker you have to open to find out what is in it. Every message carries a **timestamp**, stamped as it arrives rather than only on reload, so a transcript can be lined up against the [live event log](#live-events-and-the-daily-log) or against what an agent claims it did. A reply is stamped when the answer lands, not when you asked.
+
+### Agent-to-agent threads
+
+Conversations between agents live behind a toggle that shows one set or the other, so they never mix with your own. They are **read-only** — you are not a participant, so there is no composer offering to post as one of them — and **both speakers are named**, since in that thread neither voice is yours. Without the separation they would appear in your session list and badge your inbox every time an orchestrator delegated on its heartbeat.
+
+When your question is what sent an agent to a colleague, you do not have to go looking: the colleague's answer is delivered into *your* chat, once, with a badge. See [Agent Conversations](/architecture#agent-conversations-agent-message) for how the reply finds its way back.
+
 ## Projects Tab
 
 Projects on the left, and for the selected one three sub-tabs:

@@ -194,6 +194,21 @@ vole skill install vole-orchestrate       # the supervisor playbook
 
 The flag lives in the server registry — outside every agent's sandbox — and is re-verified on every call, so revoking is instant. Guardrails: no self stop/restart, no removing agents, and config writes pass the same sandbox-weakening refusal as the dashboard.
 
+### Agent Conversations
+
+Every agent — orchestrator or not — gets `agent_message`, which says something to a sibling and has it read. The message lands in an ongoing thread with that agent, wakes it, and its reply comes back the same way. No polling.
+
+```
+you → orchestrator:  "ask yt-assistant what it found and let me know"
+orchestrator → yt-assistant   (agent_message, wakes it)
+yt-assistant → orchestrator   (its answer)
+        ↳ delivered into your chat, once
+```
+
+A hop budget (4) ends the exchange rather than relying on restraint — past it the message is still delivered, only the waking stops. When a person's question started the chain, the colleague's answer is relayed into that person's chat automatically; the relay address is spent on that answer, so the agents winding the conversation down afterwards stays in their own thread.
+
+Messaging is not orchestration: it lives under its own source (`__agent_chat__`), and both families are withheld from VoleNet peers.
+
 ### Heartbeat
 
 Periodic wake-up — the Brain checks `HEARTBEAT.md` and decides what to do. No user input needed. Give it either a plain interval or a cron expression (`cron` wins if both are set):

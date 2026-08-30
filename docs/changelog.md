@@ -1,6 +1,6 @@
 # Changelog
 
-## v4.18.0 (2026-08-25)
+## v4.18.0 (2026-08-30)
 
 > Ships as `openvole` 4.18.0 alongside `@openvole/dashboard-server` 0.16.0. Agents can talk to each other, `vole upgrade` covers skills as well as paws, and VoleDrop carries video-sized files.
 
@@ -38,6 +38,8 @@
 
   Control-plane tools are now withheld from the mesh by **source** (`CONTROL_PLANE_PAWS`), the same way remote tools are already kept from being echoed back. Excluding by source rather than by an `agent_*` name pattern means a tool added later cannot be missed by forgetting to update a pattern.
 
+- **Seven advisories cleared in the docs toolchain.** `mermaid` to 11.17.2 (four, including prototype pollution), which also picks up a patched `dompurify`; `nanoid` floored past its predictability advisory. All devDependencies — none ship in the published package. `nanoid` is capped at `^3.3.18` rather than floored openly, because `postcss` declares `^3.3.16` and a bare `>=` resolved it to nanoid 6, breaking that contract while the audit read clean.
+
 ### Fixed
 
 - **VoleDrop refused the files people most want to move.** A gameplay capture is routinely 6-14 GB and the transfer limit was 2 GiB, so the exact use case — hand a recording from the machine that made it to the machine that edits it — was the one that failed. `net.files.maxBytes` now defaults to **16 GiB**, and the disk is the real boundary: free space is already checked before an offer is accepted, and `0` lifts the byte ceiling entirely. The pipeline was never the problem; it streams and chunks throughout, and the arithmetic holds past a terabyte.
@@ -53,6 +55,14 @@
   A registry that cannot be reached is a note, not a failure: the paws still upgraded.
 
 - **Skill versions compared as strings.** `0.9.0` sorts after `0.10.0` lexically, so a skill nine releases behind looked current. Comparison is now numeric per segment (`isOlder`, exported from `skill/volehub.ts`).
+
+- **A tool called over MCP did not know which run it belonged to.** A brain that exposes its tools to a CLI (`CLAUDE_CODE_EXPOSE_TOOLS=1`) does not call them through the loop — it calls the agent's MCP endpoint, which is stateless and reached `execute()` with no context at all. Everything the context carries was therefore silently absent for those agents: a message never knew who was waiting, so its answer could not be relayed, and **the hop count reset to zero on every message**, so the budget meant to stop two agents talking forever never once engaged. Nothing errored; the features simply did nothing, which is why two rounds of prompt tuning could not reach it.
+
+  The context is now resolved from the running task, and only when there is exactly one. Above `taskConcurrency: 1` a stateless call cannot say which run it came from, and answering with "whichever started last" is the ambient-state mistake that files a reply under somebody else's conversation — better to carry no context than the wrong run's.
+
+- **Every turn of an agent conversation was relayed, not just the answer.** The relay address rode along with each message in the chain, so once the colleagues began winding down — "sounds good", "happy to help" — each of those turns landed in the asker's chat as though they had asked for it. Provenance says who was waiting, not that they are owed a copy of everything said afterwards. The address is now **spent on the answer**: one question, one answer. The agents may keep talking; that conversation stays in their own thread, where the hop budget ends it.
+
+- **Chat stamped messages only on reload.** Timestamps came from stored history, so a bubble created as you sent — or as a reply arrived — passed none and silently got no stamp at all. The times appeared only after reopening the panel, which is exactly when they are least useful. The meta row is now built in one place and can be applied to a bubble that already exists, so a pending reply is stamped when the answer lands rather than when the question was asked. The older flattened-transcript path was capturing a clock time in its regex and discarding it; it now uses it.
 
 ## v4.17.0 (2026-08-25)
 
