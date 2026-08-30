@@ -44,3 +44,19 @@ export interface ToolRegistryEntry {
 	inProcess: boolean
 	execute: (params: unknown, ctx?: ToolContext) => Promise<unknown>
 }
+
+/**
+ * Paws whose tools are backed by this agent's control plane, and must never be shared over VoleNet.
+ *
+ * They read as ordinary tools but execute against the local server — managing siblings, or speaking
+ * as this agent to one. A shared tool runs *on its owner*, so lending one of these to a peer lends
+ * the owner's authority with it: a peer that cannot manage agents itself could drive the owner's
+ * `agent_submit` and have every permission check pass, because by then the call really is the
+ * owner's. Excluded by **source** rather than by name — a name pattern would have to be kept in
+ * step with every tool ever added here, and would quietly miss the first one somebody forgets.
+ */
+export const CONTROL_PLANE_PAWS = ['__orchestrate__', '__agent_chat__'] as const
+
+export function isControlPlanePaw(pawName: string): boolean {
+	return (CONTROL_PLANE_PAWS as readonly string[]).includes(pawName)
+}

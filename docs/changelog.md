@@ -14,7 +14,13 @@
 
   **A delegated task reports back too.** `agent_submit` now records who asked, so a worker's finished answer is delivered to the coordinator as a message rather than sitting in the worker's own session waiting to be polled for. This is the case the complaint was actually about: a coordinator that delegates and then hears nothing.
 
-  **Messaging is not orchestration.** Every agent gets `agent_message`; the `agent_*` management family — submitting work, rewriting config or identity, restarting, creating — stays behind the orchestrator flag. Both travel the same reverse-RPC channel, so the split is enforced server-side in the control plane, not only by which tools are registered.
+  **Messaging is not orchestration**, and the registry says so. `agent_message` lives in its own module under its own paw name (`__agent_chat__`), separate from the `__orchestrate__` family — filing both under one source made messaging read as orchestration to anything inspecting the registry. Every agent gets `agent_message`; the `agent_*` management family — submitting work, rewriting config or identity, restarting, creating — stays behind the orchestrator flag. Both travel the same reverse-RPC channel, so the split is enforced server-side in the control plane, not only by which tools are registered.
+
+### Security
+
+- **A mesh peer could drive the control plane through its owner.** A VoleNet tool executes *on the node that owns it*, and a node with no `share.toolAllow` advertises everything it has — so an orchestrator on the mesh was lending `agent_submit`, `agent_write_config`, `agent_restart` and `agent_create` to every authorized peer. A peer that could not manage agents itself could call one and have every local check pass, because by then the call genuinely was the orchestrator's.
+
+  Control-plane tools are now withheld from the mesh by **source** (`CONTROL_PLANE_PAWS`), the same way remote tools are already kept from being echoed back. Excluding by source rather than by an `agent_*` name pattern means a tool added later cannot be missed by forgetting to update a pattern.
 
 ### Fixed
 

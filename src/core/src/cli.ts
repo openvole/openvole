@@ -2573,26 +2573,26 @@ async function runAgentDaemon(projectRoot: string): Promise<void> {
 	// split is enforced again server-side in handleOrchestrateRequest.
 	if (process.send) {
 		const { createParentClient } = await import('./agent/orchestrate-client.js')
-		const { createAgentMessageTool, createOrchestrateTools } = await import(
-			'./tool/orchestrate-tools.js'
-		)
+		const { AGENT_CHAT_PAW, createAgentMessageTool } = await import('./tool/agent-chat-tool.js')
+		const { createOrchestrateTools } = await import('./tool/orchestrate-tools.js')
 		const client = createParentClient()
 		const selfId = process.env.VOLE_AGENT_ID ?? process.env.VOLE_SPACE_ID ?? ''
 		const orchestrator = process.env.VOLE_ORCHESTRATOR === '1'
 		installOrchestrateTools = (eng) => {
-			eng.toolRegistry.register(
-				'__orchestrate__',
-				orchestrator
-					? [
-							createAgentMessageTool(client.call, selfId),
-							...createOrchestrateTools(client.call, selfId),
-						]
-					: [createAgentMessageTool(client.call, selfId)],
-				true,
-			)
-			// Keep these visible under tool horizon — reaching a sibling is not a niche action,
-			// and a message that arrived is unanswerable if the tool to answer it is hidden.
-			eng.toolRegistry.addAlwaysVisiblePaw('__orchestrate__')
+			// Two sources, because they are two different permissions. Registering them together
+			// under one paw name made messaging look like orchestration to anything reading the
+			// registry — including VoleNet, which decides what to lend a peer by source.
+			eng.toolRegistry.register(AGENT_CHAT_PAW, [createAgentMessageTool(client.call, selfId)], true)
+			eng.toolRegistry.addAlwaysVisiblePaw(AGENT_CHAT_PAW)
+			if (orchestrator) {
+				eng.toolRegistry.register(
+					'__orchestrate__',
+					createOrchestrateTools(client.call, selfId),
+					true,
+				)
+				// Keep agent_* visible under tool horizon — an orchestrator's core job.
+				eng.toolRegistry.addAlwaysVisiblePaw('__orchestrate__')
+			}
 		}
 	}
 	installOrchestrateTools(engine)

@@ -20,9 +20,29 @@ describe('agent messaging wiring', () => {
 		const cli = await read('cli.ts')
 		// Registration is no longer behind the orchestrator flag...
 		expect(cli).toContain('if (process.send) {')
-		// ...but the management set still is.
-		expect(cli).toMatch(/orchestrator\s*\?\s*\[\s*createAgentMessageTool/)
 		expect(cli).toContain("const orchestrator = process.env.VOLE_ORCHESTRATOR === '1'")
+		// ...but the management set still is, and under its own source.
+		expect(cli).toMatch(/if \(orchestrator\) \{[\s\S]{0,200}'__orchestrate__'/)
+	})
+
+	it('files messaging under a different source than orchestration', async () => {
+		const cli = await read('cli.ts')
+		// One paw name for both made messaging read as orchestration to anything inspecting the
+		// registry — including VoleNet, which decides what to lend a peer by source.
+		expect(cli).toContain('eng.toolRegistry.register(AGENT_CHAT_PAW,')
+		const chat = await read('tool/agent-chat-tool.ts')
+		expect(chat).toContain("export const AGENT_CHAT_PAW = '__agent_chat__'")
+		// And it no longer lives in the orchestrate module at all.
+		expect(await read('tool/orchestrate-tools.ts')).not.toContain('agent_message')
+	})
+
+	it('never lends a control-plane tool to a mesh peer', async () => {
+		const types = await read('tool/types.ts')
+		// By source, not by name pattern: a pattern has to be kept in step with every tool added
+		// and quietly misses the first one somebody forgets.
+		expect(types).toContain("CONTROL_PLANE_PAWS = ['__orchestrate__', '__agent_chat__']")
+		const net = await read('net/index.ts')
+		expect(net).toContain('.filter((t) => !isControlPlanePaw(t.pawName))')
 	})
 
 	it('exempts only messaging from the server-side gate', async () => {

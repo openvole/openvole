@@ -9,6 +9,7 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import { createLogger } from '../core/logger.js'
 import type { ToolRegistry } from '../tool/registry.js'
+import { isControlPlanePaw } from '../tool/types.js'
 import { type DiscoveryConfig, VoleNetDiscovery } from './discovery.js'
 import { type TransferInfo, VoleNetFiles, type VoleNetFilesConfig } from './files.js'
 import {
@@ -434,6 +435,10 @@ export class VoleNetManager {
 				const tools: RemoteToolInfo[] = this.toolRegistry
 					.list()
 					.filter((t) => !t.pawName.startsWith('__volenet')) // don't echo remote tools back
+					// Never lend the control plane. A shared tool executes on its owner, so a peer
+					// calling one of these would act with the owner's authority — every local check
+					// passes, because by then the call genuinely is the owner's.
+					.filter((t) => !isControlPlanePaw(t.pawName))
 					.filter((t) => isSharedTool(t.name, this.config.share?.toolAllow))
 					.map((t) => ({
 						name: t.name,
