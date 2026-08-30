@@ -65,9 +65,13 @@ describe('agent messaging wiring', () => {
 			adapter.indexOf("case 'agent_message'"),
 			adapter.indexOf("case 'task_status'"),
 		)
-		// Appended before the wake decision, so the message survives being over budget.
-		expect(block.indexOf('session_append')).toBeLessThan(block.indexOf('const woke'))
 		expect(block).toContain('hops < MAX_AGENT_HOPS')
+		// Recorded only when nothing will run. A run started with this session records its own
+		// opening message (paw-session appends the user turn at bootstrap), so doing both wrote
+		// every message to the transcript twice — each side showing the other's in duplicate.
+		expect(block).toMatch(/if \(!woke\) \{[\s\S]{0,300}session_append/)
+		// But an over-budget message must still land, or the last word of an exchange vanishes.
+		expect(block.indexOf('const woke')).toBeLessThan(block.indexOf('session_append'))
 		// The run carries the sender and the incremented count, or the reply cannot find its way
 		// back and the exchange never terminates.
 		expect(block).toContain('fromAgent: from')

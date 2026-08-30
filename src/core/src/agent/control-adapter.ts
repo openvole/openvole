@@ -291,15 +291,22 @@ export function installControlAdapter(engine: VoleEngine, projectRoot: string): 
 					}
 					const hops = Number(params.hops) || 0
 					const session = agentSessionId(from)
+					const woke = hops < MAX_AGENT_HOPS
 
-					const append = current.toolRegistry.get('session_append')
-					if (append) {
-						await append
-							.execute({ sessionId: session, role: 'user', content: text })
-							.catch(() => undefined)
+					// Record it ONLY when nothing will run, because a run started with this session
+					// records its own opening message: paw-session appends the user turn at
+					// bootstrap. Doing both wrote every message to the transcript twice — visible
+					// immediately in the first real exchange, as each side showing the other's
+					// message in duplicate.
+					if (!woke) {
+						const append = current.toolRegistry.get('session_append')
+						if (append) {
+							await append
+								.execute({ sessionId: session, role: 'user', content: text })
+								.catch(() => undefined)
+						}
 					}
 
-					const woke = hops < MAX_AGENT_HOPS
 					result = {
 						ok: true,
 						session,
