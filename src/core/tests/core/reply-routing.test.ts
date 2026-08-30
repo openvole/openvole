@@ -203,10 +203,10 @@ describe('provenance — who is actually waiting', () => {
 		expect(p).toContain('Answering for')
 		expect(p).toContain('dashboard')
 		expect(p).toContain('chat_send')
-		// The first attempt was too soft — the agent read it, answered the colleague, and left the
-		// person waiting. Relaying has to read as the next thing to do, not as an option.
-		expect(p).toContain('before you reply to anyone else')
-		expect(p).toContain('still waiting')
+		// Delivery is no longer the model's job — it happens whether the agent acts or not — so the
+		// prompt must not ask for the answer again, or the person gets it twice.
+		expect(p).toContain('already been passed to them')
+		expect(p).toContain('only if you have something the raw answer does not carry')
 	})
 
 	it('says nothing when the run is already answering the right person', () => {

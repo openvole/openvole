@@ -145,7 +145,6 @@ export function installControlAdapter(engine: VoleEngine, projectRoot: string): 
 			return () => eng.bus.off(event, handler as never)
 		})
 
-
 		unbindBus = () => {
 			for (const off of offs) off()
 		}
@@ -346,6 +345,20 @@ export function installControlAdapter(engine: VoleEngine, projectRoot: string): 
 					await append
 						.execute({ sessionId, role: String(params.role ?? 'brain'), content })
 						.catch(() => undefined)
+					// `notify` puts it in front of a person: the same event the chat channel emits,
+					// so an open dashboard shows it live and a closed one raises the unread badge.
+					// Appending alone is silent, and a silent answer is the bug this exists to fix.
+					if (params.notify && current.bus) {
+						current.bus.emit('channel:message', {
+							channel: 'chat',
+							dir: 'out',
+							sessionId,
+							text: content,
+							ts: Date.now(),
+							pawName: '__core__',
+							stored: true,
+						})
+					}
 					result = { ok: true }
 					break
 				}
@@ -370,8 +383,7 @@ export function installControlAdapter(engine: VoleEngine, projectRoot: string): 
 								// undefined, resets the count to zero on every hop, and the guard
 								// that stops two agents answering each other forever never fires.
 								hops: Number((t.metadata as { hops?: number } | undefined)?.hops) || 0,
-								relayTo:
-									(t.metadata as { relayTo?: string } | undefined)?.relayTo ?? undefined,
+								relayTo: (t.metadata as { relayTo?: string } | undefined)?.relayTo ?? undefined,
 							}
 						: { ok: false, error: `Task not found: ${params.taskId}` }
 					break

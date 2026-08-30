@@ -263,7 +263,7 @@ the correct end to a conversation that is finished.`)
 	) {
 		parts.push('')
 		parts.push(
-			`- **Answering for \`${metadata.relayTo}\`.** Somebody asked you a question and is still waiting on it; this thread is how you went to find out. Your reply here reaches the colleague, **not them** — they see none of this conversation. The moment you have their answer, send it with \`chat_send\` to \`${metadata.relayTo}\`, in your own words, before you reply to anyone else. Skip that only when nothing here bears on what they asked.`,
+			`- **Answering for \`${metadata.relayTo}\`.** Somebody asked you a question and this thread is how you went to find out. Their answer has already been passed to them, verbatim — you do not need to repeat it. Add a message with \`chat_send\` to \`${metadata.relayTo}\` only if you have something the raw answer does not carry: that it conflicts with what you know, that it does not actually settle what they asked, or what you did about it.`,
 		)
 	}
 

@@ -10,12 +10,12 @@ import {
 import { execa } from 'execa'
 import { loadConfig } from '../config/index.js'
 import { createLogger } from '../core/logger.js'
+import { agentFromSession, agentSessionId } from '../core/reply-address.js'
 import { type FileRootKey, ProjectFiles } from '../project/files.js'
 import { scanProjectRoot } from '../project/scan.js'
 import { ProjectStore } from '../project/store.js'
 import { TaskStore } from '../project/tasks.js'
 import { EventLog, dayKey } from './event-log.js'
-import { agentFromSession, agentSessionId } from '../core/reply-address.js'
 import { AgentManager } from './manager.js'
 
 const logger = createLogger('control-plane')
@@ -671,12 +671,33 @@ export class ControlPlane {
 			// The answer travels back with the same provenance it arrived with, so the run that
 			// receives it knows who has been waiting all along.
 			const finished = await this.taskFacts(fromId, d.taskId)
+			const fromName = sender?.name ?? fromId
 			await this.callAgent(target.id, 'agent_message', {
-				from: sender?.name ?? fromId,
+				from: fromName,
 				text: d.result,
 				hops: finished.hops,
 				relayTo: finished.relayTo,
 			})
+
+			// Put the answer in front of the person who asked for it.
+			//
+			// Telling the agent to relay did not work: asked to find something out from a
+			// colleague, it would ask, get the answer, reply to the colleague, and leave the
+			// person waiting — through two rounds of increasingly direct instruction. The reply
+			// arrives in a run that is *addressed to the colleague*, so relaying is a thing the
+			// model has to remember to do, and it does not.
+			//
+			// So delivery no longer depends on remembering. It only fires when a person's session
+			// started the chain, which is precisely the case where somebody is waiting; agent
+			// conversations nobody asked for stay out of the chat.
+			if (finished.relayTo && !agentFromSession(finished.relayTo)) {
+				await this.callAgent(target.id, 'thread_append', {
+					sessionId: finished.relayTo,
+					role: 'brain',
+					content: `**${fromName}** replied:\n\n${d.result}`,
+					notify: true,
+				}).catch(() => undefined)
+			}
 		} catch {
 			// A reply that cannot be delivered must not take the sending agent down with it. The
 			// answer is still in the worker's own transcript.

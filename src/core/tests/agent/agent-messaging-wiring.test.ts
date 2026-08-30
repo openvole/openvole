@@ -151,4 +151,23 @@ describe('agent messaging wiring', () => {
 		expect(tool).toContain('p.to ?? p.target')
 		expect(tool).toContain('to: z.string()')
 	})
+
+	it('puts the answer in front of the person who asked, without relying on the model', async () => {
+		const plane = await read('agent/control-plane.ts')
+		const fn = plane.slice(plane.indexOf('private async deliverAgentReply'))
+		// Two rounds of telling the agent to relay failed: the reply arrives in a run addressed to
+		// the colleague, so relaying is something the model must remember, and it did not.
+		expect(fn).toContain('sessionId: finished.relayTo')
+		expect(fn).toContain('notify: true')
+		expect(fn).toContain('replied:')
+		// Only when a person's session started the chain. Agent chatter nobody asked for must not
+		// land in the human's inbox.
+		expect(fn).toContain('finished.relayTo && !agentFromSession(finished.relayTo)')
+
+		const adapter = await read('agent/control-adapter.ts')
+		const block = adapter.slice(adapter.indexOf("case 'thread_append'"))
+		// Appending alone is silent; the event is what raises the badge and shows it live.
+		expect(block).toContain('channel:message')
+		expect(block).toContain('params.notify')
+	})
 })
