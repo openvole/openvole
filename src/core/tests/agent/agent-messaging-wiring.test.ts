@@ -107,7 +107,9 @@ describe('agent messaging wiring', () => {
 		// Provenance rides back the same way: the run that receives an answer has to be told who
 		// has been waiting since before the thread existed.
 		expect(fn).toContain('t?.relayTo')
-		expect(plane).toContain('relayTo: finished.relayTo')
+		// Spent on the answer rather than forwarded verbatim — see relay-once.test.ts, which
+		// covers what that does to a conversation that carries on afterwards.
+		expect(plane).toContain('relayTo: answering ? undefined : finished.relayTo')
 	})
 
 	it('carries who is waiting from the asking run to the answer', async () => {
@@ -162,7 +164,8 @@ describe('agent messaging wiring', () => {
 		expect(fn).toContain('replied:')
 		// Only when a person's session started the chain. Agent chatter nobody asked for must not
 		// land in the human's inbox.
-		expect(fn).toContain('finished.relayTo && !agentFromSession(finished.relayTo)')
+		expect(fn).toContain('!agentFromSession(finished.relayTo)')
+		expect(fn).toContain('if (answering)')
 
 		const adapter = await read('agent/control-adapter.ts')
 		const block = adapter.slice(adapter.indexOf("case 'thread_append'"))

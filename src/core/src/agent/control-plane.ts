@@ -672,11 +672,23 @@ export class ControlPlane {
 			// receives it knows who has been waiting all along.
 			const finished = await this.taskFacts(fromId, d.taskId)
 			const fromName = sender?.name ?? fromId
+
+			// One question, one answer. The person asked for a thing; this reply is that thing.
+			//
+			// The relay address is spent here, and does not travel on with the message. It used
+			// to, and because it did, every later turn still counted as "on behalf of" the
+			// person: the colleagues would wind the conversation down between themselves —
+			// "sounds good", "happy to help" — and each of those was relayed too. Provenance
+			// says who was waiting, not that they are owed a copy of everything said afterwards.
+			//
+			// The agents may keep talking. That conversation is theirs, it stays in their thread,
+			// and the hop budget ends it.
+			const answering = Boolean(finished.relayTo) && !agentFromSession(finished.relayTo)
 			await this.callAgent(target.id, 'agent_message', {
 				from: fromName,
 				text: d.result,
 				hops: finished.hops,
-				relayTo: finished.relayTo,
+				relayTo: answering ? undefined : finished.relayTo,
 			})
 
 			// Put the answer in front of the person who asked for it.
@@ -690,7 +702,7 @@ export class ControlPlane {
 			// So delivery no longer depends on remembering. It only fires when a person's session
 			// started the chain, which is precisely the case where somebody is waiting; agent
 			// conversations nobody asked for stay out of the chat.
-			if (finished.relayTo && !agentFromSession(finished.relayTo)) {
+			if (answering) {
 				await this.callAgent(target.id, 'thread_append', {
 					sessionId: finished.relayTo,
 					role: 'brain',
