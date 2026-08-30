@@ -16,6 +16,8 @@
 
   **A thread keeps both halves.** The recipient's side is written by the run a message wakes, but the sender writes from whatever conversation prompted it — so its own copy of the thread opened on the *reply*, with the question it had asked nowhere in it. The sender now records what it said.
 
+  **`agent_message` accepts the target its own schema names.** The alias list was copied from the orchestrate tools, whose parameter is `target`; this tool's is `to`, so a model following the schema exactly was told "Missing target". It worked at all only because models tended to guess `target`, mirroring `agent_submit`.
+
   **A reply knows who has been waiting.** A colleague's answer wakes a *new* run in the agent thread, blind to the conversation that prompted the question — so an agent that told someone "I'll relay what they say" had no way to keep the promise: the run holding the answer had never seen it made. The asking run's own reply address now travels with the message and comes back on the answer, and the prompt names it. Taken from the run rather than from the model, so an agent cannot nominate a conversation it was never part of.
 
   **Agents are told to stop talking.** A reply wakes the other side and costs it a full turn, so the prompt says not to answer merely to acknowledge, and never to acknowledge an acknowledgement. The hop budget drops from six to four: observed live, six allowed five wakes of pure politeness that ended in "Acknowledged" and "Standing by" — stopping because the models ran out of things to say, not because the budget bit.

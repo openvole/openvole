@@ -263,7 +263,7 @@ the correct end to a conversation that is finished.`)
 	) {
 		parts.push('')
 		parts.push(
-			`- Answering for: this thread was opened on behalf of \`${metadata.relayTo}\`. Your reply here goes to the colleague, not to them — if what you have learned answers what they asked, send it to them with \`chat_send\` naming that session. If it does not, say nothing to them.`,
+			`- **Answering for \`${metadata.relayTo}\`.** Somebody asked you a question and is still waiting on it; this thread is how you went to find out. Your reply here reaches the colleague, **not them** — they see none of this conversation. The moment you have their answer, send it with \`chat_send\` to \`${metadata.relayTo}\`, in your own words, before you reply to anyone else. Skip that only when nothing here bears on what they asked.`,
 		)
 	}
 

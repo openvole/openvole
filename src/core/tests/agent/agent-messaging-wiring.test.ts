@@ -142,4 +142,13 @@ describe('agent messaging wiring', () => {
 		const adapter = await read('agent/control-adapter.ts')
 		expect(adapter).toContain("case 'thread_append'")
 	})
+
+	it('accepts the target name its own schema advertises', async () => {
+		const tool = await read('tool/agent-chat-tool.ts')
+		// The alias list was copied from the orchestrate tools, whose schema says `target`. This
+		// tool's says `to`, so a model following the schema exactly got "Missing target" — it only
+		// worked live because the model guessed `target`, mirroring agent_submit.
+		expect(tool).toContain('p.to ?? p.target')
+		expect(tool).toContain('to: z.string()')
+	})
 })

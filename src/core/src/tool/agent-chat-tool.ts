@@ -34,9 +34,13 @@ export function createAgentMessageTool(
 			return { ok: false, error: err instanceof Error ? err.message : String(err) }
 		}
 	}
+	// `to` first, because that is what this tool's schema advertises — it was missing from the
+	// list copied over from the orchestrate tools, so a model following the schema exactly got
+	// "Missing target" and only the ones that guessed `target` (as agent_submit uses) got through.
+	// The aliases stay: models reach for all of these.
 	const targetOf = (params: unknown): string => {
 		const p = params as Record<string, unknown>
-		return (p.target ?? p.agentId ?? p.agent ?? p.id) as string
+		return (p.to ?? p.target ?? p.agentId ?? p.agent ?? p.id) as string
 	}
 	const guardSelf = (target: string, op: string): Record<string, unknown> | undefined =>
 		target === selfAgentId

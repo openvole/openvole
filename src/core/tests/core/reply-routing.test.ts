@@ -200,9 +200,13 @@ describe('provenance — who is actually waiting', () => {
 			replyTo: 'agent:video-editor',
 			relayTo: 'dashboard',
 		})
-		expect(p).toContain('Answering for:')
+		expect(p).toContain('Answering for')
 		expect(p).toContain('dashboard')
 		expect(p).toContain('chat_send')
+		// The first attempt was too soft — the agent read it, answered the colleague, and left the
+		// person waiting. Relaying has to read as the next thing to do, not as an option.
+		expect(p).toContain('before you reply to anyone else')
+		expect(p).toContain('still waiting')
 	})
 
 	it('says nothing when the run is already answering the right person', () => {
@@ -211,7 +215,7 @@ describe('provenance — who is actually waiting', () => {
 			replyTo: 'dashboard',
 			relayTo: 'dashboard',
 		})
-		expect(p).not.toContain('Answering for:')
+		expect(p).not.toContain('Answering for')
 		expect(buildSystemPrompt(content, [], [tool('agent_message')], {})).not.toContain(
 			'Answering for:',
 		)
