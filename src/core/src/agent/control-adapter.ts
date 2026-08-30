@@ -6,8 +6,9 @@ import {
 } from '../config/index.js'
 import { createAgentContext } from '../context/types.js'
 import type { BusEvents } from '../core/bus.js'
-import { MAX_AGENT_HOPS, agentSessionId } from '../core/reply-address.js'
+import { MAX_AGENT_HOPS, agentSessionId, hopsOf, replyAddressFor } from '../core/reply-address.js'
 import type { VoleEngine } from '../index.js'
+import type { ToolContext } from '../tool/types.js'
 
 /** Bus events forwarded to the control plane (mirrors the dashboard's subscriptions). */
 const FORWARDED_EVENTS: Array<keyof BusEvents> = [
@@ -37,6 +38,33 @@ const FORWARDED_EVENTS: Array<keyof BusEvents> = [
 	'volenet:pair:request',
 	'channel:message',
 ]
+
+/**
+ * The run a tool called over MCP belongs to — when that can be known without guessing.
+ *
+ * A brain that exposes tools to a CLI (`CLAUDE_CODE_EXPOSE_TOOLS=1`) does not call them through
+ * the loop; it calls the agent's MCP endpoint, which is stateless and reaches `execute()` with no
+ * context at all. Everything the context carries was therefore silently absent for those agents:
+ * a message never knew who was waiting, so its answer could not be relayed, and **the hop count
+ * reset to zero on every message**, so the guard against two agents talking forever never once
+ * engaged. Nothing failed; the features simply did nothing.
+ *
+ * Resolved from the running task, and only when there is exactly one. With `taskConcurrency` above
+ * one, a stateless call cannot say which run it came from, and answering with "whichever started
+ * last" is the ambient-state mistake that filed replies under the wrong chat. Better to carry no
+ * context than the wrong run's.
+ */
+export function mcpToolContext(engine: VoleEngine): ToolContext | undefined {
+	const running = engine.taskQueue.getRunning()
+	if (running.length !== 1) return undefined
+	const task = running[0]
+	const meta = (task.metadata ?? {}) as { relayTo?: unknown }
+	return {
+		replyTo: replyAddressFor(task),
+		hops: hopsOf(task),
+		relayTo: typeof meta.relayTo === 'string' ? meta.relayTo : undefined,
+	}
+}
 
 /** Aggregate engine state for the dashboard (shape matches PawRegistry.handleQuery). */
 function gatherState(engine: VoleEngine): Record<string, unknown> {
@@ -635,7 +663,7 @@ export function installControlAdapter(engine: VoleEngine, projectRoot: string): 
 							break
 						}
 					}
-					result = await t.execute(toolParams)
+					result = await t.execute(toolParams, mcpToolContext(current))
 					break
 				}
 				case 'restart':
