@@ -221,6 +221,31 @@ Your working directory is \`${content.workspaceDir}\` — put every file you cre
 		}
 	}
 
+	// Dynamic: how to reach a colleague.
+	//
+	// Stated rather than left to the tool list, because knowing a tool exists is not the same as
+	// knowing when it is the right one. Without this an agent asked to "check with video-editor"
+	// reaches for whatever it already uses — delegating a task, or writing to the human and asking
+	// them to relay — and a conversation that should have taken one message becomes a work item or
+	// a chore for somebody who was not needed.
+	if (availableTools.some((t) => t.name === 'agent_message')) {
+		parts.push('')
+		parts.push(`## Other agents
+
+You share this server with sibling agents, each with its own identity, tools and memory. When you
+need something *from* one of them — a question answered, a fact confirmed, a heads-up passed along —
+message that agent directly. Your message lands in your ongoing thread with them and wakes them to
+read it; their reply comes back to you the same way, so there is nothing to poll and no need to ask
+your human to carry it.
+
+Message them when you want an answer. Delegate a task instead when you want work done and tracked,
+and remember which one you chose: a reply is not a finished job.
+
+**They know nothing you have not told them.** A sibling sees none of your project, your files, your
+instructions or this conversation. Write what you send so it stands on its own — name paths in full,
+say what you already tried, and state what you actually want back.`)
+	}
+
 	// Dynamic: Runtime context
 	const now = new Date()
 	parts.push('')

@@ -152,3 +152,38 @@ describe('the loop carries the address into the run', () => {
 		expect(loop).toContain('replyTo: context.metadata.replyTo as string | undefined')
 	})
 })
+
+describe('the prompt says when to reach a colleague', () => {
+	const content = { brainMd: '', identityContext: '', workspaceFiles: [] } as never
+	const tool = (name: string) => ({ name, pawName: '__agent_chat__', description: '' }) as never
+
+	it('appears only when the agent can actually message someone', () => {
+		// Guidance for a capability you do not have is noise in every prompt forever.
+		expect(buildSystemPrompt(content, [], [], {})).not.toContain('## Other agents')
+		expect(buildSystemPrompt(content, [], [tool('agent_message')], {})).toContain('## Other agents')
+	})
+
+	it('does not make the model guess the tool name', () => {
+		// The point of putting this in the prompt is that a human should not have to say
+		// "use agent_message" — the agent should already know messaging is the move.
+		const p = buildSystemPrompt(content, [], [tool('agent_message')], {})
+		expect(p).toContain('message that agent directly')
+		// And should not route through the human instead.
+		expect(p).toContain('no need to ask')
+	})
+
+	it('separates a conversation from a work order', () => {
+		const p = buildSystemPrompt(content, [], [tool('agent_message')], {})
+		// The two paths answer different questions; conflating them is how a question became a
+		// task nobody closed.
+		expect(p).toContain('Delegate a task instead when you want work done and tracked')
+		expect(p).toContain('a reply is not a finished job')
+	})
+
+	it('warns that a sibling has none of your context', () => {
+		// The documented failure: a brief that reads fine to someone holding the project.
+		expect(buildSystemPrompt(content, [], [tool('agent_message')], {})).toContain(
+			'They know nothing you have not told them',
+		)
+	})
+})
