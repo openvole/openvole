@@ -829,6 +829,7 @@ async function runAct(
 		project: context.metadata.project as ProjectContextInfo | undefined,
 		replyTo: context.metadata.replyTo as string | undefined,
 		hops: hopsOf({ metadata: context.metadata }),
+		relayTo: context.metadata.relayTo as string | undefined,
 	}
 
 	if (execution === 'parallel') {

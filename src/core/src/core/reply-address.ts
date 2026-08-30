@@ -93,8 +93,12 @@ export function agentFromSession(sessionId: string | undefined): string | null {
  *
  * A message from a person starts at zero. Delivery past the budget still happens; only the *waking*
  * stops, so the last word lands in the transcript and is read on the next run instead of vanishing.
+ *
+ * Four, because ask → answer → clarify → confirm is a real exchange and anything past it usually is
+ * not. Observed on a live pair at six: five wakes ending in "Acknowledged" and "Standing by", which
+ * stopped only because the models ran out of things to say rather than because the budget bit.
  */
-export const MAX_AGENT_HOPS = 6
+export const MAX_AGENT_HOPS = 4
 
 export function hopsOf(task: Addressable | undefined): number {
 	const h = task?.metadata?.hops

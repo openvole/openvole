@@ -51,7 +51,7 @@ export function createAgentMessageTool(
 			to: z.string().describe('Agent id or name (see agent_list)'),
 			text: z.string().describe('What to say'),
 		}),
-		async execute(q: unknown, ctx?: { replyTo?: string; hops?: number }) {
+		async execute(q: unknown, ctx?: { replyTo?: string; hops?: number; relayTo?: string }) {
 			// `to` is read through targetOf, which also accepts the aliases models reach for.
 			const { text } = q as { text: string }
 			const body = (text ?? '').trim()
@@ -59,8 +59,20 @@ export function createAgentMessageTool(
 			const target = targetOf(q)
 			const self = guardSelf(target, 'message')
 			if (self) return self
+			// Why this thread exists, carried with it and echoed back on the reply.
+			//
+			// A colleague's answer wakes a *new* run in the agent thread, which knows nothing of the
+			// conversation that prompted the question — so an agent that told a person "I'll relay
+			// what they say" had no way to keep the promise: the run holding the answer had never
+			// seen it made. Passing the asker along means the reply arrives knowing who is waiting.
+			//
+			// Taken from the calling run rather than from the model: an agent naming its own relay
+			// target could post into a conversation it was never part of. Another agent thread is
+			// not worth carrying — the reply address already names that hop.
+			const origin = ctx?.relayTo || ctx?.replyTo
+			const relayTo = origin && origin.indexOf('agent:') !== 0 ? origin : undefined
 			// Carry this run's depth so a reply-to-a-reply eventually stops waking anyone.
-			return run('message', { target, text: body, hops: ctx?.hops ?? 0 })
+			return run('message', { target, text: body, hops: ctx?.hops ?? 0, relayTo })
 		},
 	}
 }

@@ -187,3 +187,40 @@ describe('the prompt says when to reach a colleague', () => {
 		)
 	})
 })
+
+describe('provenance — who is actually waiting', () => {
+	const content = { brainMd: '', identityContext: '', workspaceFiles: [] } as never
+	const tool = (name: string) => ({ name, pawName: '__agent_chat__', description: '' }) as never
+
+	it('tells a woken run that a person is still waiting', () => {
+		// A colleague's answer wakes a NEW run in the agent thread, blind to the conversation that
+		// prompted the question. Without this it answers the colleague and the person hears nothing
+		// — exactly what happened live: "I'll relay its reply" was promised by a run that had ended.
+		const p = buildSystemPrompt(content, [], [tool('agent_message')], {
+			replyTo: 'agent:video-editor',
+			relayTo: 'dashboard',
+		})
+		expect(p).toContain('Answering for:')
+		expect(p).toContain('dashboard')
+		expect(p).toContain('chat_send')
+	})
+
+	it('says nothing when the run is already answering the right person', () => {
+		// No relay needed when you are talking to the asker directly.
+		const p = buildSystemPrompt(content, [], [tool('agent_message')], {
+			replyTo: 'dashboard',
+			relayTo: 'dashboard',
+		})
+		expect(p).not.toContain('Answering for:')
+		expect(buildSystemPrompt(content, [], [tool('agent_message')], {})).not.toContain(
+			'Answering for:',
+		)
+	})
+
+	it('tells agents to stop rather than trade acknowledgements', () => {
+		// Observed live: five wakes ending in "Acknowledged" / "Standing by", each a brain call.
+		const p = buildSystemPrompt(content, [], [tool('agent_message')], {})
+		expect(p).toContain('End the exchange when you have nothing to add')
+		expect(p).toContain('never acknowledge an acknowledgement')
+	})
+})

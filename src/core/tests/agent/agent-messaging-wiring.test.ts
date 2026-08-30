@@ -102,7 +102,27 @@ describe('agent messaging wiring', () => {
 		expect(status).not.toMatch(/metadata: t\.metadata\b/)
 
 		const plane = await read('agent/control-plane.ts')
-		const fn = plane.slice(plane.indexOf('private async hopsOfTask'))
+		const fn = plane.slice(plane.indexOf('private async taskFacts'))
 		expect(fn).toContain('t?.hops')
+		// Provenance rides back the same way: the run that receives an answer has to be told who
+		// has been waiting since before the thread existed.
+		expect(fn).toContain('t?.relayTo')
+		expect(plane).toContain('relayTo: finished.relayTo')
+	})
+
+	it('carries who is waiting from the asking run to the answer', async () => {
+		const tool = await read('tool/agent-chat-tool.ts')
+		// Taken from the calling run, not from the model — an agent naming its own relay target
+		// could post into a conversation it was never part of.
+		expect(tool).toContain('const origin = ctx?.relayTo || ctx?.replyTo')
+		// Another agent thread is not worth carrying; the reply address already names that hop.
+		expect(tool).toContain("origin.indexOf('agent:') !== 0")
+
+		const adapter = await read('agent/control-adapter.ts')
+		const status = adapter.slice(
+			adapter.indexOf("case 'task_status'"),
+			adapter.indexOf("case 'chat_history'"),
+		)
+		expect(status).toContain('relayTo:')
 	})
 })

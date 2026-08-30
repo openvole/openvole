@@ -243,7 +243,28 @@ and remember which one you chose: a reply is not a finished job.
 
 **They know nothing you have not told them.** A sibling sees none of your project, your files, your
 instructions or this conversation. Write what you send so it stands on its own — name paths in full,
-say what you already tried, and state what you actually want back.`)
+say what you already tried, and state what you actually want back.
+
+**End the exchange when you have nothing to add.** A reply of yours wakes them again and costs them
+a full turn, so do not answer to acknowledge, and never acknowledge an acknowledgement. Silence is
+the correct end to a conversation that is finished.`)
+	}
+
+	// Dynamic: who has been waiting since before this thread started.
+	//
+	// A colleague's answer wakes a *new* run in the agent thread, with no sight of the conversation
+	// that prompted the question — so an agent that told someone "I'll relay what they say" had no
+	// way to keep the promise: the run holding the answer had never seen it made. This is the only
+	// place that run learns a person is still waiting.
+	if (
+		typeof metadata?.relayTo === 'string' &&
+		metadata.relayTo &&
+		metadata.relayTo !== metadata.replyTo
+	) {
+		parts.push('')
+		parts.push(
+			`- Answering for: this thread was opened on behalf of \`${metadata.relayTo}\`. Your reply here goes to the colleague, not to them — if what you have learned answers what they asked, send it to them with \`chat_send\` naming that session. If it does not, say nothing to them.`,
+		)
 	}
 
 	// Dynamic: Runtime context

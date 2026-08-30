@@ -60,6 +60,8 @@ describe('agent conversations', () => {
 		// Ask, clarify, answer, confirm is four turns and legitimate. The budget has to clear that
 		// or the guard becomes the bug — but stay finite, which is the whole point.
 		expect(MAX_AGENT_HOPS).toBeGreaterThanOrEqual(4)
-		expect(MAX_AGENT_HOPS).toBeLessThan(20)
+		// Six was observed to allow five wakes of pure politeness on a live pair. Four covers
+		// ask -> answer -> clarify -> confirm, and little past that is real.
+		expect(MAX_AGENT_HOPS).toBeLessThanOrEqual(6)
 	})
 })

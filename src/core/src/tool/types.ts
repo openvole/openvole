@@ -25,6 +25,12 @@ export interface ToolContext {
 	 * count onward. Without it every reply looks like a fresh conversation and nothing ever stops.
 	 */
 	hops?: number
+	/**
+	 * The conversation this run is ultimately answering, when it is not this one — a person who
+	 * asked a question that has since been passed to a colleague. Carried so their answer can find
+	 * its way back to whoever is actually waiting.
+	 */
+	relayTo?: string
 }
 
 /** A tool definition as provided by a Paw */

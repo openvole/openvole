@@ -313,7 +313,13 @@ export function installControlAdapter(engine: VoleEngine, projectRoot: string): 
 						delivered: true,
 						woke,
 						taskId: woke
-							? current.run(text, 'agent', session, { fromAgent: from, hops: hops + 1 })
+							? current.run(text, 'agent', session, {
+									fromAgent: from,
+									hops: hops + 1,
+									...(typeof params.relayTo === 'string' && params.relayTo
+										? { relayTo: params.relayTo }
+										: {}),
+								})
 							: undefined,
 						note: woke
 							? undefined
@@ -342,6 +348,8 @@ export function installControlAdapter(engine: VoleEngine, projectRoot: string): 
 								// undefined, resets the count to zero on every hop, and the guard
 								// that stops two agents answering each other forever never fires.
 								hops: Number((t.metadata as { hops?: number } | undefined)?.hops) || 0,
+								relayTo:
+									(t.metadata as { relayTo?: string } | undefined)?.relayTo ?? undefined,
 							}
 						: { ok: false, error: `Task not found: ${params.taskId}` }
 					break

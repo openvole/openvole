@@ -668,10 +668,14 @@ export class ControlPlane {
 			const sender = reg.agents.find((a) => a.id === fromId)
 			const target = reg.agents.find((a) => a.id === to || a.name === to)
 			if (!target || target.id === fromId) return
+			// The answer travels back with the same provenance it arrived with, so the run that
+			// receives it knows who has been waiting all along.
+			const finished = await this.taskFacts(fromId, d.taskId)
 			await this.callAgent(target.id, 'agent_message', {
 				from: sender?.name ?? fromId,
 				text: d.result,
-				hops: await this.hopsOfTask(fromId, d.taskId),
+				hops: finished.hops,
+				relayTo: finished.relayTo,
 			})
 		} catch {
 			// A reply that cannot be delivered must not take the sending agent down with it. The
@@ -679,14 +683,20 @@ export class ControlPlane {
 		}
 	}
 
-	/** The hop depth of a finished task, so its reply carries the count onward. */
-	private async hopsOfTask(agentId: string, taskId?: string): Promise<number> {
-		if (!taskId) return 0
+	/** What a finished task's reply needs to carry onward: how deep it is, and who is waiting. */
+	private async taskFacts(
+		agentId: string,
+		taskId?: string,
+	): Promise<{ hops: number; relayTo?: string }> {
+		if (!taskId) return { hops: 0 }
 		try {
-			const t = (await this.callAgent(agentId, 'task_status', { taskId })) as { hops?: number }
-			return Number(t?.hops) || 0
+			const t = (await this.callAgent(agentId, 'task_status', { taskId })) as {
+				hops?: number
+				relayTo?: string
+			}
+			return { hops: Number(t?.hops) || 0, relayTo: t?.relayTo || undefined }
 		} catch {
-			return 0
+			return { hops: 0 }
 		}
 	}
 
@@ -804,6 +814,7 @@ export class ControlPlane {
 					from: senderName,
 					text: String(params.text ?? ''),
 					hops,
+					relayTo: typeof params.relayTo === 'string' ? params.relayTo : undefined,
 				})
 			}
 			default:
