@@ -21,6 +21,7 @@ const logger = createLogger('volenet-transport')
 
 const WS_RECONNECT_INTERVAL_MS = 5_000
 const WS_RECONNECT_MAX_RETRIES = 10
+const WS_PING_INTERVAL_MS = 20_000 // liveness: a socket that misses one pong is dropped
 const MAX_MESSAGES_PER_MINUTE = 1200 // per source (IP / WS connection); generous — normal mesh traffic is well below
 const MAX_MESSAGE_BYTES = 1_000_000 // cap inbound HTTP message bodies (1 MB)
 const DEFAULT_MAX_CONNECTIONS = 1000 // cap concurrent inbound WebSocket connections (DoS)
@@ -45,6 +46,8 @@ export interface TransportConfig {
 	maxMessagesPerSecond?: number
 	/** Publish peer display names in /volenet/info (off by default — names are enumeration surface). */
 	publishNames?: boolean
+	/** Liveness: ping every socket this often (ms) and drop one that misses a pong. Default 20000; 0 disables. */
+	pingIntervalMs?: number
 }
 
 export type MessageHandler = (message: VoleNetMessage, peerId: string) => void
@@ -76,7 +79,9 @@ export class VoleNetTransport {
 	private nameResolver: ((peerId: string) => string | undefined) | null = null
 	private joinHandler: JoinHandler | null = null
 	private pairHandler: JoinHandler | null = null
-	private identityProvider: (() => { publicKey: string; name?: string }) | null = null
+	private identityProvider:
+		| (() => { publicKey: string; name?: string; instanceId?: string })
+		| null = null
 	/** VoleDrop data plane — handles /volenet/blob/* streamed requests. */
 	private blobHandler:
 		| ((req: http.IncomingMessage, res: http.ServerResponse, pathname: string) => boolean)
@@ -92,6 +97,10 @@ export class VoleNetTransport {
 	private onConnectCbs: Array<(peerId: string) => void> = []
 	private onDisconnectCbs: Array<(peerId: string) => void> = []
 	private seenMsgs = new Map<string, number>()
+	/** Every socket this transport owns, either direction — so stop() closes orphans too. */
+	private sockets = new Set<WebSocket>()
+	private alive = new WeakMap<WebSocket, boolean>()
+	private pingTimer: ReturnType<typeof setInterval> | null = null
 
 	constructor(config: TransportConfig) {
 		this.config = config
@@ -112,7 +121,7 @@ export class VoleNetTransport {
 	 * fetches (and fingerprints) before asking the operator here for consent. Public keys
 	 * are announced to every peer anyway; exposing one here is not an enumeration surface.
 	 */
-	setIdentityProvider(fn: () => { publicKey: string; name?: string }): void {
+	setIdentityProvider(fn: () => { publicKey: string; name?: string; instanceId?: string }): void {
 		this.identityProvider = fn
 	}
 
@@ -414,6 +423,7 @@ export class VoleNetTransport {
 				return
 			}
 			this.wsConnections++
+			this.track(ws)
 
 			const connKey = `ws:${++this.wsConnSeq}`
 			let authedPeerId: string | null = null
@@ -441,9 +451,9 @@ export class VoleNetTransport {
 					authedPeerId = message.from
 					clearTimeout(authTimer)
 					const existing = this.peers.get(message.from)
+					let bound = true
 					if (existing) {
-						existing.ws = ws
-						existing.connected = true
+						bound = this.adopt(existing, ws, 'in')
 					} else {
 						this.peers.set(message.from, {
 							peerId: message.from,
@@ -456,8 +466,10 @@ export class VoleNetTransport {
 							connecting: false,
 						})
 					}
-					logger.info(`WebSocket authenticated + bound to peer ${message.from.substring(0, 8)}`)
-					for (const cb of this.onConnectCbs) cb(message.from)
+					if (bound) {
+						logger.info(`WebSocket authenticated + bound to peer ${message.from.substring(0, 8)}`)
+						for (const cb of this.onConnectCbs) cb(message.from)
+					}
 				} else if (message.from !== authedPeerId) {
 					// A socket authenticated as one peer cannot later speak for another.
 					return
@@ -498,6 +510,7 @@ export class VoleNetTransport {
 		})
 
 		this.started = true
+		this.startPinging()
 	}
 
 	/** Bind the listening port, retrying briefly on EADDRINUSE (covers restart races). */
@@ -549,11 +562,24 @@ export class VoleNetTransport {
 	async stop(): Promise<void> {
 		if (!this.started) return
 		this.started = false
+		if (this.pingTimer) {
+			clearInterval(this.pingTimer)
+			this.pingTimer = null
+		}
 
 		for (const [, peer] of this.peers) {
 			if (peer.ws) peer.ws.close()
 			if (peer.reconnectTimer) clearTimeout(peer.reconnectTimer)
 		}
+		// Including any socket no peer entry references any more — see adopt().
+		for (const ws of this.sockets) {
+			try {
+				ws.terminate()
+			} catch {
+				/* already gone */
+			}
+		}
+		this.sockets.clear()
 		this.peers.clear()
 		this.seenMsgs.clear()
 		this.msgWindow.clear()
@@ -712,6 +738,85 @@ export class VoleNetTransport {
 		logger.info(`Peer removed: ${peerId.substring(0, 8)}`)
 	}
 
+	/**
+	 * One socket per pair.
+	 *
+	 * Two nodes that can both dial end up with two sockets between them, and each side binds the
+	 * OTHER's dial as the peer's socket while its own stays open, unreferenced. A stop() closes
+	 * what it references and leaves the orphan; the far side then keeps believing the peer is
+	 * connected, on a socket nothing will ever close, and forwards into it.
+	 *
+	 * When a second socket appears for a peer, the node with the smaller id counts as the dialer
+	 * and both sides keep that one — so they agree — and close the other. Only a genuine double
+	 * triggers this: a node that cannot be dialed keeps whatever socket it has. Without a known
+	 * self id, the newest wins.
+	 *
+	 * @returns false when the new socket was the one let go.
+	 */
+	private adopt(peer: PeerConnection, ws: WebSocket, dir: 'in' | 'out'): boolean {
+		const old = peer.ws
+		const oldLive =
+			old !== null &&
+			old !== ws &&
+			(old.readyState === WebSocket.OPEN || old.readyState === WebSocket.CONNECTING)
+		if (oldLive) {
+			const self = this.identityProvider?.()?.instanceId
+			const iDial = self !== undefined && self < peer.peerId
+			const keepOld = self !== undefined && ((iDial && dir === 'in') || (!iDial && dir === 'out'))
+			if (keepOld) {
+				this.drop(ws)
+				return false
+			}
+			peer.ws = null
+			this.drop(old)
+		}
+		peer.ws = ws
+		peer.connected = true
+		return true
+	}
+
+	/** Close a socket we are done with. Its close handler finds no peer referencing it and does nothing. */
+	private drop(ws: WebSocket): void {
+		try {
+			ws.close()
+		} catch {
+			/* already closing */
+		}
+	}
+
+	private track(ws: WebSocket): void {
+		this.sockets.add(ws)
+		this.alive.set(ws, true)
+		ws.on('pong', () => this.alive.set(ws, true))
+		ws.on('close', () => this.sockets.delete(ws))
+	}
+
+	/**
+	 * Liveness. A phone that walks out of Wi-Fi sends no close frame; without this its socket
+	 * would stay OPEN here for as long as TCP takes to notice, and everything sent to it is lost.
+	 * The ws library answers pings on its own, so the far side needs nothing.
+	 */
+	private startPinging(): void {
+		const every = this.config.pingIntervalMs ?? WS_PING_INTERVAL_MS
+		if (every <= 0) return
+		this.pingTimer = setInterval(() => {
+			for (const ws of this.sockets) {
+				if (ws.readyState !== WebSocket.OPEN) continue
+				if (this.alive.get(ws) === false) {
+					ws.terminate()
+					continue
+				}
+				this.alive.set(ws, false)
+				try {
+					ws.ping()
+				} catch {
+					/* closing */
+				}
+			}
+		}, every)
+		this.pingTimer.unref?.()
+	}
+
 	getPeers(): Array<{
 		peerId: string
 		endpoint: string
@@ -765,12 +870,12 @@ export class VoleNetTransport {
 		peer.connecting = true
 		try {
 			const ws = new WebSocket(wsUrl)
+			this.track(ws)
 
 			ws.on('open', () => {
-				peer.ws = ws
-				peer.connected = true
 				peer.connecting = false
 				peer.reconnectAttempts = 0
+				if (!this.adopt(peer, ws, 'out')) return // the pair's socket is the inbound one
 				logger.info(`WebSocket connected to ${peerId.substring(0, 8)}`)
 				// Push a signed message now so the remote binds this socket immediately
 				// (don't wait up to a heartbeat interval) — keeps reverse delivery consistent.
@@ -793,6 +898,11 @@ export class VoleNetTransport {
 				if (peer.ws === ws) {
 					peer.ws = null
 					peer.connected = false
+					// The bound socket went away — say so, exactly as the inbound path does. This
+					// only ever told the inbound side; a peer bound over OUR dial could vanish and
+					// nothing upstream (roster, notices) would hear about it.
+					logger.info(`WebSocket to ${peerId.substring(0, 8)} closed`)
+					for (const cb of this.onDisconnectCbs) cb(peerId)
 				}
 				// Reschedule on any close, including a failed initial connect (peer.ws never set).
 				this.scheduleReconnect(peerId)

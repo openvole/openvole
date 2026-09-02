@@ -135,6 +135,7 @@ export class ControlPlane {
 					this.callAgent(id, 'chat_compact', { sessionId, keepLast }, BRAIN_RPC_TIMEOUT_MS),
 				volenetInstances: (id) => this.callAgent(id, 'volenet_instances'),
 				volenetChatHistory: (peerId, id) => this.callAgent(id, 'volenet_chat_history', { peerId }),
+				volenetChatStatus: (id) => this.callAgent(id, 'volenet_chat_status'),
 				volenetChatSend: (peerId, text, id) =>
 					this.callAgent(id, 'volenet_chat_send', { peerId, text }),
 				volenetChatClear: (peerId, id) => this.callAgent(id, 'volenet_chat_clear', { peerId }),

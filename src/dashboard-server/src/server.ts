@@ -93,6 +93,7 @@ export interface DashboardCallbacks {
 	chatCompact?: (sessionId: string, keepLast: number, agentId?: string) => Promise<unknown>
 	volenetInstances?: (agentId?: string) => Promise<unknown>
 	volenetChatHistory?: (peerId?: string, agentId?: string) => Promise<unknown>
+	volenetChatStatus?: (agentId?: string) => Promise<unknown>
 	volenetChatSend?: (peerId: string, text: string, agentId?: string) => Promise<unknown>
 	volenetChatClear?: (peerId: string, agentId?: string) => Promise<unknown>
 	volenetRelayMembers?: (agentId?: string) => Promise<unknown>
@@ -678,6 +679,10 @@ export function createDashboardServer(
 				case 'volenet_chat_history': {
 					const p = cmd.params as { peerId?: string }
 					respond(await callbacks.volenetChatHistory?.(p?.peerId, sel()))
+					break
+				}
+				case 'volenet_chat_status': {
+					respond(await callbacks.volenetChatStatus?.(sel()))
 					break
 				}
 				case 'volenet_chat_send': {

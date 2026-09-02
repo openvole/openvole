@@ -409,6 +409,16 @@ The peer receives it framed as a peer message and runs it through its own Brain 
 
 [`vole serve`](/dashboard)'s **VoleNet tab** lists connected peers and lets a **human** chat with another node directly. The message lands in that node's VoleNet tab for a person to answer — the Brain is never invoked, so there's **no LLM cost**. Transcripts persist via paw-session (per-peer `volenet:<peerId>` sessions), capped and pruned by [`net.chatRetention`](/configuration#chat-retention) (default: last 1000/peer, cleared after 90 days idle). Useful for operators of different nodes to talk, or to exercise the mesh for free with the [mock brain](/paws-brain#mock-provider-testing).
 
+### When the other side is away
+
+A message to a relay member who is not connected is neither lost nor stored on the hub. It waits in **your own node's outbox** (`.openvole/net/chat_outbox.json`) and goes out the moment that member reappears in a hub roster — re-signed then, because a signature is only fresh for a minute, and carrying the time it was written, which is what the recipient sees. The hub keeps only a **notice**: who tried, how many times, and when. On reconnect the member is handed that notice, so its dashboard can say "X tried to reach you while you were away" before X is back to deliver.
+
+Why the hub holds nothing readable: envelopes are sealed to the recipient's *static* keys, with no ratchet, so ciphertext at rest on a third party would be retroactively readable if that key were ever compromised. A notice carries nothing to decrypt. The trade is availability — delivery needs the **sender** online when the recipient returns. For a phone talking to an always-on node that is automatic. For two phones it happens whenever both are open at once, and the notice is what the recipient sees in the meantime.
+
+Only an absent recipient queues. An envelope the hub refuses — over its size cap, or rate-limited — is reported as an error and not retried, and direct (non-relay) chat to an offline peer still reports `delivered: false`. Both stores expire after a week by default ([`relay.outboxTtlHours`, `relay.noticeTtlHours`](/configuration#volenet)).
+
+The transport pings every socket every 20 seconds and drops one that misses a pong, so a member that vanished without closing — a phone that walked out of Wi-Fi — reads as away within about 40 seconds rather than whenever TCP gives up. In the dashboard a held message is marked on its bubble, a notice appears as a banner at the top of that peer's chat, and a toast says when a held message finally goes out.
+
 ## File Transfer (VoleDrop)
 
 Send a file from one vole to another — machine-independently, end-to-end encrypted, with the receiver being an *agent inbox* rather than a Downloads folder. Two surfaces over one primitive:

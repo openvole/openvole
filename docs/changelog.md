@@ -1,5 +1,25 @@
 # Changelog
 
+## v4.19.0 (unreleased)
+
+> Ships as `openvole` 4.19.0 alongside `@openvole/dashboard-server` 0.17.0. Chat to a node that is away now waits on the sender and arrives when they are back — with nothing readable ever stored on a hub.
+
+### Added
+
+- **Chat to a member who is away is held, not lost.** A relayed message to a member the hub cannot reach used to come back as `delivered: false` and that was the end of it. It now waits in the **sender's own outbox** and goes out, re-signed, the moment the member reappears in a hub roster — carrying `sentAt`, the time it was written, which is what the recipient's transcript records. The hub keeps a **notice** only — sender, count, first and last time — and hands it to the member on reconnect, so the dashboard can say "X tried to reach you while you were away" before X is back to deliver. Both survive a restart on either side.
+
+  The hub deliberately holds no ciphertext: envelopes are sealed to the recipient's static keys with no ratchet, so a stored envelope would be retroactively readable on a later key compromise. A notice carries nothing to decrypt. The cost is that delivery needs the sender online when the recipient returns — automatic for a phone talking to an always-on node, and for two phones it happens whenever both are open at once.
+
+  Mechanics: the outer envelope carries an opaque `ref`, and the hub answers every one — `relay:ack` when forwarded, `relay:error` with `held: true` when the member is away — so a sender with several messages in flight knows which is which. A hub too old to answer is treated as before: the write to the hub counts as delivery. Only an absent recipient queues; a refused envelope (too large, rate-limited) is an error. New: `relay.outboxTtlHours` and `relay.noticeTtlHours` (both a week), `volenet_chat_status`, bus events `volenet:chat:queued` / `volenet:chat:flushed` / `volenet:chat:pending`. The VoleNet tab marks a held message on its bubble, shows the notice as a banner in that peer's chat, and toasts when a held message goes out.
+
+### Fixed
+
+- **Two nodes that could both dial each other kept two sockets and leaked one.** Each side bound the *other's* dial as the peer's socket and left its own open and unreferenced, so a `stop()` closed what it referenced and the far side went on believing the peer was connected — on a socket nothing would ever close — and forwarded into it. Now one socket per pair: when a second appears, the node with the smaller id counts as the dialer, both sides keep that one and close the other, and `stop()` terminates every socket the transport owns, referenced or not.
+
+- **A member bound over the hub's own dial could vanish unnoticed.** The outbound close handler flipped `connected` but never fired the disconnect callbacks — only the inbound path did — so no roster went out and nobody upstream heard. Both paths now report the same way.
+
+- **Sockets that die without a close frame are now noticed.** A phone leaving Wi-Fi sends nothing; its socket stayed OPEN for as long as TCP took to give up, and everything sent meanwhile was lost. The transport pings every socket every 20 s and drops one that misses a pong.
+
 ## v4.18.0 (2026-08-30)
 
 > Ships as `openvole` 4.18.0 alongside `@openvole/dashboard-server` 0.16.0. Agents can talk to each other, `vole upgrade` covers skills as well as paws, and VoleDrop carries video-sized files.

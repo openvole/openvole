@@ -4,12 +4,21 @@
  * Starts/stops with the engine.
  */
 
+import { randomUUID } from 'node:crypto'
 import * as fs from 'node:fs/promises'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { createLogger } from '../core/logger.js'
 import type { ToolRegistry } from '../tool/registry.js'
 import { isControlPlanePaw } from '../tool/types.js'
+import {
+	ChatOutbox,
+	DEFAULT_NOTICE_TTL_MS,
+	DEFAULT_OUTBOX_TTL_MS,
+	type OutboxEntry,
+	type RelayNotice,
+	RelayNotices,
+} from './chat-outbox.js'
 import { type DiscoveryConfig, VoleNetDiscovery } from './discovery.js'
 import { type TransferInfo, VoleNetFiles, type VoleNetFilesConfig } from './files.js'
 import {
@@ -45,6 +54,17 @@ const logger = createLogger('volenet')
  * the seal envelopes themselves, the relay envelopes (already end-to-end sealed to a third party),
  * and high-frequency leader election (not confidential). Everything else is sealed when enabled.
  */
+type MessageBus = import('../core/bus.js').MessageBus
+
+/** The hub's verdict on a sealed envelope we sent it. `timeout` means a hub too old to give one. */
+type RelayOutcome =
+	| { kind: 'ack' }
+	| { kind: 'held' }
+	| { kind: 'error'; reason: string }
+	| { kind: 'timeout' }
+/** How long to wait for that verdict before assuming an older hub (which never answers). */
+const RELAY_VERDICT_TIMEOUT_MS = 4000
+
 const PLAINTEXT_DIRECT_TYPES = new Set<VoleNetMessageType>([
 	'discover',
 	'discover:response',
@@ -57,6 +77,8 @@ const PLAINTEXT_DIRECT_TYPES = new Set<VoleNetMessageType>([
 	'sealed:direct',
 	'relay:deliver',
 	'relay:error',
+	'relay:ack',
+	'relay:pending',
 	'roster',
 	'leader:heartbeat',
 	'leader:claim',
@@ -225,6 +247,17 @@ export interface VoleNetConfig {
 		 * (community-hub behaviour). A list pre-authorises peers by name or instanceId prefix.
 		 */
 		acceptFrom?: '*' | string[]
+		/**
+		 * Hub side: how long a "somebody tried to reach you" notice is kept for a member who is
+		 * away, in hours. Default 168 (a week). A notice is sender, count and times — the message
+		 * itself is never held by the hub.
+		 */
+		noticeTtlHours?: number
+		/**
+		 * Member side: how long an undelivered chat message waits in THIS node's own outbox for
+		 * its recipient to reappear, in hours. Default 168 (a week).
+		 */
+		outboxTtlHours?: number
 	}
 	/**
 	 * Direct end-to-end encryption. When true, post-handshake messages to a peer that supports it
@@ -296,6 +329,18 @@ export class VoleNetManager {
 	private rosterTimer: ReturnType<typeof setTimeout> | undefined
 	/** Relay consent gate: instanceIds whose relayed chat I accept (persisted to relay_accepts). */
 	private relayAcceptIds = new Set<string>()
+	private messageBus: MessageBus | null = null
+	/** Sender side: chat the hub could not forward, waiting on its recipient. Own disk only. */
+	private chatOutbox: ChatOutbox | null = null
+	/** Sender side: envelopes awaiting the hub's verdict, keyed by the ref on the outer envelope. */
+	private relayInflight = new Map<string, { to: string; settle: (o: RelayOutcome) => void }>()
+	private outboxFlushing = false
+	/** Member side: who tried to reach me while I was away, as a hub told me on reconnect. */
+	private chatPending = new Map<string, RelayNotice & { viaHub: string }>()
+	/** Member side: when I last received chat from each sender — a notice older than that is stale. */
+	private lastChatFrom = new Map<string, number>()
+	/** Hub side: notices for members who are away. */
+	private relayNotices: RelayNotices | null = null
 	/** Relay: inbound connect-requests awaiting my approval (in-memory; keyed by requester id). */
 	private relayRequests = new Map<
 		string,
@@ -338,6 +383,7 @@ export class VoleNetManager {
 
 		this.toolRegistry = toolRegistry ?? null
 		const messageBus = bus
+		this.messageBus = bus ?? null
 		const netDir = this.getNetDir()
 
 		// Load or generate keypair
@@ -356,6 +402,22 @@ export class VoleNetManager {
 			this.relayAcceptIds = new Set((await loadRelayAccepts(netDir)).keys())
 		} catch {
 			this.relayAcceptIds = new Set()
+		}
+
+		// Chat that cannot be delivered waits on this node, never on a hub — see chat-outbox.ts.
+		const hoursToMs = (h: number | undefined, fallback: number) =>
+			typeof h === 'number' && h > 0 ? h * 60 * 60 * 1000 : fallback
+		this.chatOutbox = new ChatOutbox(
+			path.join(netDir, 'chat_outbox.json'),
+			hoursToMs(this.config.relay?.outboxTtlHours, DEFAULT_OUTBOX_TTL_MS),
+		)
+		await this.chatOutbox.load().catch(() => undefined)
+		if (this.config.relay?.enabled) {
+			this.relayNotices = new RelayNotices(
+				path.join(netDir, 'relay_notices.json'),
+				hoursToMs(this.config.relay?.noticeTtlHours, DEFAULT_NOTICE_TTL_MS),
+			)
+			await this.relayNotices.load().catch(() => undefined)
 		}
 
 		// Start transport
@@ -422,6 +484,7 @@ export class VoleNetManager {
 		// The initiator fetches our public key from /volenet/info to fingerprint us first.
 		this.transport.setIdentityProvider(() => ({
 			publicKey: this.keyPair?.publicKeyString ?? '',
+			instanceId: this.keyPair?.instanceId,
 			...(this.config.publishNames ? { name: this.config.instanceName ?? 'vole' } : {}),
 		}))
 		this.transport.setPairHandler((body, ip) => this.handlePairRequest(body, ip, messageBus))
@@ -891,7 +954,7 @@ export class VoleNetManager {
 				logger.warn(`Rejected unverified sealed envelope from ${message.from.substring(0, 8)}`)
 				return
 			}
-			const payload = message.payload as { to?: string; box?: SealedBox }
+			const payload = message.payload as { to?: string; box?: SealedBox; ref?: string }
 			if (!payload?.to || !payload.box) return
 			if (payload.to === this.keyPair.instanceId) {
 				// addressed to us — we are the recipient, not a relay
@@ -900,7 +963,11 @@ export class VoleNetManager {
 			}
 			if (!relayCfg?.enabled) return // not a relay — drop
 			const to = payload.to
-			const reject = (reason: string) => {
+			// An opaque reference the sender attached so it can tell which envelope a verdict is
+			// about. The hub cannot see inside, so without it a sender with two messages in
+			// flight could not know which one was refused. Older senders attach none.
+			const ref = typeof payload.ref === 'string' ? payload.ref : undefined
+			const reject = (reason: string, held = false) => {
 				logger.warn(
 					`Relay refused ${message.from.substring(0, 8)}→${to.substring(0, 8)}: ${reason}`,
 				)
@@ -908,17 +975,26 @@ export class VoleNetManager {
 					'relay:error',
 					this.keyPair!.instanceId,
 					message.from,
-					{ to, reason },
+					{ to, reason, ...(ref ? { ref } : {}), ...(held ? { held: true } : {}) },
 					this.keyPair!.privateKey,
 					this.keyPair!.pqPrivateKey,
 				)
 				void this.transport!.sendToPeer(message.from, err)
 			}
+			// The member is away. Remember that somebody tried — sender, count, when — and nothing
+			// else. The envelope goes back to the sender's own outbox; chat-outbox.ts says why the
+			// hub deliberately does not keep the ciphertext.
+			const holdForLater = () => {
+				const fromName =
+					this.discovery?.getInstances().find((i) => i.id === message.from)?.name ?? ''
+				void this.relayNotices?.record(to, message.from, fromName)
+				reject('peer-unreachable', true)
+			}
 			if (JSON.stringify(message).length > relayMaxBytes) return reject('too-large')
 			if (!relayPairAllow(this.relayWindows, message.from, to, relayMaxPerMinute))
 				return reject('rate-limited')
 			const bound = this.transport.getPeers().find((p) => p.peerId === to && p.connected)
-			if (!bound) return reject('peer-unreachable')
+			if (!bound) return holdForLater()
 			const wrap = createMessage(
 				'relay:deliver',
 				this.keyPair.instanceId,
@@ -927,7 +1003,21 @@ export class VoleNetManager {
 				this.keyPair.privateKey,
 				this.keyPair.pqPrivateKey,
 			)
-			void this.transport.sendToPeer(to, wrap)
+			void this.transport.sendToPeer(to, wrap).then((sent) => {
+				if (!sent) return holdForLater()
+				// A sender that attached a ref is waiting to hear the envelope went through, so its
+				// outbox can let the message go. One that attached none expects nothing.
+				if (!ref || !this.keyPair || !this.transport) return
+				const ack = createMessage(
+					'relay:ack',
+					this.keyPair.instanceId,
+					message.from,
+					{ to, ref },
+					this.keyPair.privateKey,
+					this.keyPair.pqPrivateKey,
+				)
+				void this.transport.sendToPeer(message.from, ack)
+			})
 		})
 
 		// Member side: a relay hub handed us a sealed envelope from another member.
@@ -952,16 +1042,68 @@ export class VoleNetManager {
 				if (m?.instanceId && m.instanceId !== this.keyPair?.instanceId) map.set(m.instanceId, m)
 			}
 			this.hubRosters.set(message.from, map)
+			// Anyone we are holding a message for may just have come back.
+			void this.flushChatOutbox()
 		})
 
 		this.transport.onMessage((message) => {
 			if (message.type !== 'relay:error') return
 			if (!this.discovery?.verifyMessageFrom(message)) return
-			const payload = message.payload as { to?: string; reason?: string }
+			const payload = message.payload as {
+				to?: string
+				reason?: string
+				ref?: string
+				held?: boolean
+			}
 			logger.warn(
 				`Relay could not deliver to ${payload?.to?.substring(0, 8) ?? '?'}: ${payload?.reason ?? 'unknown'}`,
 			)
+			this.settleRelay(payload)
 			messageBus?.emit('volenet:relay:error', { via: message.from, ...payload })
+		})
+
+		// Member side: the hub forwarded an envelope we attached a ref to.
+		this.transport.onMessage((message) => {
+			if (message.type !== 'relay:ack') return
+			if (!this.discovery?.verifyMessageFrom(message)) return
+			const payload = message.payload as { to?: string; ref?: string }
+			if (typeof payload?.ref !== 'string') return
+			this.relayInflight.get(payload.ref)?.settle({ kind: 'ack' })
+		})
+
+		// Member side: a hub telling us, on reconnect, who tried to reach us while we were away.
+		// Names and counts only. The messages themselves are still on the senders' machines and
+		// arrive once those senders see us in a roster — which the hub broadcasts right after this.
+		this.transport.onMessage((message) => {
+			if (message.type !== 'relay:pending') return
+			if (!this.discovery?.verifyMessageFrom(message)) return
+			const payload = message.payload as { senders?: RelayNotice[] }
+			if (!Array.isArray(payload?.senders) || payload.senders.length === 0) return
+			const now = Date.now()
+			const notices: RelayNotice[] = []
+			for (const n of payload.senders) {
+				if (!n || typeof n.from !== 'string' || !n.from) continue
+				// Their message may already be here: on reconnect the hub sends this notice to us
+				// and the roster to them, and the sender's delivery can win that race. A notice
+				// about attempts made before we last heard from them announces nothing.
+				const heard = this.lastChatFrom.get(n.from)
+				if (heard !== undefined && heard >= (Number(n.last) || 0)) continue
+				const notice: RelayNotice = {
+					from: n.from,
+					fromName:
+						typeof n.fromName === 'string' && n.fromName ? n.fromName : this.rosterName(n.from),
+					count: Math.max(1, Number(n.count) || 1),
+					first: Number(n.first) || now,
+					last: Number(n.last) || now,
+				}
+				this.chatPending.set(n.from, { ...notice, viaHub: message.from })
+				notices.push(notice)
+			}
+			if (notices.length === 0) return
+			logger.info(
+				`${notices.length} sender(s) tried to reach me while I was away (via ${message.from.substring(0, 8)})`,
+			)
+			messageBus?.emit('volenet:chat:pending', { via: message.from, from: notices })
 		})
 
 		// Hub side: broadcast the roster on membership changes (debounced).
@@ -972,6 +1114,10 @@ export class VoleNetManager {
 			}
 			this.transport.setOnConnect(schedule)
 			this.transport.setOnDisconnect(schedule)
+			// A member that just (re)connected is told who tried to reach it while it was away.
+			// On the connect itself rather than inferred from roster diffs, which have to trust
+			// that every disconnect was noticed.
+			this.transport.setOnConnect((id) => void this.sendRelayNotices(id))
 			logger.info(
 				`Relay enabled — sealed member↔member envelopes, ${relayMaxPerMinute}/min per pair, ${relayMaxBytes}B cap`,
 			)
@@ -1361,6 +1507,7 @@ export class VoleNetManager {
 		peerRef: string,
 		innerType: VoleNetMessageType,
 		innerPayload: Record<string, unknown>,
+		ref?: string,
 	): Promise<{
 		ok: boolean
 		delivered?: boolean
@@ -1396,7 +1543,7 @@ export class VoleNetManager {
 				'sealed',
 				this.keyPair.instanceId,
 				hubId,
-				{ to: member.instanceId, box },
+				{ to: member.instanceId, box, ...(ref ? { ref } : {}) },
 				this.keyPair.privateKey,
 				this.keyPair.pqPrivateKey,
 			)
@@ -1406,24 +1553,163 @@ export class VoleNetManager {
 		return { ok: false, error: `No connected peer: "${peerRef}"` }
 	}
 
-	/** Seal a chat message to a hub-rostered member and send it via that hub. */
+	/**
+	 * Seal a chat message to a hub-rostered member, send it via that hub, and wait for the hub's
+	 * verdict. Forwarded, or held: when the member is away the message goes to this node's own
+	 * outbox and leaves when the member reappears in a roster. A hub too old to give a verdict
+	 * is treated the way it always was — the write to the hub counts as the delivery.
+	 */
 	private async sendChatViaRelay(
 		peerRef: string,
 		text: string,
-	): Promise<{ ok: boolean; delivered?: boolean; relayed?: boolean; error?: string }> {
+	): Promise<{
+		ok: boolean
+		delivered?: boolean
+		queued?: boolean
+		relayed?: boolean
+		error?: string
+	}> {
 		const fromName = this.getInstanceName()
-		const r = await this.sealToMemberViaRelay(peerRef, 'chat:message', { text, fromName })
-		if (!r.ok || !r.member || !r.inner)
+		const sentAt = Date.now()
+		const ref = randomUUID()
+		const member = this.resolveRelayPeer(peerRef)
+		const verdict = this.awaitRelayVerdict(ref, member?.instanceId ?? peerRef)
+		const r = await this.sealToMemberViaRelay(
+			peerRef,
+			'chat:message',
+			{ text, fromName, sentAt },
+			ref,
+		)
+		if (!r.ok || !r.member || !r.inner) {
+			this.relayInflight.get(ref)?.settle({ kind: 'error', reason: r.error ?? 'unsealable' })
 			return { ok: false, error: r.error ?? `No connected peer: "${peerRef}"` }
+		}
 		await this.appendChat(r.member.instanceId, {
 			dir: 'out',
 			text,
 			fromName,
-			timestamp: r.inner.timestamp,
+			timestamp: sentAt,
 			messageId: r.inner.id,
 			relayed: true,
 		})
-		return { ok: true, delivered: r.delivered, relayed: true }
+		const o = await verdict
+		switch (o.kind) {
+			case 'ack':
+				return { ok: true, delivered: true, relayed: true }
+			case 'held': {
+				const entry = await this.chatOutbox?.add({
+					to: r.member.instanceId,
+					toName: r.member.name,
+					text,
+					sentAt,
+				})
+				if (entry) {
+					logger.info(`${r.member.name} is away — holding the message here until they are back`)
+					this.messageBus?.emit('volenet:chat:queued', {
+						to: entry.to,
+						toName: entry.toName,
+						ref: entry.ref,
+						text,
+						sentAt,
+						via: r.hubId ?? '',
+					})
+				}
+				return { ok: true, delivered: false, queued: true, relayed: true }
+			}
+			case 'error':
+				return { ok: true, delivered: false, relayed: true, error: o.reason }
+			default:
+				return { ok: true, delivered: r.delivered, relayed: true }
+		}
+	}
+
+	/**
+	 * The hub's verdict on an envelope we sent: forwarded, held because the member is away,
+	 * refused — or silence, from a hub too old to give one.
+	 */
+	private awaitRelayVerdict(ref: string, to: string): Promise<RelayOutcome> {
+		return new Promise<RelayOutcome>((resolve) => {
+			const finish = (o: RelayOutcome) => {
+				clearTimeout(timer)
+				this.relayInflight.delete(ref)
+				resolve(o)
+			}
+			const timer = setTimeout(() => finish({ kind: 'timeout' }), RELAY_VERDICT_TIMEOUT_MS)
+			this.relayInflight.set(ref, { to, settle: finish })
+		})
+	}
+
+	/**
+	 * Route a hub's relay:error to the envelope it is about. Older hubs echo no ref, so a verdict
+	 * without one settles everything in flight to that member — in practice the one message.
+	 */
+	private settleRelay(p: { to?: string; reason?: string; ref?: string; held?: boolean }): void {
+		const outcome: RelayOutcome =
+			p.held || p.reason === 'peer-unreachable'
+				? { kind: 'held' }
+				: { kind: 'error', reason: p.reason ?? 'unknown' }
+		if (typeof p.ref === 'string') {
+			this.relayInflight.get(p.ref)?.settle(outcome)
+			return
+		}
+		if (!p.to) return
+		for (const f of [...this.relayInflight.values()]) if (f.to === p.to) f.settle(outcome)
+	}
+
+	/**
+	 * Send what is waiting for anyone who is back. Runs on every roster update, so a member
+	 * reappearing on a hub is what triggers delivery — nothing polls. One message at a time and
+	 * in order, so a conversation arrives the way it was written.
+	 */
+	private async flushChatOutbox(): Promise<void> {
+		if (!this.chatOutbox || this.outboxFlushing || this.chatOutbox.size === 0) return
+		this.outboxFlushing = true
+		try {
+			for (const e of await this.chatOutbox.sweep()) {
+				logger.warn(
+					`Gave up on a message to ${e.toName || e.to.substring(0, 8)} written ${new Date(e.sentAt).toISOString()} — they never came back`,
+				)
+			}
+			const stillAway = new Set<string>()
+			for (const entry of this.chatOutbox.list()) {
+				if (stillAway.has(entry.to)) continue
+				const member = this.resolveRelayPeer(entry.to)
+				if (!member?.connected) continue
+				const ref = randomUUID()
+				const verdict = this.awaitRelayVerdict(ref, entry.to)
+				// Re-signed now: a signature is fresh for a minute and this may have waited days.
+				// `sentAt` tells the recipient when it was actually written.
+				const r = await this.sealToMemberViaRelay(
+					entry.to,
+					'chat:message',
+					{ text: entry.text, fromName: this.getInstanceName(), sentAt: entry.sentAt },
+					ref,
+				)
+				if (!r.ok) {
+					this.relayInflight.get(ref)?.settle({ kind: 'error', reason: r.error ?? 'unsealable' })
+					await this.chatOutbox.noteAttempt(entry.ref, r.error)
+					continue
+				}
+				const o = await verdict
+				if (o.kind === 'ack' || o.kind === 'timeout') {
+					await this.chatOutbox.remove(entry.ref)
+					logger.info(
+						`Delivered to ${entry.toName || entry.to.substring(0, 8)} a message that waited since ${new Date(entry.sentAt).toISOString()}`,
+					)
+					this.messageBus?.emit('volenet:chat:flushed', {
+						to: entry.to,
+						toName: entry.toName,
+						ref: entry.ref,
+						sentAt: entry.sentAt,
+					})
+				} else {
+					await this.chatOutbox.noteAttempt(entry.ref, o.kind === 'error' ? o.reason : 'held')
+					if (o.kind === 'held') stillAway.add(entry.to)
+				}
+			}
+		} finally {
+			this.outboxFlushing = false
+		}
 	}
 
 	/**
@@ -1543,6 +1829,16 @@ export class VoleNetManager {
 		return [...this.relayRequests.values()].sort((a, b) => b.ts - a.ts)
 	}
 
+	/** Chat waiting on this node for recipients who are away. Own disk only, never a hub's. */
+	getChatOutbox(): OutboxEntry[] {
+		return this.chatOutbox?.list() ?? []
+	}
+
+	/** Who tried to reach me while I was away, per the hub that told me. Cleared as their messages arrive. */
+	getChatPending(): Array<RelayNotice & { viaHub: string }> {
+		return [...this.chatPending.values()].sort((a, b) => b.last - a.last)
+	}
+
 	/** Unseal, verify, and ingest an envelope addressed to us. Allowlist: chat, consent, files. */
 	private deliverSealed(
 		fromId: string,
@@ -1637,9 +1933,18 @@ export class VoleNetManager {
 		}
 
 		// chat:message
-		const payload = inner.payload as { text?: string; fromName?: string }
+		const payload = inner.payload as { text?: string; fromName?: string; sentAt?: number }
 		if (!payload?.text) return
 		const fromName = payload.fromName || fromId.substring(0, 8)
+		// A message that waited in the sender's outbox says when it was written. That is the time
+		// to keep — not when the re-signed envelope finally crossed the hub. Bounded so a sender
+		// cannot claim a future, beyond ordinary clock skew.
+		const sentAt =
+			typeof payload.sentAt === 'number' &&
+			payload.sentAt > 0 &&
+			payload.sentAt <= inner.timestamp + 60_000
+				? payload.sentAt
+				: inner.timestamp
 		if (!directlyTrusted && !this.isRelayAccepted(fromId, fromName)) {
 			this.recordRelayRequest(fromId, fromName)
 			bus?.emit('volenet:relay:request', { from: fromId, fromName })
@@ -1648,11 +1953,13 @@ export class VoleNetManager {
 			)
 			return
 		}
+		this.chatPending.delete(fromId)
+		this.lastChatFrom.set(fromId, Math.max(inner.timestamp, this.lastChatFrom.get(fromId) ?? 0))
 		void this.appendChat(fromId, {
 			dir: 'in',
 			text: payload.text,
 			fromName,
-			timestamp: inner.timestamp,
+			timestamp: sentAt,
 			messageId: inner.id,
 			relayed: true,
 		})
@@ -1661,7 +1968,7 @@ export class VoleNetManager {
 			fromName,
 			text: payload.text,
 			messageId: inner.id,
-			timestamp: inner.timestamp,
+			timestamp: sentAt,
 			relayed: true,
 		})
 	}
@@ -1743,6 +2050,24 @@ export class VoleNetManager {
 			)
 			void this.transport.sendToPeer(id, msg)
 		}
+	}
+
+	/** Hand a member that just reconnected everything the hub noted for it while it was away. */
+	private async sendRelayNotices(memberId: string): Promise<void> {
+		if (!this.relayNotices || !this.keyPair || !this.transport) return
+		const senders = await this.relayNotices.take(memberId)
+		if (senders.length === 0) return
+		const msg = createMessage(
+			'relay:pending',
+			this.keyPair.instanceId,
+			memberId,
+			{ senders },
+			this.keyPair.privateKey,
+			this.keyPair.pqPrivateKey,
+		)
+		const sent = await this.transport.sendToPeer(memberId, msg)
+		// Dropped off again before we could say so — keep them for next time.
+		if (!sent) await this.relayNotices.restore(memberId, senders)
 	}
 
 	/** Rosters received from relay hubs (hub instanceId → member directory). */

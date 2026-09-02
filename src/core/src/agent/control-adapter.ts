@@ -25,6 +25,9 @@ const FORWARDED_EVENTS: Array<keyof BusEvents> = [
 	'rate:limited',
 	'volenet:tool:executed',
 	'volenet:chat',
+	'volenet:chat:queued',
+	'volenet:chat:flushed',
+	'volenet:chat:pending',
 	'volenet:relay:request',
 	'volenet:relay:accepted',
 	'volenet:relay:denied',
@@ -552,6 +555,15 @@ export function installControlAdapter(engine: VoleEngine, projectRoot: string): 
 					const vn = (globalThis as any).__volenet__
 					const history = vn?.isActive() ? await vn.getChatHistory(params.peerId as string) : []
 					result = { ok: true, history }
+					break
+				}
+				case 'volenet_chat_status': {
+					// What is waiting on this node for people who are away, and who tried to reach
+					// this node while it was away. Neither is ever held by a hub.
+					const vn = (globalThis as any).__volenet__
+					result = vn?.isActive()
+						? { ok: true, outbox: vn.getChatOutbox(), pending: vn.getChatPending() }
+						: { ok: true, outbox: [], pending: [] }
 					break
 				}
 				case 'volenet_chat_send': {

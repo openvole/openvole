@@ -1044,6 +1044,7 @@ export function getDashboardHtml(wsPort: number): string {
   .vn-info { flex: 0 0 auto; color: var(--text-dim); cursor: pointer; font-size: 13px; padding: 0 2px; }
   .vn-info:hover { color: var(--accent); }
   .vn-msg-relayed { font-size: 10px; color: var(--accent3, #d2a8ff); margin: 0 0 2px 2px; }
+  .vn-pending-banner { font-size: 12px; color: var(--text-dim); background: rgba(128,128,128,0.08); border: 1px dashed rgba(128,128,128,0.5); border-radius: 8px; padding: 8px 10px; margin: 4px 0 10px; }
   .vn-connect-toggle { float: right; font-size: 10px; padding: 1px 8px; border-radius: 6px; border: 1px solid var(--accent); background: none; color: var(--accent); cursor: pointer; }
   .vn-connect-toggle:hover { background: var(--accent); color: #fff; }
   #vn-connect-panel { border: 1px solid var(--border); border-radius: 8px; padding: 10px; margin-bottom: 10px; display: flex; flex-direction: column; gap: 6px; font-size: 12px; }
@@ -4953,6 +4954,7 @@ function selectVnPeer(peerId) {
     if (h.length) {
       for (var i = 0; i < h.length; i++) addVnBubble(h[i].dir, h[i].text, h[i].relayed);
     }
+    vnApplyChatStatus(peerId);
     // Restore live file-transfer state: history only carries 📎 marker text, so a
     // pending offer's Accept/Decline (or an in-flight transfer's progress) would be
     // lost if this chat wasn't open when the offer arrived.
@@ -4996,6 +4998,65 @@ function addVnBubble(dir, text, relayed) {
   return el;
 }
 
+/* ── Away: what waits in my outbox for this peer, and who tried to reach me while I was gone ──
+   Neither is ever held by a hub. A message to someone who is away stays on THIS node and goes
+   when they are back; a hub only remembers that somebody tried. */
+var VN_HELD_NOTE = '  (held here — they are away; sends when they are back)';
+function vnApplyChatStatus(peerId) {
+  var box = document.getElementById('vn-messages');
+  if (!box || vnSelectedPeer !== peerId) return;
+  var epoch = viewEpoch;
+  sendCommand('volenet_chat_status').then(function(res) {
+    if (viewChanged(epoch) || vnSelectedPeer !== peerId || !res) return;
+    // Clear what an earlier pass drew, then draw the current truth.
+    var oldBanner = box.querySelector('.vn-pending-banner');
+    if (oldBanner) oldBanner.remove();
+    var held = box.querySelectorAll('.vn-msg-held');
+    for (var i = 0; i < held.length; i++) {
+      held[i].classList.remove('vn-msg-held', 'chat-msg-pending');
+      var orig = held[i].getAttribute('data-text');
+      if (orig !== null) held[i].textContent = orig;
+    }
+    var outbox = (res.outbox || []).filter(function(e) { return e.to === peerId; });
+    // Match each waiting message to the last unmarked outgoing bubble with its text.
+    var bubbles = box.querySelectorAll('.chat-msg-user');
+    for (var j = 0; j < outbox.length; j++) {
+      for (var k = bubbles.length - 1; k >= 0; k--) {
+        var b = bubbles[k];
+        if (b.classList.contains('vn-msg-held') || b.classList.contains('vn-file-bubble')) continue;
+        if (b.textContent !== outbox[j].text) continue;
+        b.setAttribute('data-text', outbox[j].text);
+        b.classList.add('vn-msg-held', 'chat-msg-pending');
+        b.textContent = outbox[j].text + VN_HELD_NOTE;
+        break;
+      }
+    }
+    var pend = (res.pending || []).filter(function(p) { return p.from === peerId; })[0];
+    if (pend) {
+      var ban = document.createElement('div');
+      ban.className = 'vn-pending-banner';
+      var n = pend.count || 1;
+      ban.textContent = (pend.fromName || 'They') + ' tried to reach you '
+        + (n === 1 ? 'once' : n + ' times') + ' while you were away (last ' + fmtStamp(pend.last) + '). '
+        + 'The message is still on their node and arrives when they are back online.';
+      box.insertBefore(ban, box.firstChild);
+    }
+  }).catch(function() {});
+}
+function volenetOnOutboxEvent(event, data, agentId) {
+  if (agentId !== undefined && currentAgentId && agentId !== currentAgentId) return;
+  if (!data) return;
+  if (event === 'volenet:chat:queued') {
+    showToast((data.toName || 'That node') + ' is away — holding your message until they are back', 'success');
+  } else if (event === 'volenet:chat:flushed') {
+    showToast('Delivered to ' + (data.toName || 'that node') + ' — they are back', 'success');
+  } else if (event === 'volenet:chat:pending') {
+    var names = (data.from || []).map(function(p) { return p.fromName || 'a node'; });
+    if (names.length) showToast(names.join(', ') + ' tried to reach you while you were away', 'success');
+  }
+  if (currentTab === 'volenet' && vnSelectedPeer) vnApplyChatStatus(vnSelectedPeer);
+}
+
 function sendVolenetChat() {
   var input = document.getElementById('vn-input');
   var text = input.value.trim();
@@ -5018,9 +5079,13 @@ function sendVolenetChat() {
     if (!res || res.ok === false) {
       el.className = 'chat-msg chat-msg-error';
       el.textContent = text + '  —  failed: ' + ((res && res.error) || 'unknown');
+    } else if (res.queued) {
+      el.setAttribute('data-text', text);
+      el.classList.add('vn-msg-held', 'chat-msg-pending');
+      el.textContent = text + VN_HELD_NOTE;
     } else if (res.delivered === false) {
       el.classList.add('chat-msg-pending');
-      el.textContent = text + '  (peer offline — not delivered)';
+      el.textContent = text + '  (not delivered' + (res.error ? ': ' + res.error : '') + ')';
     }
   }).catch(function(e) {
     if (viewChanged(epoch)) return;
@@ -6639,6 +6704,10 @@ ws.onmessage = function(evt) {
     if (msg.event === 'volenet:relay:request' || msg.event === 'volenet:relay:accepted'
         || msg.event === 'volenet:relay:denied') {
       volenetOnRelayEvent(msg.event, msg.data, msg.agentId);
+    }
+    if (msg.event === 'volenet:chat:queued' || msg.event === 'volenet:chat:flushed'
+        || msg.event === 'volenet:chat:pending') {
+      volenetOnOutboxEvent(msg.event, msg.data, msg.agentId);
     }
     if (msg.event && msg.event.indexOf('volenet:file:') === 0) {
       volenetOnFileEvent(msg.event, msg.data, msg.agentId);

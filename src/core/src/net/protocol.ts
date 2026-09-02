@@ -44,6 +44,11 @@ export type VoleNetMessageType =
 	| 'sealed:direct'
 	| 'relay:deliver'
 	| 'relay:error'
+	// Hub → sender: the envelope it attached this ref to was forwarded. Lets an outbox let go.
+	| 'relay:ack'
+	// Hub → member, on reconnect: who tried to reach it while it was away. Names and counts
+	// only — the messages themselves wait on the senders' own machines (see chat-outbox.ts).
+	| 'relay:pending'
 	| 'roster'
 	// Relay consent handshake (sealed inner types): a member must be accepted before its
 	// relayed chat is delivered. A requests, the recipient approves or denies.

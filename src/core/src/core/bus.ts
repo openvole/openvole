@@ -57,6 +57,22 @@ export type BusEvents = {
 		to?: string
 		reason?: string
 	}
+	/** A chat message could not be delivered — the member is away — and now waits in MY outbox. */
+	'volenet:chat:queued': {
+		to: string
+		toName: string
+		ref: string
+		text: string
+		sentAt: number
+		via: string
+	}
+	/** A message that had been waiting in my outbox has now reached its recipient. */
+	'volenet:chat:flushed': { to: string; toName: string; ref: string; sentAt: number }
+	/** On reconnecting to a hub: who tried to reach me while I was away. Their messages follow. */
+	'volenet:chat:pending': {
+		via: string
+		from: Array<{ from: string; fromName: string; count: number; first: number; last: number }>
+	}
 	/** A relay member asked to connect — awaiting this agent's approval. */
 	'volenet:relay:request': { from: string; fromName: string; note?: string }
 	/** A relay member accepted this agent's connect-request. */
