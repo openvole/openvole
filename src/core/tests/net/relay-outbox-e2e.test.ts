@@ -197,6 +197,31 @@ describe('chat to a member who is away', () => {
 	)
 
 	it(
+		'a connection request waits too, and arrives when they are back',
+		{ timeout: 150000 },
+		async () => {
+			await b.stop()
+			await until(() => !hubSees(bId))
+
+			// Asking to connect used to be fire-and-forget: to someone who had just locked their
+			// phone it simply vanished, which is the first thing a phone user notices.
+			const r = await a.requestRelayConnect('member-b', 'let me in')
+			expect(r).toMatchObject({ ok: true, queued: true })
+			const held = a.getChatOutbox().find((e) => e.kind === 'connect-request')
+			expect(held).toMatchObject({ to: bId, toName: 'member-b', note: 'let me in' })
+
+			b = new VoleNetManager(memberCfg('member-b', MB), rootB)
+			await b.start()
+			await until(() => b.getRelayRequests().some((q) => q.id === aId), 35000)
+			expect(b.getRelayRequests().find((q) => q.id === aId)).toMatchObject({
+				name: 'member-a',
+				note: 'let me in',
+			})
+			await until(() => a.getChatOutbox().length === 0)
+		},
+	)
+
+	it(
 		'a refused envelope is not queued — only an absent recipient is',
 		{ timeout: 15000 },
 		async () => {

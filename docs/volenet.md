@@ -417,6 +417,8 @@ Why the hub holds nothing readable: envelopes are sealed to the recipient's *sta
 
 Only an absent recipient queues. An envelope the hub refuses — over its size cap, or rate-limited — is reported as an error and not retried, and direct (non-relay) chat to an offline peer still reports `delivered: false`. Both stores expire after a week by default ([`relay.outboxTtlHours`, `relay.noticeTtlHours`](/configuration#volenet)).
 
+The **consent handshake waits the same way**: a connect request, approval or denial to a member who is away is held in your outbox and delivered when they are back, carrying its note. `requestRelayConnect` and `approveRelayConnect` report `queued: true` in that case.
+
 The transport pings every socket every 20 seconds and drops one that misses a pong, so a member that vanished without closing — a phone that walked out of Wi-Fi — reads as away within about 40 seconds rather than whenever TCP gives up. In the dashboard a held message is marked on its bubble, a notice appears as a banner at the top of that peer's chat, and a toast says when a held message finally goes out.
 
 ## File Transfer (VoleDrop)

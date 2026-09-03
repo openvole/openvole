@@ -1,5 +1,15 @@
 # Changelog
 
+## v4.20.0 (2026-09-03)
+
+> Ships as `openvole` 4.20.0. A connection request to someone who is away now waits and arrives when they are back, the way chat already does.
+
+### Fixed
+
+- **A connection request to a member who was away simply vanished.** `agent_message` chat has waited in the sender's outbox since 4.19.0, but the relay consent handshake — request, accept, deny — was still fire-and-forget: it was sealed, handed to the hub, and forgotten. To a member who had just locked their phone that meant nothing arrived and nobody was told, which is the first thing a phone client notices.
+
+  Consent traffic now goes through the same verdict-and-hold path as chat. The hub's `held` answer puts the request in the sender's own outbox (`kind: 'connect-request'`, with its note), and it is re-signed and delivered when the member reappears in a roster. `requestRelayConnect` and `approveRelayConnect` report `queued: true` when that happens. Entries written before this release have no `kind` and are still treated as chat.
+
 ## v4.19.0 (2026-09-03)
 
 > Ships as `openvole` 4.19.0 alongside `@openvole/dashboard-server` 0.17.0. Chat to a node that is away now waits on the sender and arrives when they are back — with nothing readable ever stored on a hub.

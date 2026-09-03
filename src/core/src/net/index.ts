@@ -1679,10 +1679,16 @@ export class VoleNetManager {
 				const verdict = this.awaitRelayVerdict(ref, entry.to)
 				// Re-signed now: a signature is fresh for a minute and this may have waited days.
 				// `sentAt` tells the recipient when it was actually written.
+				const kind = entry.kind ?? 'chat'
+				const fromName = this.getInstanceName()
 				const r = await this.sealToMemberViaRelay(
 					entry.to,
-					'chat:message',
-					{ text: entry.text, fromName: this.getInstanceName(), sentAt: entry.sentAt },
+					kind === 'chat' ? 'chat:message' : `relay:${kind}`,
+					kind === 'chat'
+						? { text: entry.text, fromName, sentAt: entry.sentAt }
+						: kind === 'connect-request'
+							? { fromName, ...(entry.note ? { note: entry.note } : {}) }
+							: { fromName },
 					ref,
 				)
 				if (!r.ok) {
@@ -1771,19 +1777,57 @@ export class VoleNetManager {
 	async requestRelayConnect(
 		peerRef: string,
 		note?: string,
-	): Promise<{ ok: boolean; error?: string }> {
+	): Promise<{ ok: boolean; queued?: boolean; error?: string }> {
 		const fromName = this.getInstanceName()
-		const r = await this.sealToMemberViaRelay(peerRef, 'relay:connect-request', { fromName, note })
+		const r = await this.sendConsentViaRelay(peerRef, 'connect-request', { fromName, note }, note)
 		if (!r.ok || !r.member)
 			return { ok: false, error: r.error ?? `No connected peer: "${peerRef}"` }
 		this.relayAcceptIds.add(r.member.instanceId)
 		this.relayOutgoing.add(r.member.instanceId)
 		await this.persistRelayAccept(r.member)
-		return { ok: true }
+		return { ok: true, ...(r.queued ? { queued: true } : {}) }
+	}
+
+	/**
+	 * Consent traffic goes through the same verdict-and-hold path as chat. It used to be
+	 * fire-and-forget, so a request to a member who had just locked their phone simply vanished —
+	 * and, on the older hub, so did the fact that anything had been sent.
+	 */
+	private async sendConsentViaRelay(
+		peerRef: string,
+		kind: 'connect-request' | 'connect-accept' | 'connect-deny',
+		payload: Record<string, unknown>,
+		note?: string,
+	): Promise<{ ok: boolean; member?: RosterMember; queued?: boolean; error?: string }> {
+		const member = this.resolveRelayPeer(peerRef)
+		const ref = randomUUID()
+		const verdict = this.awaitRelayVerdict(ref, member?.instanceId ?? peerRef)
+		const r = await this.sealToMemberViaRelay(peerRef, `relay:${kind}`, payload, ref)
+		if (!r.ok || !r.member) {
+			this.relayInflight.get(ref)?.settle({ kind: 'error', reason: r.error ?? 'unsealable' })
+			return { ok: false, error: r.error }
+		}
+		const o = await verdict
+		if (o.kind === 'held') {
+			await this.chatOutbox?.add({
+				kind,
+				to: r.member.instanceId,
+				toName: r.member.name,
+				text: '',
+				note,
+				sentAt: Date.now(),
+			})
+			logger.info(`${r.member.name} is away — holding the ${kind} here until they are back`)
+			return { ok: true, member: r.member, queued: true }
+		}
+		if (o.kind === 'error') return { ok: false, member: r.member, error: o.reason }
+		return { ok: true, member: r.member }
 	}
 
 	/** Approve an inbound connect-request: consent to the peer, persist it, and notify the peer. */
-	async approveRelayConnect(peerRef: string): Promise<{ ok: boolean; error?: string }> {
+	async approveRelayConnect(
+		peerRef: string,
+	): Promise<{ ok: boolean; queued?: boolean; error?: string }> {
 		const member = this.resolveRelayPeer(peerRef)
 		if (!member) return { ok: false, error: `No relay member: "${peerRef}"` }
 		this.relayAcceptIds.add(member.instanceId)
@@ -1791,8 +1835,8 @@ export class VoleNetManager {
 		this.relayRequests.delete(member.instanceId)
 		await this.persistRelayAccept(member)
 		const fromName = this.getInstanceName()
-		await this.sealToMemberViaRelay(member.instanceId, 'relay:connect-accept', { fromName })
-		return { ok: true }
+		const r = await this.sendConsentViaRelay(member.instanceId, 'connect-accept', { fromName })
+		return { ok: true, ...(r.queued ? { queued: true } : {}) }
 	}
 
 	/** Deny an inbound connect-request: clear it and (best-effort) tell the peer. */
@@ -1801,7 +1845,7 @@ export class VoleNetManager {
 		this.relayRequests.delete(member?.instanceId ?? peerRef)
 		if (member) {
 			const fromName = this.getInstanceName()
-			await this.sealToMemberViaRelay(member.instanceId, 'relay:connect-deny', { fromName })
+			await this.sendConsentViaRelay(member.instanceId, 'connect-deny', { fromName })
 		}
 		return { ok: true }
 	}

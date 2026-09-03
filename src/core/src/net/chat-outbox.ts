@@ -22,6 +22,10 @@ import * as crypto from 'node:crypto'
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 
+/** What an outbox entry is. Consent traffic waits the same way chat does — a request that
+ * vanished because the other side was away was the first thing a phone user noticed. */
+export type OutboxKind = 'chat' | 'connect-request' | 'connect-accept' | 'connect-deny'
+
 /** A message waiting on its recipient. `sentAt` is when it was written, which is what the recipient should see. */
 export interface OutboxEntry {
 	ref: string
@@ -31,6 +35,10 @@ export interface OutboxEntry {
 	sentAt: number
 	attempts: number
 	lastError?: string
+	/** Absent on entries written before consent traffic was held: chat. */
+	kind?: OutboxKind
+	/** connect-request only. */
+	note?: string
 }
 
 /** What a hub tells a member on reconnect about one sender. */
