@@ -1,6 +1,6 @@
 # Changelog
 
-## v4.19.0 (unreleased)
+## v4.19.0 (2026-09-03)
 
 > Ships as `openvole` 4.19.0 alongside `@openvole/dashboard-server` 0.17.0. Chat to a node that is away now waits on the sender and arrives when they are back — with nothing readable ever stored on a hub.
 
@@ -19,6 +19,10 @@
 - **A member bound over the hub's own dial could vanish unnoticed.** The outbound close handler flipped `connected` but never fired the disconnect callbacks — only the inbound path did — so no roster went out and nobody upstream heard. Both paths now report the same way.
 
 - **Sockets that die without a close frame are now noticed.** A phone leaving Wi-Fi sends nothing; its socket stayed OPEN for as long as TCP took to give up, and everything sent meanwhile was lost. The transport pings every socket every 20 s and drops one that misses a pong.
+
+### Security
+
+- **Six advisories cleared under the dashboard's MCP SDK and Express.** `fast-uri` to 4.1.4 (four high, `ajv>fast-uri` floor raised past 4.1.3) and `qs` to 6.16.0 (two moderate). Both are already-overridden transitive dependencies; the consumers' own ranges admit the fixed versions.
 
 ## v4.18.0 (2026-08-30)
 
