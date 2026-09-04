@@ -2,7 +2,15 @@
 
 ## v4.20.0 (2026-09-03)
 
-> Ships as `openvole` 4.20.0. A connection request to someone who is away now waits and arrives when they are back, the way chat already does.
+> Ships as `openvole` 4.20.0. A connection request to someone who is away now waits and arrives when they are back, the way chat already does, and a peer with no address can finally be named in `net.peers`.
+
+### Added
+
+- **`net.peers` entries can name a peer by identity, not just by address.** An entry was matched to a connected peer by its `url` — by port, or by host — so a peer that advertises no endpoint could never match one. A phone running the VoleNet chat app dials out and is never dialled, so no entry ever applied to it and it fell through to whatever `net.publicJoin` allows *anyone*. Letting your own phone use your agent's brain and letting every guest use it were the same setting, and an agent with `publicJoin` off had no setting at all.
+
+  An entry may now carry `id` — the full instance id, or a prefix of at least 8 characters — or `name`, matched against the peer's announced name. Identity is checked before address, so existing url entries behave exactly as before, and `url` is now optional for an entry that only says what a peer may do. Note that `trust` still defaults to `"full"` when omitted: set it explicitly (`"read"` is usually right for a phone).
+
+  This is also why a paired phone never appeared in `net.peers`: accepting a pair request trusts the key in `.openvole/net/authorized_voles` and writes a peer entry only when the requester advertised an endpoint to dial.
 
 ### Fixed
 

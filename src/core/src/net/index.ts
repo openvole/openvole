@@ -135,8 +135,21 @@ export interface VoleNetConfig {
 	publicUrl?: string
 	keyPath?: string
 	peers?: Array<{
-		url: string
-		/** What this peer can do on OUR instance */
+		/**
+		 * Where to reach this peer. Also how the entry is matched to a connected peer, by
+		 * port or host. Omit it for a peer that has no address of its own — a phone, or
+		 * anything behind NAT that can only dial us — and identify it with `id`/`name`.
+		 */
+		url?: string
+		/**
+		 * Match by instance id instead of address (a full id, or a prefix of at least 8
+		 * characters). This is the only way to name a peer that advertises no endpoint,
+		 * and the only stable one for a peer whose address moves.
+		 */
+		id?: string
+		/** Match by announced instance name. Weaker than `id` — a name is not proof of identity. */
+		name?: string
+		/** What this peer can do on OUR instance. Defaults to 'full' — set it for a guest. */
 		trust?: 'full' | 'tool' | 'read'
 		allowTools?: string[]
 		denyTools?: string[]
@@ -458,7 +471,9 @@ export class VoleNetManager {
 			privateKey: this.keyPair.privateKey,
 			pqPrivateKey: this.keyPair.pqPrivateKey,
 			publicKeyString: this.keyPair.publicKeyString,
-			configuredPeerUrls: (this.config.peers ?? []).map((p) => p.url),
+			configuredPeerUrls: (this.config.peers ?? [])
+				.map((p) => p.url)
+				.filter((u): u is string => typeof u === 'string' && u.length > 0),
 			xPublicKeyB64: this.keyPair.xPublicKeyB64,
 			mlkemPublicKeyB64: this.keyPair.mlkemPublicKeyB64,
 		}
@@ -1258,7 +1273,10 @@ export class VoleNetManager {
 
 		// Connect to configured peers
 		if (this.config.peers) {
+			// An entry with no url is identity-only (a phone, or anything that can only dial
+			// us): there is nothing to connect to, it just says what that peer may do here.
 			for (const peer of this.config.peers) {
+				if (!peer.url) continue
 				logger.info(`Connecting to peer: ${peer.url}`)
 				await this.discovery.connectToPeer(peer.url)
 			}
@@ -1267,6 +1285,7 @@ export class VoleNetManager {
 			// pings first and is idempotent, so re-announcing to connected peers is cheap.
 			this.peerConnectTimer = setInterval(() => {
 				for (const peer of this.config.peers ?? []) {
+					if (!peer.url) continue
 					this.discovery?.connectToPeer(peer.url).catch(() => {})
 				}
 			}, 15_000)
@@ -2664,7 +2683,9 @@ export class VoleNetManager {
 	 * Matches by port (handles localhost vs real IP) or by instance name.
 	 */
 	private matchPeerConfig(peerId: string): {
-		url: string
+		url?: string
+		id?: string
+		name?: string
 		trust?: string
 		allowTools?: string[]
 		denyTools?: string[]
@@ -2674,7 +2695,20 @@ export class VoleNetManager {
 		const instance = this.discovery?.getInstances().find((i) => i.id === peerId)
 		if (!instance) return null
 
+		// Identity first. A peer that advertises no endpoint — a phone, anything that can only
+		// dial us — can never match by address, so this is the only way to say what it may do.
+		// An id prefix must be long enough to mean something; a name is convenience, not proof.
 		for (const peerConfig of this.config.peers) {
+			if (peerConfig.id) {
+				const want = peerConfig.id.trim()
+				if (want.length >= 8 && (peerId === want || peerId.startsWith(want))) return peerConfig
+			} else if (peerConfig.name && instance.name === peerConfig.name) {
+				return peerConfig
+			}
+		}
+
+		for (const peerConfig of this.config.peers) {
+			if (!peerConfig.url) continue
 			try {
 				const configUrl = new URL(peerConfig.url)
 				const configPort = configUrl.port || (configUrl.protocol === 'https:' ? '443' : '80')

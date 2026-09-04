@@ -430,11 +430,29 @@ Distributed agent networking — connect multiple OpenVole instances across mach
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `url` | `string` | Peer endpoint URL. |
-| `trust` | `string` | `"full"`: all access. `"tool"`: specific tools only. `"read"`: memory search only. |
+| `url` | `string` | Peer endpoint URL. Also how the entry is matched to a connected peer — by port, or by host. |
+| `id` | `string` | Match by instance id instead: the full id, or a prefix of at least 8 characters. |
+| `name` | `string` | Match by announced instance name. Convenience, not proof — prefer `id`. |
+| `trust` | `string` | `"full"`: all access. `"tool"`: specific tools only. `"read"`: memory search only. **Default `"full"`** — set it explicitly for anything that is not your own fleet. |
 | `allowTools` | `string[]` | Tools this peer can execute on our instance. Glob patterns supported (`shell_*`). If set, only matching tools are allowed. |
 | `denyTools` | `string[]` | Tools this peer cannot use on our instance. Glob patterns supported. Takes precedence over `allowTools`. |
 | `allowBrain` | `boolean` | Allow this peer to delegate thinking to our Brain (LLM cost on us). **Default: `false`** — off even for `trust: "full"`. |
+
+#### Peers that have no address
+
+An entry is normally matched to a connected peer by its `url`. Some peers have no address to match on: a phone running the chat app, or anything behind NAT, dials out and is never dialled. Name those by identity instead — it is the only way to say what they may do, and the only stable way to name a peer whose address moves.
+
+```json
+{
+  "net": {
+    "peers": [
+      { "id": "3f9c1a77b2e40d58", "trust": "read", "allowBrain": true }
+    ]
+  }
+}
+```
+
+Pairing does not write these for you: accepting a pair request trusts the peer's key in `.openvole/net/authorized_voles`, and adds a `peers` entry only if the peer advertised an endpoint to dial. A peer without one is trusted but unlisted, and gets whatever `publicJoin` allows anyone until you name it here.
 
 A peer may call our tools at all only if it has explicit `trust: "tool"` or `trust: "full"` in `peers`, **or** we set `share.tools: true` (below). Per-peer `allowTools`/`denyTools` then refine which tools. By default tools are **not** exposed to peers.
 
