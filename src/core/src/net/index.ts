@@ -19,6 +19,7 @@ import {
 	type RelayNotice,
 	RelayNotices,
 } from './chat-outbox.js'
+import { DEFAULT_RESULT_TTL_MS, ResultOutbox } from './result-outbox.js'
 import { type DiscoveryConfig, VoleNetDiscovery } from './discovery.js'
 import { type TransferInfo, VoleNetFiles, type VoleNetFilesConfig } from './files.js'
 import {
@@ -354,6 +355,12 @@ export class VoleNetManager {
 	private lastChatFrom = new Map<string, number>()
 	/** Hub side: notices for members who are away. */
 	private relayNotices: RelayNotices | null = null
+	/** Brain answers whose asker had gone by the time they were ready — see result-outbox.ts. */
+	private resultOutbox: ResultOutbox | null = null
+	/** Peers a flush is already running for, so a burst of pings does not send an answer twice. */
+	private flushingResults = new Set<string>()
+	/** The polling timers waiting on delegated tasks, so stopping cancels them. */
+	private delegationTimers = new Set<ReturnType<typeof setInterval>>()
 	/** Relay: inbound connect-requests awaiting my approval (in-memory; keyed by requester id). */
 	private relayRequests = new Map<
 		string,
@@ -425,6 +432,12 @@ export class VoleNetManager {
 			hoursToMs(this.config.relay?.outboxTtlHours, DEFAULT_OUTBOX_TTL_MS),
 		)
 		await this.chatOutbox.load().catch(() => undefined)
+		// An answer nobody could receive waits here rather than being written to a dead socket.
+		this.resultOutbox = new ResultOutbox(
+			path.join(netDir, 'result_outbox.json'),
+			hoursToMs(this.config.relay?.outboxTtlHours, DEFAULT_RESULT_TTL_MS),
+		)
+		await this.resultOutbox.load().catch(() => undefined)
 		if (this.config.relay?.enabled) {
 			this.relayNotices = new RelayNotices(
 				path.join(netDir, 'relay_notices.json'),
@@ -504,6 +517,15 @@ export class VoleNetManager {
 		}))
 		this.transport.setPairHandler((body, ip) => this.handlePairRequest(body, ip, messageBus))
 		await this.loadPairRequests()
+
+		// Anything verified from a peer proves its channel is live, which is the moment to hand
+		// over an answer it was not around to receive. A phone announces and then pings, so this
+		// fires within a second of it reopening — there is nothing to poll and nothing to ask for.
+		this.transport.onMessage((message) => {
+			if (!this.resultOutbox?.has(message.from)) return
+			if (!this.discovery?.verifyMessageFrom(message)) return
+			void this.flushResultsFor(message.from)
+		})
 
 		// Handle tool:list requests — respond with our local tools
 		this.transport.onMessage((message) => {
@@ -843,20 +865,11 @@ export class VoleNetManager {
 				// Check if this peer is allowed to use our brain
 				if (!this.isPeerAllowedBrain(message.from)) {
 					logger.warn(`Brain access denied for peer ${message.from.substring(0, 8)}`)
-					const deny = createMessage(
-						'task:result',
-						this.keyPair.instanceId,
-						message.from,
-						{
-							taskId: request.taskId,
-							status: 'failed',
-							error:
-								'Brain access not allowed. Coordinator must set allowBrain: true for this peer.',
-						},
-						this.keyPair.privateKey,
-						this.keyPair.pqPrivateKey,
-					)
-					await this.transport!.sendToPeer(message.from, deny)
+					await this.deliverTaskResult(message.from, {
+						taskId: request.taskId,
+						status: 'failed',
+						error: 'Brain access not allowed. Coordinator must set allowBrain: true for this peer.',
+					})
 					return
 				}
 
@@ -883,7 +896,8 @@ export class VoleNetManager {
 						},
 					})
 
-					// Wait for completion and send result back
+					// Wait for completion and send the result back. The asker may well be gone by
+					// then — thinking takes as long as it takes — so an undelivered answer waits.
 					const checkInterval = setInterval(async () => {
 						const t = taskQueue.get(task.id)
 						if (
@@ -891,39 +905,22 @@ export class VoleNetManager {
 							(t.status === 'completed' || t.status === 'failed' || t.status === 'cancelled')
 						) {
 							clearInterval(checkInterval)
-							const result = createMessage(
-								'task:result',
-								this.keyPair!.instanceId,
-								message.from,
-								{
-									taskId: request.taskId,
-									status: t.status,
-									result: t.result,
-									error: t.error,
-								},
-								this.keyPair!.privateKey,
-								this.keyPair!.pqPrivateKey,
-							)
-							await this.transport!.sendToPeer(message.from, result)
-							logger.info(
-								`Brain delegation result sent to ${message.from.substring(0, 8)}: ${t.status}`,
-							)
+							this.delegationTimers.delete(checkInterval)
+							await this.deliverTaskResult(message.from, {
+								taskId: request.taskId,
+								status: t.status,
+								result: t.result,
+								error: t.error,
+							})
 						}
 					}, 1000)
+					this.delegationTimers.add(checkInterval)
 				} else {
-					const noQueue = createMessage(
-						'task:result',
-						this.keyPair.instanceId,
-						message.from,
-						{
-							taskId: request.taskId,
-							status: 'failed',
-							error: 'Task queue not available',
-						},
-						this.keyPair.privateKey,
-						this.keyPair.pqPrivateKey,
-					)
-					await this.transport!.sendToPeer(message.from, noQueue)
+					await this.deliverTaskResult(message.from, {
+						taskId: request.taskId,
+						status: 'failed',
+						error: 'Task queue not available',
+					})
 				}
 			}
 		})
@@ -1302,6 +1299,67 @@ export class VoleNetManager {
 	/**
 	 * Stop VoleNet — disconnect peers, stop transport.
 	 */
+	/**
+	 * Send one brain answer to the peer that asked for it, and keep it if that fails.
+	 *
+	 * Failure here is ordinary: thinking takes as long as it takes, and a peer that asked from
+	 * a phone is very likely closed by the time there is something to say. Nobody else holds a
+	 * copy — the asker has the question and we have the only answer — so it waits, and goes out
+	 * the next time that peer speaks to us.
+	 */
+	private async deliverTaskResult(
+		peerId: string,
+		payload: { taskId: string; status: string; result?: string; error?: string },
+	): Promise<boolean> {
+		if (!this.keyPair || !this.transport) return false
+		const message = createMessage(
+			'task:result',
+			this.keyPair.instanceId,
+			peerId,
+			payload,
+			this.keyPair.privateKey,
+			this.keyPair.pqPrivateKey,
+		)
+		const sent = await this.transport.sendToPeer(peerId, message).catch(() => false)
+		const who = peerId.substring(0, 8)
+		if (sent) {
+			await this.resultOutbox?.remove(peerId, payload.taskId)
+			logger.info(`Brain delegation result sent to ${who}: ${payload.status}`)
+			return true
+		}
+		await this.resultOutbox?.add({ peerId, ...payload, at: Date.now() })
+		logger.info(`Brain delegation result for ${who} is waiting — the peer is not reachable`)
+		return false
+	}
+
+	/**
+	 * A peer just spoke to us, so anything we were holding for it can go out now.
+	 *
+	 * Re-signed rather than replayed: a stored message carries the timestamp it was written
+	 * with, and receivers enforce freshness.
+	 */
+	private async flushResultsFor(peerId: string): Promise<void> {
+		const outbox = this.resultOutbox
+		if (!outbox || !outbox.has(peerId) || this.flushingResults.has(peerId)) return
+		this.flushingResults.add(peerId)
+		try {
+			for (const entry of outbox.forPeer(peerId)) {
+				const ok = await this.deliverTaskResult(peerId, {
+					taskId: entry.taskId,
+					status: entry.status,
+					result: entry.result,
+					error: entry.error,
+				})
+				if (!ok) {
+					await outbox.noteAttempt(peerId, entry.taskId)
+					break
+				}
+			}
+		} finally {
+			this.flushingResults.delete(peerId)
+		}
+	}
+
 	async stop(): Promise<void> {
 		if (!this.started) return
 
@@ -1309,6 +1367,8 @@ export class VoleNetManager {
 		this.peerConnectTimer = undefined
 		if (this.chatPruneTimer) clearInterval(this.chatPruneTimer)
 		this.chatPruneTimer = undefined
+		for (const t of this.delegationTimers) clearInterval(t)
+		this.delegationTimers.clear()
 		if (this.rosterTimer) clearTimeout(this.rosterTimer)
 		this.rosterTimer = undefined
 		this.files?.stop()

@@ -351,6 +351,14 @@ graph LR
 }
 ```
 
+A peer that has no address of its own — a phone running the VoleNet chat app, or anything behind NAT that can only dial out — cannot be matched by `url`. Name it by identity instead:
+
+```json
+{ "id": "3f9c1a77b2e40d58", "trust": "read", "allowBrain": true }
+```
+
+`trust` defaults to `"full"` when omitted, so set it: `"read"` grants the brain without exposing tools. An answer that cannot be delivered because the asker has gone waits on the answering node and goes out the next time that peer connects (4.20.0), so closing the app does not lose it.
+
 **Use cases:** Workers that only need tool execution, not their own LLM reasoning.
 
 ## Remote Tool Execution

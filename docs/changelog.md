@@ -6,6 +6,12 @@
 
 ### Added
 
+- **A brain answer whose asker has gone now waits, and goes out when they come back.** `task:delegate` runs our brain, which takes as long as a model takes — and whoever asked from a phone may well have closed it by then. The reply was written to whatever socket the peer had, the boolean that says whether it landed was discarded, and the log said "result sent" either way. Nobody else held a copy: the asker has the question, we have the only answer.
+
+  An undelivered `task:result` now waits in a **result outbox** on the node that produced it (`.openvole/net/result_outbox.json`), and goes out the next time that peer says anything to us — a phone announces and then pings, so it arrives within a second of reopening, with nothing to poll and nothing to ask for. The payload is stored rather than the signed message, and re-signed on delivery, because receivers enforce freshness. Bounded by `relay.outboxTtlHours` (a week) and 50 answers per peer, oldest dropped first. Refusals are held the same way — a peer that asked deserves to hear "not allowed" even if it stepped out.
+
+  Also: the timers polling for a delegated task's completion are now tracked and cleared on `stop()`. They were never cancelled, so a task that never reached a terminal state left a one-second interval running for the life of the process.
+
 - **`net.peers` entries can name a peer by identity, not just by address.** An entry was matched to a connected peer by its `url` — by port, or by host — so a peer that advertises no endpoint could never match one. A phone running the VoleNet chat app dials out and is never dialled, so no entry ever applied to it and it fell through to whatever `net.publicJoin` allows *anyone*. Letting your own phone use your agent's brain and letting every guest use it were the same setting, and an agent with `publicJoin` off had no setting at all.
 
   An entry may now carry `id` — the full instance id, or a prefix of at least 8 characters — or `name`, matched against the peer's announced name. Identity is checked before address, so existing url entries behave exactly as before, and `url` is now optional for an entry that only says what a peer may do. Note that `trust` still defaults to `"full"` when omitted: set it explicitly (`"read"` is usually right for a phone).
