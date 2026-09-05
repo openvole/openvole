@@ -11,7 +11,12 @@
  */
 import * as os from 'node:os'
 import * as path from 'node:path'
-import { VoleNetManager, createMessageBus, loadAuthorizedVoles, parsePublicKey } from 'openvole'
+import {
+	VoleNetManager,
+	createEventBus,
+	loadAuthorizedVoles,
+	parsePublicKey,
+} from '@openvole/volenet'
 import { Inbox } from './inbox.js'
 
 export interface NodeOptions {
@@ -67,7 +72,7 @@ export function optionsFromEnv(): NodeOptions {
 }
 
 export async function startNode(options: NodeOptions): Promise<Node> {
-	const bus = createMessageBus()
+	const bus = createEventBus()
 	const inbox = new Inbox(path.join(options.dir, 'inbox.json'))
 	await inbox.load()
 

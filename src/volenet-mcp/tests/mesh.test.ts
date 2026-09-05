@@ -1,7 +1,7 @@
 import * as fs from 'node:fs/promises'
 import * as os from 'node:os'
 import * as path from 'node:path'
-import { VoleNetManager, generateKeyPair } from 'openvole'
+import { VoleNetManager, generateKeyPair } from '@openvole/volenet'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { type Node, startNode } from '../src/node.js'
 import { TOOLS } from '../src/tools.js'

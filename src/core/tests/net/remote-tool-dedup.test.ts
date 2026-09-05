@@ -1,10 +1,8 @@
 import * as os from 'node:os'
 import * as path from 'node:path'
+import { VoleNetManager, createMessage, generateKeyPair, trustPeer } from '@openvole/volenet'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { createMessageBus } from '../../src/core/bus.js'
-import { VoleNetManager } from '../../src/net/index.js'
-import { generateKeyPair, trustPeer } from '../../src/net/keys.js'
-import { createMessage } from '../../src/net/protocol.js'
 import { ToolRegistry } from '../../src/tool/registry.js'
 
 /**
@@ -71,7 +69,8 @@ beforeAll(async () => {
 	const fsp = await import('node:fs/promises')
 	const root = await fsp.mkdtemp(path.join(os.tmpdir(), 'vole-dedup-'))
 	const dirs = { a: path.join(root, 'a'), b: path.join(root, 'b'), v: path.join(root, 'v') }
-	for (const d of Object.values(dirs)) await fsp.mkdir(path.join(d, '.openvole/net'), { recursive: true })
+	for (const d of Object.values(dirs))
+		await fsp.mkdir(path.join(d, '.openvole/net'), { recursive: true })
 	const ka = await generateKeyPair(path.join(dirs.a, '.openvole/net'), 'peer-a')
 	const kb = await generateKeyPair(path.join(dirs.b, '.openvole/net'), 'peer-b')
 	const kv = await generateKeyPair(path.join(dirs.v, '.openvole/net'), 'viewer')

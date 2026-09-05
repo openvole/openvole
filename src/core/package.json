@@ -1,69 +1,70 @@
 {
-  "name": "openvole",
-  "version": "4.20.0",
-  "description": "Micro-agent core — the minimal loop that makes agentic behavior possible",
-  "type": "module",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
-  "bin": {
-    "vole": "./dist/cli.js",
-    "openvole": "./dist/cli.js"
-  },
-  "exports": {
-    ".": {
-      "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
-    }
-  },
-  "scripts": {
-    "build": "tsup",
-    "dev": "tsx src/cli.ts",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "typecheck": "tsc --noEmit"
-  },
-  "dependencies": {
-    "@openvole/dashboard-server": "workspace:*",
-    "croner": "^10.0.1",
-    "dotenv": "^16.4.0",
-    "execa": "^9.5.0",
-    "mitt": "^3.0.1",
-    "yaml": "^2.8.2",
-    "ws": "^8.20.1",
-    "zod": "^3.23.0"
-  },
-  "optionalDependencies": {
-    "dockerode": "^5.0.0"
-  },
-  "devDependencies": {
-    "@types/dockerode": "^3.3.0",
-    "@types/ws": "^8.5.0",
-    "@types/node": "^22.0.0",
-    "tsup": "^8.3.0",
-    "tsx": "^4.19.0",
-    "typescript": "^5.6.0",
-    "vitest": "^2.1.0"
-  },
-  "engines": {
-    "node": ">=20.0.0"
-  },
-  "files": [
-    "dist",
-    "README.md"
-  ],
-  "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/openvole/openvole",
-    "directory": "src/core"
-  },
-  "homepage": "https://openvole.com/openvole/",
-  "keywords": [
-    "ai",
-    "agent",
-    "microkernel",
-    "llm",
-    "tools",
-    "mcp"
-  ]
+	"name": "openvole",
+	"version": "4.20.0",
+	"description": "Micro-agent core \u2014 the minimal loop that makes agentic behavior possible",
+	"type": "module",
+	"main": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"bin": {
+		"vole": "./dist/cli.js",
+		"openvole": "./dist/cli.js"
+	},
+	"exports": {
+		".": {
+			"import": "./dist/index.js",
+			"types": "./dist/index.d.ts"
+		}
+	},
+	"scripts": {
+		"build": "tsup",
+		"dev": "tsx src/cli.ts",
+		"test": "vitest run",
+		"test:watch": "vitest",
+		"typecheck": "tsc --noEmit"
+	},
+	"dependencies": {
+		"@openvole/dashboard-server": "workspace:*",
+		"@openvole/volenet": "workspace:*",
+		"croner": "^10.0.1",
+		"dotenv": "^16.4.0",
+		"execa": "^9.5.0",
+		"mitt": "^3.0.1",
+		"ws": "^8.20.1",
+		"yaml": "^2.8.2",
+		"zod": "^3.23.0"
+	},
+	"optionalDependencies": {
+		"dockerode": "^5.0.0"
+	},
+	"devDependencies": {
+		"@types/dockerode": "^3.3.0",
+		"@types/ws": "^8.5.0",
+		"@types/node": "^22.0.0",
+		"tsup": "^8.3.0",
+		"tsx": "^4.19.0",
+		"typescript": "^5.6.0",
+		"vitest": "^2.1.0"
+	},
+	"engines": {
+		"node": ">=20.0.0"
+	},
+	"files": [
+		"dist",
+		"README.md"
+	],
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/openvole/openvole",
+		"directory": "src/core"
+	},
+	"homepage": "https://openvole.com/openvole/",
+	"keywords": [
+		"ai",
+		"agent",
+		"microkernel",
+		"llm",
+		"tools",
+		"mcp"
+	]
 }

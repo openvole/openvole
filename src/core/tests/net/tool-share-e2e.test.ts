@@ -1,9 +1,8 @@
 import * as os from 'node:os'
 import * as path from 'node:path'
+import { VoleNetManager, generateKeyPair, trustPeer } from '@openvole/volenet'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { createMessageBus } from '../../src/core/bus.js'
-import { VoleNetManager } from '../../src/net/index.js'
-import { generateKeyPair, trustPeer } from '../../src/net/keys.js'
 import { ToolRegistry } from '../../src/tool/registry.js'
 
 /**

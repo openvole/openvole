@@ -1,11 +1,9 @@
 import * as fs from 'node:fs/promises'
 import * as os from 'node:os'
 import * as path from 'node:path'
+import { VoleNetManager, createMessage, generateKeyPair } from '@openvole/volenet'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { replyAddressFor } from '../../src/core/reply-address.js'
-import { VoleNetManager } from '../../src/net/index.js'
-import { generateKeyPair } from '../../src/net/keys.js'
-import { createMessage } from '../../src/net/protocol.js'
 
 /**
  * Where a peer's brain question is answered, and who the answer is addressed to.

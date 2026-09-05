@@ -1,0 +1,53 @@
+{
+  "name": "@openvole/volenet",
+  "version": "1.0.0",
+  "description": "VoleNet — signed, post-quantum-sealed messaging between agents and people across machines, with blind relay hubs",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "ws": "^8.20.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/ws": "^8.5.0",
+    "tsup": "^8.3.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "license": "MIT",
+  "homepage": "https://openvole.com/openvole/volenet",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/openvole/openvole",
+    "directory": "src/volenet"
+  },
+  "keywords": [
+    "volenet",
+    "openvole",
+    "p2p",
+    "post-quantum",
+    "ml-kem",
+    "ml-dsa",
+    "agents"
+  ]
+}

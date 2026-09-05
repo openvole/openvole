@@ -1,0 +1,3041 @@
+/**
+ * VoleNet Manager — lifecycle management for the distributed networking layer.
+ * Initializes transport, discovery, and key management.
+ * Starts/stops with the engine.
+ */
+
+import { randomUUID } from 'node:crypto'
+import * as fs from 'node:fs/promises'
+import * as os from 'node:os'
+import * as path from 'node:path'
+import {
+	ChatOutbox,
+	DEFAULT_NOTICE_TTL_MS,
+	DEFAULT_OUTBOX_TTL_MS,
+	type OutboxEntry,
+	type RelayNotice,
+	RelayNotices,
+} from './chat-outbox.js'
+import { type DiscoveryConfig, VoleNetDiscovery } from './discovery.js'
+import { type TransferInfo, VoleNetFiles, type VoleNetFilesConfig } from './files.js'
+import {
+	type VoleKeyPair,
+	addRelayAccept,
+	generateKeyPair,
+	loadAuthorizedVoles,
+	loadKeyPair,
+	loadRelayAccepts,
+	parsePublicKey,
+	removeRelayAccept,
+	trustPeer,
+} from './keys.js'
+import { VoleNetLeader } from './leader.js'
+import { createLogger } from './logger.js'
+import {
+	type RemoteToolInfo,
+	type VoleNetInstance,
+	type VoleNetMessage,
+	type VoleNetMessageType,
+	createMessage,
+	verifyMessage,
+} from './protocol.js'
+import { RemoteTaskManager } from './remote-task.js'
+import { DEFAULT_RESULT_TTL_MS, ResultOutbox } from './result-outbox.js'
+import { type SealedBox, relayPairAllow, seal, unseal } from './seal.js'
+import { type SyncConfig, VoleNetSync } from './sync.js'
+import { type ToolProvider, isControlPlanePaw } from './tools.js'
+import { type TransportConfig, VoleNetTransport } from './transport.js'
+
+const logger = createLogger('volenet')
+
+/**
+ * Message types NEVER wrapped in a sealed:direct envelope: the handshake/transport types that must
+ * be readable to bootstrap encryption (they carry no secrets — public keys, endpoints, liveness),
+ * the seal envelopes themselves, the relay envelopes (already end-to-end sealed to a third party),
+ * and high-frequency leader election (not confidential). Everything else is sealed when enabled.
+ */
+/**
+ * Anywhere this node's events can be published. Only `emit` is ever called, so any emitter shape
+ * satisfies it — OpenVole's mitt bus, an EventEmitter, or a few lines in a host that has neither.
+ */
+export interface EventSink {
+	// biome-ignore lint/suspicious/noExplicitAny: the point is to accept any host's emitter
+	emit: (type: any, event?: any) => void
+}
+
+/** An EventSink that can also be listened to, for a host that has no bus of its own. */
+export interface EventBus extends EventSink {
+	// biome-ignore lint/suspicious/noExplicitAny: mirrors emit — any host handler shape
+	on: (type: any, handler: (event?: any) => void) => void
+	// biome-ignore lint/suspicious/noExplicitAny: mirrors on
+	off: (type: any, handler?: (event?: any) => void) => void
+}
+
+/**
+ * A minimal event bus, so a host without one can still hear what this node is doing. OpenVole
+ * passes its own typed bus instead; both satisfy EventSink.
+ */
+export function createEventBus(): EventBus {
+	const handlers = new Map<string, Array<(event?: unknown) => void>>()
+	return {
+		emit: (type: string, event?: unknown) => {
+			for (const h of handlers.get(type) ?? []) h(event)
+			for (const h of handlers.get('*') ?? []) h(event)
+		},
+		on: (type: string, handler: (event?: unknown) => void) => {
+			handlers.set(type, [...(handlers.get(type) ?? []), handler])
+		},
+		off: (type: string, handler?: (event?: unknown) => void) => {
+			if (!handler) handlers.delete(type)
+			else
+				handlers.set(
+					type,
+					(handlers.get(type) ?? []).filter((h) => h !== handler),
+				)
+		},
+	}
+}
+
+type MessageBus = EventSink
+
+/** The hub's verdict on a sealed envelope we sent it. `timeout` means a hub too old to give one. */
+type RelayOutcome =
+	| { kind: 'ack' }
+	| { kind: 'held' }
+	| { kind: 'error'; reason: string }
+	| { kind: 'timeout' }
+/** How long to wait for that verdict before assuming an older hub (which never answers). */
+const RELAY_VERDICT_TIMEOUT_MS = 4000
+
+const PLAINTEXT_DIRECT_TYPES = new Set<VoleNetMessageType>([
+	'discover',
+	'discover:response',
+	'ping',
+	'pong',
+	'auth:challenge',
+	'auth:response',
+	'auth:result',
+	'sealed',
+	'sealed:direct',
+	'relay:deliver',
+	'relay:error',
+	'relay:ack',
+	'relay:pending',
+	'roster',
+	'leader:heartbeat',
+	'leader:claim',
+	'leader:ack',
+])
+
+const DEFAULT_CHAT_MAX_MESSAGES = 1000
+const DEFAULT_CHAT_MAX_AGE_DAYS = 90
+const CHAT_PRUNE_INTERVAL_MS = 6 * 60 * 60_000 // prune stale chat sessions every 6h
+
+/** Glob-ish tool-name match: exact, '*' wildcard, or 'prefix*'. */
+/**
+ * Display prefix for a peer's namespaced tools. Peer names are self-announced labels —
+ * identity is the key-derived instanceId — so when two peers share a name, the prefix
+ * is disambiguated with a short id suffix: alice~3f9c/tool.
+ */
+export function peerPrefix(peerName: string, peerId: string, duplicateName: boolean): string {
+	return duplicateName ? `${peerName}~${peerId.substring(0, 4)}` : peerName
+}
+
+/** Whether a tool passes the share-level allowlist (empty/absent allows all). */
+export function isSharedTool(name: string, toolAllow?: string[]): boolean {
+	if (!toolAllow || toolAllow.length === 0) return true
+	return toolAllow.some((p) => matchToolPattern(p, name))
+}
+
+function matchToolPattern(pattern: string, name: string): boolean {
+	if (pattern === '*' || pattern === name) return true
+	if (pattern.endsWith('*')) return name.startsWith(pattern.slice(0, -1))
+	return false
+}
+
+export interface VoleNetConfig {
+	enabled?: boolean
+	instanceName?: string
+	role?: 'coordinator' | 'worker' | 'peer'
+	port?: number
+	/**
+	 * Hostname this instance advertises to peers (the host in its discovery endpoint).
+	 * Defaults to the first non-internal IPv4 address. Set this to your public domain
+	 * (e.g. "hub.example.com") when running with TLS so the advertised endpoint matches
+	 * the certificate — otherwise peers connecting over wss/https hit a name mismatch.
+	 * Overridable at runtime via the VOLE_NET_HOSTNAME env var.
+	 */
+	hostname?: string
+	/**
+	 * Full endpoint advertised to peers INSTEAD of `<scheme>://<hostname>:<port>` — for running
+	 * VoleNet behind a reverse proxy so the raw listen port never has to be exposed. Example:
+	 * "https://club.example.com/mesh", with nginx proxying that path (WebSocket upgrade included)
+	 * to the local VoleNet port. Peers join with this URL and are told to reconnect to it; the
+	 * joining side needs nothing — all peer traffic is endpoint-relative and the WS upgrade is
+	 * accepted on any path. Env override: VOLE_NET_PUBLIC_URL.
+	 */
+	publicUrl?: string
+	keyPath?: string
+	/**
+	 * Remember a peer learned at runtime — accepting a pair request, or joining a hub — so it
+	 * survives a restart. The host owns its own config format; without this the entry is
+	 * live-only, which is the right default for a library.
+	 */
+	persistPeer?: (url: string) => Promise<void>
+	peers?: Array<{
+		/**
+		 * Where to reach this peer. Also how the entry is matched to a connected peer, by
+		 * port or host. Omit it for a peer that has no address of its own — a phone, or
+		 * anything behind NAT that can only dial us — and identify it with `id`/`name`.
+		 */
+		url?: string
+		/**
+		 * Match by instance id instead of address (a full id, or a prefix of at least 8
+		 * characters). This is the only way to name a peer that advertises no endpoint,
+		 * and the only stable one for a peer whose address moves.
+		 */
+		id?: string
+		/** Match by announced instance name. Weaker than `id` — a name is not proof of identity. */
+		name?: string
+		/** What this peer can do on OUR instance. Defaults to 'full' — set it for a guest. */
+		trust?: 'full' | 'tool' | 'read'
+		allowTools?: string[]
+		denyTools?: string[]
+		/** Allow this peer to use our Brain for their tasks (LLM cost on us) */
+		allowBrain?: boolean
+	}>
+	share?: {
+		tools?: boolean
+		memory?: boolean
+		session?: boolean
+		/**
+		 * Patterns limiting WHICH tools are shared (advertised + callable) to peers without
+		 * an explicit per-peer allowTools entry — e.g. ["club_*"]. Empty/absent = all tools.
+		 * Essential for public hubs: share one curated tool set with strangers.
+		 */
+		toolAllow?: string[]
+	}
+	/** Retention for node-to-node chat sessions (volenet:<peer>). */
+	chatRetention?: {
+		/** Max messages kept per peer transcript (oldest trimmed). Default 1000. */
+		maxMessages?: number
+		/** Clear chat sessions idle longer than this many days. Default 90; 0 disables. */
+		maxAgeDays?: number
+	}
+
+	/**
+	 * Brain source for brainless workers:
+	 * - "local" (default): use local brain paw
+	 * - "remote": delegate thinking to a peer that allows brain sharing
+	 * - "<instanceName>": delegate to a specific peer's brain
+	 */
+	brainSource?: 'local' | 'remote' | string
+	tls?: {
+		cert: string
+		key: string
+	}
+	/** Max concurrent inbound VoleNet WebSocket connections (DoS). Default 1000. */
+	maxConnections?: number
+	/** Close inbound WS that don't send a verified message within this many ms (DoS). Default 10000. */
+	authTimeoutMs?: number
+	/** Global inbound message ceiling per second across all sources (load shed). Default 5000. */
+	maxMessagesPerSecond?: number
+	discovery?: 'manual' | 'mdns'
+	routing?: Record<string, string>
+
+	/**
+	 * Leader selection mode:
+	 * - "auto" (default): lowest instance ID wins, automatic failover
+	 * - "<instanceName>": force a specific instance as leader
+	 */
+	leader?: 'auto' | string
+
+	/**
+	 * Heartbeat mode:
+	 * - "leader" (default): only the leader runs heartbeat/schedules
+	 * - "independent": each instance runs its own heartbeat independently
+	 */
+	heartbeatMode?: 'leader' | 'independent'
+
+	/**
+	 * Brain load balancing:
+	 * - "local" (default): each instance handles its own tasks
+	 * - "loadbalance": route incoming tasks to the least-loaded brain across peers
+	 */
+	brainMode?: 'local' | 'loadbalance'
+
+	/**
+	 * Task overflow behavior when local queue is full:
+	 * - "reject" (default): reject the task
+	 * - "forward": forward to the least-loaded peer automatically
+	 */
+	taskOverflow?: 'reject' | 'forward'
+
+	/** Max queued tasks before overflow triggers (default: 10) */
+	maxQueuedTasks?: number
+
+	/**
+	 * Public self-join — let unknown peers register over HTTP and join at a restricted
+	 * "guest" trust level (for a public mesh hub). Off by default. Guests are NEVER 'full'.
+	 */
+	publicJoin?: {
+		enabled?: boolean
+		/** Trust granted to self-joined guests. Never 'full'. Default 'tool'. */
+		trustLevel?: 'read' | 'tool'
+		/** Let guests use OUR Brain (LLM cost on us). Default false. */
+		allowBrain?: boolean
+		/** Max trusted peers before new joins are refused. Default 200. */
+		maxPeers?: number
+		/** Join requests allowed per minute per IP. Default 5. */
+		ratePerMinute?: number
+		/** Queue joins to pending_joins.jsonl for manual `vole net trust` instead of auto-trusting. */
+		requireApproval?: boolean
+	}
+	/**
+	 * Blind relay (hub side): forward sealed member↔member envelopes the hub cannot read.
+	 * v1 carries end-to-end encrypted chat only — no tool calls or delegation ride the relay.
+	 */
+	relay?: {
+		enabled?: boolean
+		/** Forwards allowed per minute per (sender, recipient) pair. Default 30. */
+		maxPerMinutePerPair?: number
+		/** Max sealed envelope size in bytes. Default 65536. */
+		maxBytes?: number
+		/**
+		 * Member side: who may reach ME over a relay. Sharing a hub is not consent — a member's
+		 * relayed chat is dropped until I accept it. Default (unset): only peers I've explicitly
+		 * approved (a connect-request) or already directly trust. '*' opens me to any hub member
+		 * (community-hub behaviour). A list pre-authorises peers by name or instanceId prefix.
+		 */
+		acceptFrom?: '*' | string[]
+		/**
+		 * Hub side: how long a "somebody tried to reach you" notice is kept for a member who is
+		 * away, in hours. Default 168 (a week). A notice is sender, count and times — the message
+		 * itself is never held by the hub.
+		 */
+		noticeTtlHours?: number
+		/**
+		 * Member side: how long an undelivered chat message waits in THIS node's own outbox for
+		 * its recipient to reappear, in hours. Default 168 (a week).
+		 */
+		outboxTtlHours?: number
+	}
+	/**
+	 * Direct end-to-end encryption. When true, post-handshake messages to a peer that supports it
+	 * (announces an ML-KEM key) are sealed with the hybrid X25519 + ML-KEM-768 KEM before sending —
+	 * confidentiality independent of TLS, and post-quantum. Opportunistic: peers that don't support
+	 * it (older versions) still receive plaintext, so a mixed-version mesh keeps working. Default off.
+	 */
+	encrypt?: boolean
+	/**
+	 * Publish peer display names (the live announced `instanceName`) in the public /volenet/info
+	 * response. Off by default — names are an enumeration surface. Turn on for a public hub whose
+	 * members are meant to be seen (e.g. a social wall), so external tooling can read live names
+	 * without the authenticated dashboard.
+	 */
+	publishNames?: boolean
+	/**
+	 * VoleDrop — E2E-encrypted file transfer (files stream over /volenet/blob/*; the per-transfer
+	 * key is sealed with the PQ-hybrid seal). `acceptFrom` mirrors relay.acceptFrom: unset means
+	 * every offer waits for an explicit accept; '*' or a name/id-prefix list auto-accepts (use for
+	 * your own fleet). Hubs with relay enabled also store ciphertext blobs for NAT'd member pairs,
+	 * bounded by relayQuotaBytes/relayTtlHours.
+	 */
+	files?: VoleNetFilesConfig
+}
+
+/** A hub-vouched mesh member, learned from a relay hub's roster broadcast. */
+export interface RosterMember {
+	instanceId: string
+	name: string
+	publicKey: string
+	xPublicKey?: string
+	mlkemPublicKey?: string
+	connected: boolean
+}
+
+/** A single human-capable peer-chat message, stored per peer for the dashboard. */
+export interface ChatEntry {
+	dir: 'in' | 'out'
+	text: string
+	fromName: string
+	timestamp: number
+	messageId: string
+	/** True when this message travelled through a relay hub as a sealed envelope. */
+	relayed?: boolean
+}
+
+export class VoleNetManager {
+	private keyPair: VoleKeyPair | null = null
+	private transport: VoleNetTransport | null = null
+	private discovery: VoleNetDiscovery | null = null
+	private remoteTaskMgr: RemoteTaskManager | null = null
+	private sync: VoleNetSync | null = null
+	private leader: VoleNetLeader | null = null
+	private toolProviders = new Map<string, string[]>()
+	/** registered remote tool name → owning instanceId (identity-keyed routing; never by peer name) */
+	private remoteToolOwners = new Map<string, string>()
+	private config: VoleNetConfig
+	private projectRoot: string
+	private toolRegistry: ToolProvider | null = null
+	private started = false
+	/** Per-IP join timestamps for public-join rate limiting. */
+	private joinTimestamps = new Map<string, number[]>()
+	/** Relay: per-(from,to) forward windows (hub side). */
+	private relayWindows = new Map<string, number[]>()
+	/** Relay: hub-vouched member rosters, keyed by hub instanceId. */
+	private hubRosters = new Map<string, Map<string, RosterMember>>()
+	/** Relay: inner-message replay guard — the transport's outer guard can't see re-wraps. */
+	private seenSealed = new Map<string, number>()
+	private rosterTimer: ReturnType<typeof setTimeout> | undefined
+	/** Relay consent gate: instanceIds whose relayed chat I accept (persisted to relay_accepts). */
+	private relayAcceptIds = new Set<string>()
+	private messageBus: MessageBus | null = null
+	/** Sender side: chat the hub could not forward, waiting on its recipient. Own disk only. */
+	private chatOutbox: ChatOutbox | null = null
+	/** Sender side: envelopes awaiting the hub's verdict, keyed by the ref on the outer envelope. */
+	private relayInflight = new Map<string, { to: string; settle: (o: RelayOutcome) => void }>()
+	private outboxFlushing = false
+	/** Member side: who tried to reach me while I was away, as a hub told me on reconnect. */
+	private chatPending = new Map<string, RelayNotice & { viaHub: string }>()
+	/** Member side: when I last received chat from each sender — a notice older than that is stale. */
+	private lastChatFrom = new Map<string, number>()
+	/** Hub side: notices for members who are away. */
+	private relayNotices: RelayNotices | null = null
+	/** Brain answers whose asker had gone by the time they were ready — see result-outbox.ts. */
+	private resultOutbox: ResultOutbox | null = null
+	/** Peers a flush is already running for, so a burst of pings does not send an answer twice. */
+	private flushingResults = new Set<string>()
+	/** The polling timers waiting on delegated tasks, so stopping cancels them. */
+	private delegationTimers = new Set<ReturnType<typeof setInterval>>()
+	/** Relay: inbound connect-requests awaiting my approval (in-memory; keyed by requester id). */
+	private relayRequests = new Map<
+		string,
+		{ id: string; name: string; viaHub: string; viaHubName: string; note?: string; ts: number }
+	>()
+	/** Relay: connect-requests I sent that aren't confirmed yet (for the "awaiting" UI hint). */
+	private relayOutgoing = new Set<string>()
+	/** Relay: peers that have accepted MY request (in-memory; distinguishes connected vs awaiting). */
+	private relayConfirmed = new Set<string>()
+	/** Per-peer human chat logs (in-memory; keyed by peer instanceId). */
+	private chatLog = new Map<string, ChatEntry[]>()
+	/** Periodically re-attempts configured peers — self-heals start-order races + drops. */
+	private peerConnectTimer?: ReturnType<typeof setInterval>
+	/** Periodic chat-session retention prune. */
+	private chatPruneTimer?: ReturnType<typeof setInterval>
+	/** VoleDrop file transfer engine (net.files). */
+	private files: VoleNetFiles | null = null
+	/** Consent-based pairing: inbound requests awaiting the operator (persisted to pair_requests.json). */
+	private pairRequests = new Map<
+		string,
+		{ id: string; name: string; publicKey: string; endpoint?: string; note?: string; ts: number }
+	>()
+	/** Per-IP pair-request timestamps (rate limiting, same shape as publicJoin's). */
+	private pairTimestamps = new Map<string, number[]>()
+
+	constructor(config: VoleNetConfig, projectRoot: string) {
+		this.config = config
+		this.projectRoot = projectRoot
+	}
+
+	/**
+	 * Start VoleNet — load keys, start transport, connect to peers.
+	 */
+	async start(toolRegistry?: ToolProvider, bus?: EventSink): Promise<void> {
+		if (this.started) return
+		if (!this.config.enabled) return
+
+		this.toolRegistry = toolRegistry ?? null
+		const messageBus = bus
+		this.messageBus = bus ?? null
+		const netDir = this.getNetDir()
+
+		// Load or generate keypair
+		this.keyPair = await loadKeyPair(netDir)
+		if (!this.keyPair) {
+			logger.info('No keypair found — generating new Ed25519 keypair')
+			this.keyPair = await generateKeyPair(netDir, this.config.instanceName ?? 'vole')
+		}
+
+		logger.info(`Instance ID: ${this.keyPair.instanceId}`)
+		logger.info(`Public key: ${this.keyPair.publicKeyString}`)
+		// Activate the post-quantum signing key (when this keypair has one) for hybrid signatures.
+
+		// Relay consent: load previously-approved senders so past approvals survive restarts.
+		try {
+			this.relayAcceptIds = new Set((await loadRelayAccepts(netDir)).keys())
+		} catch {
+			this.relayAcceptIds = new Set()
+		}
+
+		// Chat that cannot be delivered waits on this node, never on a hub — see chat-outbox.ts.
+		const hoursToMs = (h: number | undefined, fallback: number) =>
+			typeof h === 'number' && h > 0 ? h * 60 * 60 * 1000 : fallback
+		this.chatOutbox = new ChatOutbox(
+			path.join(netDir, 'chat_outbox.json'),
+			hoursToMs(this.config.relay?.outboxTtlHours, DEFAULT_OUTBOX_TTL_MS),
+		)
+		await this.chatOutbox.load().catch(() => undefined)
+		// An answer nobody could receive waits here rather than being written to a dead socket.
+		this.resultOutbox = new ResultOutbox(
+			path.join(netDir, 'result_outbox.json'),
+			hoursToMs(this.config.relay?.outboxTtlHours, DEFAULT_RESULT_TTL_MS),
+		)
+		await this.resultOutbox.load().catch(() => undefined)
+		if (this.config.relay?.enabled) {
+			this.relayNotices = new RelayNotices(
+				path.join(netDir, 'relay_notices.json'),
+				hoursToMs(this.config.relay?.noticeTtlHours, DEFAULT_NOTICE_TTL_MS),
+			)
+			await this.relayNotices.load().catch(() => undefined)
+		}
+
+		// Start transport
+		const port = this.config.port ?? 9700
+		const transportConfig: TransportConfig = {
+			port,
+			tls: this.config.tls,
+			maxConnections: this.config.maxConnections,
+			authTimeoutMs: this.config.authTimeoutMs,
+			maxMessagesPerSecond: this.config.maxMessagesPerSecond,
+			publishNames: this.config.publishNames,
+		}
+		this.transport = new VoleNetTransport(transportConfig)
+		// Live display names for /volenet/info (opt-in): the announced instanceName from discovery,
+		// with the hub-vouched roster as a fallback for relay-only members.
+		this.transport.setNameResolver(
+			(id) =>
+				this.discovery?.getInstances().find((i) => i.id === id)?.name ??
+				this.findRosterMember(id)?.name,
+		)
+		await this.transport.start()
+
+		// Start discovery
+		const endpoint = buildAdvertisedEndpoint({
+			publicUrl: this.config.publicUrl ?? process.env.VOLE_NET_PUBLIC_URL,
+			tls: !!this.config.tls,
+			hostname: this.getHostname(),
+			port,
+		})
+
+		const discoveryConfig: DiscoveryConfig = {
+			netDir,
+			instanceId: this.keyPair.instanceId,
+			instanceName: this.config.instanceName ?? 'vole',
+			role: this.config.role ?? 'peer',
+			endpoint,
+			capabilities: this.getCapabilities(),
+			privateKey: this.keyPair.privateKey,
+			pqPrivateKey: this.keyPair.pqPrivateKey,
+			publicKeyString: this.keyPair.publicKeyString,
+			configuredPeerUrls: (this.config.peers ?? [])
+				.map((p) => p.url)
+				.filter((u): u is string => typeof u === 'string' && u.length > 0),
+			xPublicKeyB64: this.keyPair.xPublicKeyB64,
+			mlkemPublicKeyB64: this.keyPair.mlkemPublicKeyB64,
+		}
+		this.discovery = new VoleNetDiscovery(this.transport, discoveryConfig)
+		await this.discovery.start()
+
+		// Bind the transport's WS authentication + inline HTTP discovery reply to discovery's
+		// keystore: sockets are only bound to a peer id after a verified message, and NAT'd peers
+		// learn our identity from their own discover request's response body.
+		const discovery = this.discovery
+		this.transport.setVerifier((m) => discovery.verifyMessageFrom(m))
+		this.transport.setResponder((m) => discovery.buildDiscoverResponse(m))
+
+		// Public self-join: accept HTTP join requests from unknown peers (restricted guest trust).
+		if (this.config.publicJoin?.enabled) {
+			this.transport.setJoinHandler((body, ip) => this.handlePublicJoin(body, ip))
+			logger.info(
+				`Public join enabled — guests get '${this.config.publicJoin.trustLevel ?? 'tool'}' trust, allowBrain=${this.config.publicJoin.allowBrain ?? false}`,
+			)
+		}
+
+		// Consent-based pairing: always on (nothing is trusted without the operator's accept).
+		// The initiator fetches our public key from /volenet/info to fingerprint us first.
+		this.transport.setIdentityProvider(() => ({
+			publicKey: this.keyPair?.publicKeyString ?? '',
+			instanceId: this.keyPair?.instanceId,
+			...(this.config.publishNames ? { name: this.config.instanceName ?? 'vole' } : {}),
+		}))
+		this.transport.setPairHandler((body, ip) => this.handlePairRequest(body, ip, messageBus))
+		await this.loadPairRequests()
+
+		// Anything verified from a peer proves its channel is live, which is the moment to hand
+		// over an answer it was not around to receive. A phone announces and then pings, so this
+		// fires within a second of it reopening — there is nothing to poll and nothing to ask for.
+		this.transport.onMessage((message) => {
+			if (!this.resultOutbox?.has(message.from)) return
+			if (!this.discovery?.verifyMessageFrom(message)) return
+			void this.flushResultsFor(message.from)
+		})
+
+		// Handle tool:list requests — respond with our local tools
+		this.transport.onMessage((message) => {
+			if (message.type === 'tool:list' && this.toolRegistry && this.keyPair) {
+				if (!this.discovery?.verifyMessageFrom(message)) return
+				if (!this.peerToolsEnabled(message.from)) return
+				const tools: RemoteToolInfo[] = this.toolRegistry
+					.list()
+					.filter((t) => !t.pawName.startsWith('__volenet')) // don't echo remote tools back
+					// Never lend the control plane. A shared tool executes on its owner, so a peer
+					// calling one of these would act with the owner's authority — every local check
+					// passes, because by then the call genuinely is the owner's.
+					.filter((t) => !isControlPlanePaw(t.pawName))
+					.filter((t) => isSharedTool(t.name, this.config.share?.toolAllow))
+					.map((t) => ({
+						name: t.name,
+						description: t.description,
+						pawName: t.pawName,
+						instanceId: this.keyPair!.instanceId,
+						instanceName: this.config.instanceName ?? 'vole',
+					}))
+				const response = createMessage(
+					'tool:list:response',
+					this.keyPair.instanceId,
+					message.from,
+					tools,
+					this.keyPair.privateKey,
+					this.keyPair.pqPrivateKey,
+				)
+				this.transport!.sendToPeer(message.from, response)
+			}
+		})
+
+		// Handle incoming tool:call — execute locally and return result
+		this.transport.onMessage(async (message) => {
+			if (message.type === 'tool:call' && this.toolRegistry && this.keyPair) {
+				if (!this.discovery?.verifyMessageFrom(message)) {
+					logger.warn(`Rejected unverified tool:call from ${message.from.substring(0, 8)}`)
+					return
+				}
+				const { callId, toolName, params } = message.payload as {
+					callId: string
+					toolName: string
+					params: unknown
+				}
+				logger.info(
+					`Remote tool call from ${message.from.substring(0, 8)}: ${toolName}(${JSON.stringify(params)})`,
+				)
+
+				if (!this.isPeerAllowedTool(message.from, toolName)) {
+					logger.warn(`Tool access denied for ${message.from.substring(0, 8)}: ${toolName}`)
+					this.transport!.sendToPeer(
+						message.from,
+						createMessage(
+							'tool:result',
+							this.keyPair.instanceId,
+							message.from,
+							{ callId, success: false, error: `Tool access not allowed: ${toolName}` },
+							this.keyPair.privateKey,
+							this.keyPair.pqPrivateKey,
+						),
+					)
+					return
+				}
+
+				const tool = this.toolRegistry.get(toolName)
+				let response
+				if (!tool) {
+					logger.warn(`Remote tool call failed: "${toolName}" not found`)
+					response = createMessage(
+						'tool:result',
+						this.keyPair.instanceId,
+						message.from,
+						{
+							callId,
+							success: false,
+							error: `Tool "${toolName}" not found`,
+						},
+						this.keyPair.privateKey,
+						this.keyPair.pqPrivateKey,
+					)
+				} else {
+					try {
+						const startTime = Date.now()
+						// Attach the transport-verified caller so tools can attribute actions
+						// (e.g. paw-club posts). Always overwritten — a peer-supplied __caller can
+						// never impersonate another instance.
+						const callerName = this.discovery
+							?.getInstances()
+							.find((i) => i.id === message.from)?.name
+						const output = await tool.execute(withVerifiedCaller(params, message.from, callerName))
+						const durationMs = Date.now() - startTime
+						const outputPreview =
+							typeof output === 'string'
+								? output.substring(0, 200)
+								: JSON.stringify(output).substring(0, 200)
+						logger.info(
+							`Remote tool call completed: ${toolName} → success (${durationMs}ms) — ${outputPreview}`,
+						)
+						messageBus?.emit('volenet:tool:executed', {
+							toolName,
+							fromInstance: message.from.substring(0, 8),
+							success: true,
+							durationMs,
+						})
+						response = createMessage(
+							'tool:result',
+							this.keyPair.instanceId,
+							message.from,
+							{
+								callId,
+								success: true,
+								output,
+							},
+							this.keyPair.privateKey,
+							this.keyPair.pqPrivateKey,
+						)
+					} catch (err) {
+						const errorMsg = err instanceof Error ? err.message : String(err)
+						logger.error(`Remote tool call failed: ${toolName} → ${errorMsg}`)
+						messageBus?.emit('volenet:tool:executed', {
+							toolName,
+							fromInstance: message.from.substring(0, 8),
+							success: false,
+							durationMs: 0,
+							error: errorMsg,
+						})
+						response = createMessage(
+							'tool:result',
+							this.keyPair.instanceId,
+							message.from,
+							{
+								callId,
+								success: false,
+								error: errorMsg,
+							},
+							this.keyPair.privateKey,
+							this.keyPair.pqPrivateKey,
+						)
+					}
+				}
+				await this.transport!.sendToPeer(message.from, response)
+				logger.info(`Remote tool result sent to ${message.from.substring(0, 8)}`)
+			}
+		})
+
+		// When peer tool lists arrive, register them as remote tools in local registry
+		this.transport.onMessage((message) => {
+			if (
+				message.type === 'tool:list:response' &&
+				this.toolRegistry &&
+				this.keyPair &&
+				this.remoteTaskMgr
+			) {
+				const tools = message.payload as RemoteToolInfo[]
+				if (!Array.isArray(tools) || tools.length === 0) return
+
+				const remoteTaskMgr = this.remoteTaskMgr
+				const sourceInstanceId = message.from
+
+				const peerInstance = this.discovery?.getInstances().find((i) => i.id === message.from)
+				const peerName = peerInstance?.name ?? message.from.substring(0, 8)
+				// Names are labels, not identity: disambiguate everything by id when peers collide.
+				const sourceDup =
+					(this.discovery?.getInstances() ?? []).filter((i) => i.name === peerName).length > 1
+				if (sourceDup) {
+					logger.warn(
+						`Two peers share the name "${peerName}" — tools disambiguated as ${peerPrefix(peerName, message.from, true)}/<tool>`,
+					)
+				}
+				const pawLabel = `__volenet:${peerPrefix(peerName, message.from, sourceDup)}__`
+
+				// Track which peers provide which tools (for load-balanced routing)
+				for (const t of tools) {
+					if (!this.toolProviders) this.toolProviders = new Map()
+					const providers = this.toolProviders.get(t.name) ?? []
+					if (!providers.includes(sourceInstanceId)) {
+						providers.push(sourceInstanceId)
+						this.toolProviders.set(t.name, providers)
+					}
+				}
+
+				const discovery = this.discovery!
+				const toolProviders = this.toolProviders!
+
+				// Create wrapper tool definitions — handle duplicates with peer-specific names
+				const remoteToolDefs: Array<{
+					name: string
+					description: string
+					parameters: any
+					execute: (params: unknown) => Promise<unknown>
+				}> = []
+
+				for (const t of tools) {
+					const existingTool = this.toolRegistry!.get(t.name)
+					const isLocalTool = existingTool && !existingTool.pawName.startsWith('__volenet')
+
+					if (isLocalTool) {
+						// Don't override local tools — skip
+						continue
+					}
+
+					// Re-announcement from the same peer (no other provider) — nothing to conflict with.
+					const otherProviders = (toolProviders.get(t.name) ?? []).filter(
+						(id) => id !== sourceInstanceId,
+					)
+					if (existingTool && otherProviders.length === 0) continue
+
+					if (existingTool) {
+						// Another peer already registered this tool name — we have a conflict.
+						// Route by IDENTITY: the recorded owner of the plain-name registration,
+						// never a name lookup. No fall-back to "some other provider": once the
+						// plain name has been converted to a load-balanced alias its owner entry
+						// is gone, and guessing an owner here re-renamed the alias to whichever
+						// peer announced LAST — mislabeled cross-peer tools on every cycle.
+						const existingOwnerId = this.remoteToolOwners.get(t.name)
+
+						// Only rename existing if it hasn't been renamed yet (still plain name),
+						// and never on the owner's own re-announcement.
+						if (
+							!existingTool.name.includes('/') &&
+							existingOwnerId &&
+							existingOwnerId !== sourceInstanceId
+						) {
+							const existingInst = discovery.getInstances().find((i) => i.id === existingOwnerId)
+							const existingName = existingInst?.name ?? existingOwnerId.substring(0, 8)
+							const existingDup =
+								existingName === peerName ||
+								discovery.getInstances().filter((i) => i.name === existingName).length > 1
+							const renamedTo = `${peerPrefix(existingName, existingOwnerId, existingDup)}/${t.name}`
+							const ownerId = existingOwnerId
+							const renamedExisting = {
+								name: renamedTo,
+								description: existingTool.description,
+								parameters: { parse: () => {} } as any,
+								async execute(params: unknown) {
+									const result = await remoteTaskMgr.executeRemoteTool(ownerId, t.name, params)
+									if (result.success) return result.output
+									throw new Error(result.error ?? 'Remote tool execution failed')
+								},
+							}
+							this.toolRegistry!.register(existingTool.pawName, [renamedExisting], false)
+							this.remoteToolOwners.set(renamedTo, ownerId)
+							// The plain name lives on as a load-balanced alias across all providers.
+							this.remoteToolOwners.delete(t.name)
+							logger.info(`Renamed remote tool ${t.name} → ${renamedTo} (conflict resolution)`)
+						}
+
+						// Register the new peer's tool under its (possibly id-suffixed) prefix
+						const newDup =
+							sourceDup ||
+							(existingOwnerId !== undefined &&
+								(discovery.getInstances().find((i) => i.id === existingOwnerId)?.name ?? '') ===
+									peerName)
+						const prefixedName = `${peerPrefix(peerName, sourceInstanceId, newDup)}/${t.name}`
+						// Idempotence: this peer's prefixed tool is already registered — a plain
+						// re-announcement (every discovery cycle) must not re-register it, or the
+						// registry emits tool:registered spam and mangles duplicate names.
+						if (
+							this.toolRegistry!.get(prefixedName) &&
+							this.remoteToolOwners.get(prefixedName) === sourceInstanceId
+						) {
+							continue
+						}
+						this.remoteToolOwners.set(prefixedName, sourceInstanceId)
+						remoteToolDefs.push({
+							name: prefixedName,
+							description: `[remote: ${peerName}] ${t.description}`,
+							parameters: { parse: () => {} } as any,
+							async execute(params: unknown) {
+								const result = await remoteTaskMgr.executeRemoteTool(
+									sourceInstanceId,
+									t.name,
+									params,
+								)
+								if (result.success) return result.output
+								throw new Error(result.error ?? 'Remote tool execution failed')
+							},
+						})
+					} else {
+						// First registration — plain name, load-balanced across providers by id.
+						// Record the owner so a future conflict can rename it correctly.
+						this.remoteToolOwners.set(t.name, sourceInstanceId)
+						remoteToolDefs.push({
+							name: t.name,
+							description: `[remote: ${peerName}] ${t.description}`,
+							parameters: { parse: () => {} } as any,
+							async execute(params: unknown) {
+								// Pick best peer: least loaded among all providers of this tool
+								const providers = toolProviders.get(t.name) ?? [sourceInstanceId]
+								let targetId = providers[0]
+
+								if (providers.length > 1) {
+									const instances = discovery.getInstances()
+									let bestLoad = Number.POSITIVE_INFINITY
+									for (const pid of providers) {
+										const inst = instances.find((i) => i.id === pid)
+										if (inst && inst.load < bestLoad) {
+											bestLoad = inst.load
+											targetId = pid
+										}
+									}
+								}
+
+								const result = await remoteTaskMgr.executeRemoteTool(targetId, t.name, params)
+								if (result.success) return result.output
+								throw new Error(result.error ?? 'Remote tool execution failed')
+							},
+						})
+					}
+				}
+
+				if (remoteToolDefs.length > 0) {
+					this.toolRegistry!.register(pawLabel, remoteToolDefs, false)
+					logger.info(
+						`Registered ${remoteToolDefs.length} remote tools from ${peerName} as ${pawLabel}`,
+					)
+				}
+			}
+		})
+
+		// Handle incoming task:delegate — run task with our brain if allowed
+		this.transport.onMessage(async (message) => {
+			if (message.type === 'task:delegate' && this.keyPair) {
+				if (!this.discovery?.verifyMessageFrom(message)) {
+					logger.warn(`Rejected unverified task:delegate from ${message.from.substring(0, 8)}`)
+					return
+				}
+				const request = message.payload as {
+					taskId: string
+					input: string
+					maxIterations?: number
+					fromName?: string
+				}
+				if (!request?.input) return
+
+				// Check if this peer is allowed to use our brain
+				if (!this.isPeerAllowedBrain(message.from)) {
+					logger.warn(`Brain access denied for peer ${message.from.substring(0, 8)}`)
+					await this.deliverTaskResult(message.from, {
+						taskId: request.taskId,
+						status: 'failed',
+						error: 'Brain access not allowed. Coordinator must set allowBrain: true for this peer.',
+					})
+					return
+				}
+
+				logger.info(
+					`Brain delegation from ${message.from.substring(0, 8)}: "${request.input.substring(0, 80)}"`,
+				)
+				messageBus?.emit('task:queued', { taskId: request.taskId })
+
+				// Enqueue the task locally — it will run through our brain
+				const taskQueue = (globalThis as any).__volenet_taskqueue__
+				if (taskQueue) {
+					// Chat messages (net_message) carry fromName — frame as a peer message and
+					// run in a per-peer session for conversational continuity. Tasks stay one-shot.
+					const isChat = typeof request.fromName === 'string' && request.fromName.length > 0
+					const runInput = isChat
+						? `[Message from peer agent "${request.fromName}"] ${request.input}`
+						: request.input
+					const runSource = isChat ? `net:${message.from.substring(0, 8)}` : 'agent'
+					const task = taskQueue.enqueue(runInput, runSource, {
+						// A peer's chat is a conversation, so it gets a session: history loads, the
+						// answer is appended to it, and — because the reply address is derived from
+						// the session — the report goes back to this peer instead of the dashboard.
+						// Without it every rule in replyAddressFor fell through to 'dashboard', so the
+						// agent wrote a status report about the peer to its human and that text was
+						// what the peer received. A one-shot task is not a conversation and gets none.
+						...(isChat ? { sessionId: runSource } : {}),
+						metadata: {
+							maxIterations: request.maxIterations ?? 10,
+							remotePeerId: message.from,
+							remoteTaskId: request.taskId,
+						},
+					})
+
+					// Wait for completion and send the result back. The asker may well be gone by
+					// then — thinking takes as long as it takes — so an undelivered answer waits.
+					const checkInterval = setInterval(async () => {
+						const t = taskQueue.get(task.id)
+						if (
+							t &&
+							(t.status === 'completed' || t.status === 'failed' || t.status === 'cancelled')
+						) {
+							clearInterval(checkInterval)
+							this.delegationTimers.delete(checkInterval)
+							await this.deliverTaskResult(message.from, {
+								taskId: request.taskId,
+								status: t.status,
+								result: t.result,
+								error: t.error,
+							})
+						}
+					}, 1000)
+					this.delegationTimers.add(checkInterval)
+				} else {
+					await this.deliverTaskResult(message.from, {
+						taskId: request.taskId,
+						status: 'failed',
+						error: 'Task queue not available',
+					})
+				}
+			}
+		})
+
+		// Handle incoming chat:message — human-capable peer chat. Unlike task:delegate,
+		// this does NOT run the brain: it verifies the sender, stores the message, and
+		// emits a bus event so the dashboard can surface it for a human (or brain) reply.
+		this.transport.onMessage((message) => {
+			if (message.type !== 'chat:message') return
+			if (!this.discovery?.verifyMessageFrom(message)) {
+				logger.warn(`Rejected unverified chat message from ${message.from.substring(0, 8)}`)
+				return
+			}
+			const payload = message.payload as { text?: string; fromName?: string }
+			if (!payload?.text) return
+			const fromName = payload.fromName || message.from.substring(0, 8)
+			void this.appendChat(message.from, {
+				dir: 'in',
+				text: payload.text,
+				fromName,
+				timestamp: message.timestamp,
+				messageId: message.id,
+			})
+			messageBus?.emit('volenet:chat', {
+				from: message.from,
+				fromName,
+				text: payload.text,
+				messageId: message.id,
+				timestamp: message.timestamp,
+			})
+		})
+
+		// ── Blind relay (v1: sealed end-to-end chat) ──────────────────────────────
+		const relayCfg = this.config.relay
+		const relayMaxBytes = relayCfg?.maxBytes ?? 65536
+		const relayMaxPerMinute = relayCfg?.maxPerMinutePerPair ?? 30
+
+		// Hub side: forward sealed envelopes between members. The hub verifies WHO sent the
+		// envelope and applies policy — it cannot read what it forwards.
+		this.transport.onMessage((message) => {
+			if (message.type !== 'sealed' || !this.keyPair || !this.transport) return
+			if (!this.discovery?.verifyMessageFrom(message)) {
+				logger.warn(`Rejected unverified sealed envelope from ${message.from.substring(0, 8)}`)
+				return
+			}
+			const payload = message.payload as { to?: string; box?: SealedBox; ref?: string }
+			if (!payload?.to || !payload.box) return
+			if (payload.to === this.keyPair.instanceId) {
+				// addressed to us — we are the recipient, not a relay
+				this.deliverSealed(message.from, payload.box, messageBus)
+				return
+			}
+			if (!relayCfg?.enabled) return // not a relay — drop
+			const to = payload.to
+			// An opaque reference the sender attached so it can tell which envelope a verdict is
+			// about. The hub cannot see inside, so without it a sender with two messages in
+			// flight could not know which one was refused. Older senders attach none.
+			const ref = typeof payload.ref === 'string' ? payload.ref : undefined
+			const reject = (reason: string, held = false) => {
+				logger.warn(
+					`Relay refused ${message.from.substring(0, 8)}→${to.substring(0, 8)}: ${reason}`,
+				)
+				const err = createMessage(
+					'relay:error',
+					this.keyPair!.instanceId,
+					message.from,
+					{ to, reason, ...(ref ? { ref } : {}), ...(held ? { held: true } : {}) },
+					this.keyPair!.privateKey,
+					this.keyPair!.pqPrivateKey,
+				)
+				void this.transport!.sendToPeer(message.from, err)
+			}
+			// The member is away. Remember that somebody tried — sender, count, when — and nothing
+			// else. The envelope goes back to the sender's own outbox; chat-outbox.ts says why the
+			// hub deliberately does not keep the ciphertext.
+			const holdForLater = () => {
+				const fromName =
+					this.discovery?.getInstances().find((i) => i.id === message.from)?.name ?? ''
+				void this.relayNotices?.record(to, message.from, fromName)
+				reject('peer-unreachable', true)
+			}
+			if (JSON.stringify(message).length > relayMaxBytes) return reject('too-large')
+			if (!relayPairAllow(this.relayWindows, message.from, to, relayMaxPerMinute))
+				return reject('rate-limited')
+			const bound = this.transport.getPeers().find((p) => p.peerId === to && p.connected)
+			if (!bound) return holdForLater()
+			const wrap = createMessage(
+				'relay:deliver',
+				this.keyPair.instanceId,
+				to,
+				{ from: message.from, box: payload.box },
+				this.keyPair.privateKey,
+				this.keyPair.pqPrivateKey,
+			)
+			void this.transport.sendToPeer(to, wrap).then((sent) => {
+				if (!sent) return holdForLater()
+				// A sender that attached a ref is waiting to hear the envelope went through, so its
+				// outbox can let the message go. One that attached none expects nothing.
+				if (!ref || !this.keyPair || !this.transport) return
+				const ack = createMessage(
+					'relay:ack',
+					this.keyPair.instanceId,
+					message.from,
+					{ to, ref },
+					this.keyPair.privateKey,
+					this.keyPair.pqPrivateKey,
+				)
+				void this.transport.sendToPeer(message.from, ack)
+			})
+		})
+
+		// Member side: a relay hub handed us a sealed envelope from another member.
+		this.transport.onMessage((message) => {
+			if (message.type !== 'relay:deliver' || !this.keyPair) return
+			if (!this.discovery?.verifyMessageFrom(message)) return // the relay must be authorized
+			const payload = message.payload as { from?: string; box?: SealedBox }
+			if (!payload?.from || !payload.box) return
+			// message.from is the delivering hub — file transfers use it for relay-mode routing.
+			this.deliverSealed(payload.from, payload.box, messageBus, message.from)
+		})
+
+		// Member side: hub-vouched member directory, enables sealed addressing of members
+		// we have no direct trust relationship with. Directory data only — never authority.
+		this.transport.onMessage((message) => {
+			if (message.type !== 'roster') return
+			if (!this.discovery?.verifyMessageFrom(message)) return
+			const payload = message.payload as { members?: RosterMember[] }
+			if (!Array.isArray(payload?.members)) return
+			const map = new Map<string, RosterMember>()
+			for (const m of payload.members) {
+				if (m?.instanceId && m.instanceId !== this.keyPair?.instanceId) map.set(m.instanceId, m)
+			}
+			this.hubRosters.set(message.from, map)
+			// Anyone we are holding a message for may just have come back.
+			void this.flushChatOutbox()
+		})
+
+		this.transport.onMessage((message) => {
+			if (message.type !== 'relay:error') return
+			if (!this.discovery?.verifyMessageFrom(message)) return
+			const payload = message.payload as {
+				to?: string
+				reason?: string
+				ref?: string
+				held?: boolean
+			}
+			logger.warn(
+				`Relay could not deliver to ${payload?.to?.substring(0, 8) ?? '?'}: ${payload?.reason ?? 'unknown'}`,
+			)
+			this.settleRelay(payload)
+			messageBus?.emit('volenet:relay:error', { via: message.from, ...payload })
+		})
+
+		// Member side: the hub forwarded an envelope we attached a ref to.
+		this.transport.onMessage((message) => {
+			if (message.type !== 'relay:ack') return
+			if (!this.discovery?.verifyMessageFrom(message)) return
+			const payload = message.payload as { to?: string; ref?: string }
+			if (typeof payload?.ref !== 'string') return
+			this.relayInflight.get(payload.ref)?.settle({ kind: 'ack' })
+		})
+
+		// Member side: a hub telling us, on reconnect, who tried to reach us while we were away.
+		// Names and counts only. The messages themselves are still on the senders' machines and
+		// arrive once those senders see us in a roster — which the hub broadcasts right after this.
+		this.transport.onMessage((message) => {
+			if (message.type !== 'relay:pending') return
+			if (!this.discovery?.verifyMessageFrom(message)) return
+			const payload = message.payload as { senders?: RelayNotice[] }
+			if (!Array.isArray(payload?.senders) || payload.senders.length === 0) return
+			const now = Date.now()
+			const notices: RelayNotice[] = []
+			for (const n of payload.senders) {
+				if (!n || typeof n.from !== 'string' || !n.from) continue
+				// Their message may already be here: on reconnect the hub sends this notice to us
+				// and the roster to them, and the sender's delivery can win that race. A notice
+				// about attempts made before we last heard from them announces nothing.
+				const heard = this.lastChatFrom.get(n.from)
+				if (heard !== undefined && heard >= (Number(n.last) || 0)) continue
+				const notice: RelayNotice = {
+					from: n.from,
+					fromName:
+						typeof n.fromName === 'string' && n.fromName ? n.fromName : this.rosterName(n.from),
+					count: Math.max(1, Number(n.count) || 1),
+					first: Number(n.first) || now,
+					last: Number(n.last) || now,
+				}
+				this.chatPending.set(n.from, { ...notice, viaHub: message.from })
+				notices.push(notice)
+			}
+			if (notices.length === 0) return
+			logger.info(
+				`${notices.length} sender(s) tried to reach me while I was away (via ${message.from.substring(0, 8)})`,
+			)
+			messageBus?.emit('volenet:chat:pending', { via: message.from, from: notices })
+		})
+
+		// Hub side: broadcast the roster on membership changes (debounced).
+		if (relayCfg?.enabled) {
+			const schedule = () => {
+				if (this.rosterTimer) clearTimeout(this.rosterTimer)
+				this.rosterTimer = setTimeout(() => this.broadcastRoster(), 400)
+			}
+			this.transport.setOnConnect(schedule)
+			this.transport.setOnDisconnect(schedule)
+			// A member that just (re)connected is told who tried to reach it while it was away.
+			// On the connect itself rather than inferred from roster diffs, which have to trust
+			// that every disconnect was noticed.
+			this.transport.setOnConnect((id) => void this.sendRelayNotices(id))
+			logger.info(
+				`Relay enabled — sealed member↔member envelopes, ${relayMaxPerMinute}/min per pair, ${relayMaxBytes}B cap`,
+			)
+		}
+
+		// ── Direct end-to-end encryption (opt-in) ────────────────────────────────
+		// Outbound: seal post-handshake messages to capable peers into sealed:direct envelopes.
+		this.transport.setSealer((peerId, msg) => this.maybeSealDirect(peerId, msg))
+		// Inbound: unwrap a sealed:direct envelope and re-inject the inner message so every handler
+		// (tool calls, sync, chat) processes it with full verification — transparent decryption.
+		this.transport.onMessage((message) => {
+			if (message.type !== 'sealed:direct' || !this.keyPair?.xPrivateKey || !this.transport) return
+			if (!this.discovery?.verifyMessageFrom(message)) return // outer envelope must be signed
+			const payload = message.payload as { box?: SealedBox }
+			if (!payload?.box) return
+			const aad = `${message.from}|${this.keyPair.instanceId}`
+			const plain = unseal(this.keyPair.xPrivateKey, payload.box, aad, this.keyPair.mlkemPrivateKey)
+			if (!plain) {
+				logger.warn(`sealed:direct from ${message.from.substring(0, 8)} failed to unseal`)
+				return
+			}
+			let inner: VoleNetMessage
+			try {
+				inner = JSON.parse(plain.toString('utf8')) as VoleNetMessage
+			} catch {
+				return
+			}
+			// The envelope's sender must be the inner author — no wrapping another identity's message.
+			if (inner.from !== message.from) return
+			this.transport.injectMessage(inner)
+		})
+		if (this.config.encrypt)
+			logger.info('Direct encryption enabled — hybrid X25519 + ML-KEM-768 seal')
+
+		// Initialize remote task manager
+		this.remoteTaskMgr = new RemoteTaskManager(
+			this.transport,
+			this.discovery,
+			this.keyPair.instanceId,
+			this.keyPair.privateKey,
+			this.keyPair.pqPrivateKey,
+			this.config.routing,
+		)
+
+		// Initialize sync manager
+		const syncConfig: SyncConfig = {
+			memory: this.config.share?.memory ?? false,
+			session: this.config.share?.session ?? false,
+		}
+		this.sync = new VoleNetSync(
+			this.transport,
+			this.discovery,
+			this.keyPair.instanceId,
+			this.config.instanceName ?? 'vole',
+			this.keyPair.privateKey,
+			this.keyPair.pqPrivateKey,
+			syncConfig,
+		)
+
+		// Set up session sync handler — write remote session entries to local transcript
+		this.sync.setSessionWriteHandler(async (entry) => {
+			const fs = await import('node:fs/promises')
+			const pathMod = await import('node:path')
+			const sessionDir = pathMod.resolve(
+				this.projectRoot,
+				'.openvole',
+				'paws',
+				'paw-session',
+				entry.sessionId.replace(/[/\\]/g, '_'),
+			)
+			await fs.mkdir(sessionDir, { recursive: true })
+			const transcriptPath = pathMod.join(sessionDir, 'transcript.md')
+			const timestamp = new Date(entry.timestamp).toTimeString().slice(0, 8)
+			const line = `[${timestamp}] ${entry.role}: ${entry.content.replace(/\n/g, ' ').substring(0, 2000)}\n`
+			await fs.appendFile(transcriptPath, line, 'utf-8')
+			logger.info(
+				`Session sync received: ${entry.sessionId} — ${entry.role} from ${entry.instanceId.substring(0, 8)}`,
+			)
+		})
+
+		// Initialize leader election
+		this.leader = new VoleNetLeader(
+			this.transport,
+			this.discovery,
+			this.keyPair.instanceId,
+			this.config.instanceName ?? 'vole',
+			this.keyPair.privateKey,
+			this.keyPair.pqPrivateKey,
+			this.config.leader,
+		)
+		this.leader.start(
+			() => logger.info('This instance is now the VoleNet leader (owns heartbeat/schedules)'),
+			() => logger.info('This instance lost VoleNet leadership'),
+		)
+
+		// Re-elect leader immediately when peers join/leave
+		this.discovery.setOnPeerChanged(() => {
+			this.leader?.reelect()
+		})
+
+		// VoleDrop — file transfer engine. Constructed with closures so it can use the
+		// manager's private relay/chat plumbing without owning any of it.
+		this.files = new VoleNetFiles({
+			config: this.config.files ?? {},
+			relayEnabled: !!this.config.relay?.enabled,
+			projectRoot: this.projectRoot,
+			netDir,
+			keyPair: this.keyPair,
+			transport: this.transport,
+			instanceName: this.config.instanceName ?? 'vole',
+			advertisedEndpoint: endpoint,
+			bus: messageBus,
+			getInstances: () => this.getInstances(),
+			resolveRelayPeer: (ref) => this.resolveRelayPeer(ref),
+			getHubForMember: (peerId) => {
+				for (const [hubId, roster] of this.hubRosters) {
+					if (!roster.has(peerId)) continue
+					const hub = this.transport?.getPeers().find((x) => x.peerId === hubId && x.connected)
+					if (hub) return hubId
+				}
+				return undefined
+			},
+			sealToMemberViaRelay: (ref, type, payload) => this.sealToMemberViaRelay(ref, type, payload),
+			appendChat: (peerId, entry) => this.appendChat(peerId, entry),
+		})
+		this.transport.setBlobHandler((req, res, pathname) =>
+			this.files ? this.files.handleBlobRequest(req, res, pathname) : false,
+		)
+		// Direct file-transfer + relay-blob control messages (relayed ones arrive via deliverSealed).
+		this.transport.onMessage((message) => {
+			if (!message.type.startsWith('file:') && !message.type.startsWith('relay:blob:')) return
+			if (!this.discovery?.verifyMessageFrom(message)) return
+			this.files?.handleMessage(message, {})
+		})
+
+		// Make VoleNet accessible to core tools via globalThis
+		;(globalThis as any).__volenet__ = this
+
+		// Connect to configured peers
+		if (this.config.peers) {
+			// An entry with no url is identity-only (a phone, or anything that can only dial
+			// us): there is nothing to connect to, it just says what that peer may do here.
+			for (const peer of this.config.peers) {
+				if (!peer.url) continue
+				logger.info(`Connecting to peer: ${peer.url}`)
+				await this.discovery.connectToPeer(peer.url)
+			}
+			// Re-attempt configured peers periodically so the mesh self-heals from
+			// start-order races (a peer not up yet) and transient drops. connectToPeer
+			// pings first and is idempotent, so re-announcing to connected peers is cheap.
+			this.peerConnectTimer = setInterval(() => {
+				for (const peer of this.config.peers ?? []) {
+					if (!peer.url) continue
+					this.discovery?.connectToPeer(peer.url).catch(() => {})
+				}
+			}, 15_000)
+		}
+
+		// Periodically prune stale node-chat sessions (retention).
+		void this.pruneChatSessions()
+		this.chatPruneTimer = setInterval(() => void this.pruneChatSessions(), CHAT_PRUNE_INTERVAL_MS)
+
+		this.started = true
+		logger.info(`VoleNet started — ${this.config.role ?? 'peer'} mode, port ${port}`)
+	}
+
+	/**
+	 * Stop VoleNet — disconnect peers, stop transport.
+	 */
+	/**
+	 * Send one brain answer to the peer that asked for it, and keep it if that fails.
+	 *
+	 * Failure here is ordinary: thinking takes as long as it takes, and a peer that asked from
+	 * a phone is very likely closed by the time there is something to say. Nobody else holds a
+	 * copy — the asker has the question and we have the only answer — so it waits, and goes out
+	 * the next time that peer speaks to us.
+	 */
+	private async deliverTaskResult(
+		peerId: string,
+		payload: { taskId: string; status: string; result?: string; error?: string },
+	): Promise<boolean> {
+		if (!this.keyPair || !this.transport) return false
+		const message = createMessage(
+			'task:result',
+			this.keyPair.instanceId,
+			peerId,
+			payload,
+			this.keyPair.privateKey,
+			this.keyPair.pqPrivateKey,
+		)
+		const sent = await this.transport.sendToPeer(peerId, message).catch(() => false)
+		const who = peerId.substring(0, 8)
+		if (sent) {
+			await this.resultOutbox?.remove(peerId, payload.taskId)
+			logger.info(`Brain delegation result sent to ${who}: ${payload.status}`)
+			return true
+		}
+		await this.resultOutbox?.add({ peerId, ...payload, at: Date.now() })
+		logger.info(`Brain delegation result for ${who} is waiting — the peer is not reachable`)
+		return false
+	}
+
+	/**
+	 * A peer just spoke to us, so anything we were holding for it can go out now.
+	 *
+	 * Re-signed rather than replayed: a stored message carries the timestamp it was written
+	 * with, and receivers enforce freshness.
+	 */
+	private async flushResultsFor(peerId: string): Promise<void> {
+		const outbox = this.resultOutbox
+		if (!outbox || !outbox.has(peerId) || this.flushingResults.has(peerId)) return
+		this.flushingResults.add(peerId)
+		try {
+			for (const entry of outbox.forPeer(peerId)) {
+				const ok = await this.deliverTaskResult(peerId, {
+					taskId: entry.taskId,
+					status: entry.status,
+					result: entry.result,
+					error: entry.error,
+				})
+				if (!ok) {
+					await outbox.noteAttempt(peerId, entry.taskId)
+					break
+				}
+			}
+		} finally {
+			this.flushingResults.delete(peerId)
+		}
+	}
+
+	async stop(): Promise<void> {
+		if (!this.started) return
+
+		if (this.peerConnectTimer) clearInterval(this.peerConnectTimer)
+		this.peerConnectTimer = undefined
+		if (this.chatPruneTimer) clearInterval(this.chatPruneTimer)
+		this.chatPruneTimer = undefined
+		for (const t of this.delegationTimers) clearInterval(t)
+		this.delegationTimers.clear()
+		if (this.rosterTimer) clearTimeout(this.rosterTimer)
+		this.rosterTimer = undefined
+		this.files?.stop()
+		this.files = null
+		this.leader?.stop()
+		this.sync?.dispose()
+		this.remoteTaskMgr?.dispose()
+		this.discovery?.stop()
+		await this.transport?.stop()
+
+		this.leader = null
+		this.sync = null
+		this.remoteTaskMgr = null
+		this.discovery = null
+		this.transport = null
+		this.started = false
+		;(globalThis as any).__volenet__ = undefined
+
+		logger.info('VoleNet stopped')
+	}
+
+	/**
+	 * Get connected instances.
+	 */
+	getInstances(): VoleNetInstance[] {
+		return this.discovery?.getInstances() ?? []
+	}
+
+	// ── VoleDrop file transfer (passthroughs to the files engine) ─────────────
+
+	/** Send a file to a peer (direct or relay-rostered). Async — completion via bus events. */
+	async sendFile(
+		peerRef: string,
+		filePath: string,
+		note?: string,
+	): Promise<{ ok: boolean; transferId?: string; error?: string }> {
+		if (!this.files) return { ok: false, error: 'VoleNet not started' }
+		return this.files.sendFile(peerRef, filePath, note)
+	}
+
+	async acceptFile(transferId: string): Promise<{ ok: boolean; error?: string }> {
+		if (!this.files) return { ok: false, error: 'VoleNet not started' }
+		return this.files.acceptFile(transferId)
+	}
+
+	async rejectFile(transferId: string, reason?: string): Promise<{ ok: boolean }> {
+		if (!this.files) return { ok: false }
+		return this.files.rejectFile(transferId, reason)
+	}
+
+	async cancelFileTransfer(transferId: string): Promise<{ ok: boolean }> {
+		if (!this.files) return { ok: false }
+		return this.files.cancelTransfer(transferId)
+	}
+
+	listFileTransfers(): TransferInfo[] {
+		return this.files?.listTransfers() ?? []
+	}
+
+	getFileTransfer(transferId: string): TransferInfo | undefined {
+		return this.files?.getTransfer(transferId)
+	}
+
+	/** Session ID for a peer's human-chat transcript (persisted via paw-session). */
+	private chatSessionId(peerId: string): string {
+		return `volenet:${peerId}`
+	}
+
+	/**
+	 * Append a chat entry for a peer. Persists via paw-session's session_append tool
+	 * when available; otherwise falls back to an in-memory log (capped at 200).
+	 */
+	private async appendChat(peerId: string, entry: ChatEntry): Promise<void> {
+		const tool = this.toolRegistry?.get('session_append')
+		if (tool) {
+			try {
+				await tool.execute({
+					sessionId: this.chatSessionId(peerId),
+					role: entry.dir,
+					content: entry.text,
+					maxMessages: this.config.chatRetention?.maxMessages ?? DEFAULT_CHAT_MAX_MESSAGES,
+				})
+				return
+			} catch (err) {
+				logger.warn(
+					`session_append failed, using memory: ${err instanceof Error ? err.message : String(err)}`,
+				)
+			}
+		}
+		const log = this.chatLog.get(peerId) ?? []
+		log.push(entry)
+		if (log.length > 200) log.splice(0, log.length - 200)
+		this.chatLog.set(peerId, log)
+	}
+
+	/**
+	 * Get the human-chat history with a peer. Reads from paw-session when available,
+	 * otherwise the in-memory fallback.
+	 */
+	async getChatHistory(peerId: string): Promise<ChatEntry[]> {
+		// Only read from the session store when writes also go there (session_append present),
+		// so a half-upgraded paw-session can't shadow the in-memory log with an empty session.
+		const tool = this.toolRegistry?.get('session_append')
+			? this.toolRegistry?.get('session_history')
+			: undefined
+		if (tool) {
+			try {
+				const res = (await tool.execute({
+					sessionId: this.chatSessionId(peerId),
+					maxMessages: 500,
+				})) as { ok?: boolean; history?: Array<{ ts?: string; role: string; content: string }> }
+				if (res?.history) {
+					const myName = this.getInstanceName()
+					const peerName =
+						this.getInstances().find((i) => i.id === peerId)?.name ?? peerId.substring(0, 8)
+					return res.history.map((m) => ({
+						dir: m.role === 'out' ? ('out' as const) : ('in' as const),
+						text: m.content,
+						fromName: m.role === 'out' ? myName : peerName,
+						timestamp: m.ts ? Date.parse(m.ts) || 0 : 0,
+						messageId: '',
+					}))
+				}
+			} catch (err) {
+				logger.warn(
+					`session_history failed, using memory: ${err instanceof Error ? err.message : String(err)}`,
+				)
+			}
+		}
+		return this.chatLog.get(peerId) ?? []
+	}
+
+	/** Clear the human-chat history with a peer (paw-session or in-memory). */
+	async clearChat(peerId: string): Promise<void> {
+		const tool = this.toolRegistry?.get('session_append')
+			? this.toolRegistry?.get('session_clear')
+			: undefined
+		if (tool) {
+			try {
+				await tool.execute({ sessionId: this.chatSessionId(peerId) })
+				return
+			} catch {
+				// fall through to in-memory
+			}
+		}
+		this.chatLog.delete(peerId)
+	}
+
+	/** Clear chat sessions (volenet:*) idle longer than the retention age cap. */
+	private async pruneChatSessions(): Promise<void> {
+		const maxAgeDays = this.config.chatRetention?.maxAgeDays ?? DEFAULT_CHAT_MAX_AGE_DAYS
+		if (!maxAgeDays || maxAgeDays <= 0) return
+		const listTool = this.toolRegistry?.get('session_list')
+		const clearTool = this.toolRegistry?.get('session_clear')
+		if (!listTool || !clearTool) return
+		try {
+			const res = (await listTool.execute({})) as {
+				sessions?: Array<{ sessionId: string; lastActive?: string | null }>
+			}
+			const cutoff = Date.now() - maxAgeDays * 86_400_000
+			for (const s of res.sessions ?? []) {
+				if (!s.sessionId.startsWith('volenet:')) continue
+				const last = s.lastActive ? Date.parse(s.lastActive) : 0
+				if (last && last < cutoff) {
+					await clearTool.execute({ sessionId: s.sessionId })
+					logger.info(`Pruned stale chat session (idle > ${maxAgeDays}d): ${s.sessionId}`)
+				}
+			}
+		} catch (err) {
+			logger.warn(
+				`Chat retention prune failed: ${err instanceof Error ? err.message : String(err)}`,
+			)
+		}
+	}
+
+	/**
+	 * Send a human chat message to a peer. Does NOT invoke any brain.
+	 * Resolves the peer by id or name, signs + sends a chat:message, and logs it locally.
+	 */
+	async sendChat(
+		peerId: string,
+		text: string,
+	): Promise<{ ok: boolean; delivered?: boolean; relayed?: boolean; error?: string }> {
+		if (!this.keyPair || !this.transport) return { ok: false, error: 'VoleNet not started' }
+		const target = this.getInstances().find(
+			(i) => i.id === peerId || i.name === peerId || i.id.startsWith(peerId),
+		)
+		// Not directly known — try a relay hub's roster (sealed end-to-end delivery).
+		if (!target) return this.sendChatViaRelay(peerId, text)
+		const fromName = this.getInstanceName()
+		const msg = createMessage(
+			'chat:message',
+			this.keyPair.instanceId,
+			target.id,
+			{ text, fromName },
+			this.keyPair.privateKey,
+			this.keyPair.pqPrivateKey,
+		)
+		const delivered = await this.transport.sendToPeer(target.id, msg)
+		await this.appendChat(target.id, {
+			dir: 'out',
+			text,
+			fromName,
+			timestamp: msg.timestamp,
+			messageId: msg.id,
+		})
+		return { ok: true, delivered }
+	}
+
+	/**
+	 * Find a hub-rostered member by ref, seal an inner message to it, and forward via its hub.
+	 * Shared by relayed chat and the consent handshake — the hub sees only ciphertext.
+	 */
+	private async sealToMemberViaRelay(
+		peerRef: string,
+		innerType: VoleNetMessageType,
+		innerPayload: Record<string, unknown>,
+		ref?: string,
+	): Promise<{
+		ok: boolean
+		delivered?: boolean
+		member?: RosterMember
+		hubId?: string
+		inner?: VoleNetMessage
+		error?: string
+	}> {
+		if (!this.keyPair || !this.transport) return { ok: false, error: 'VoleNet not started' }
+		for (const [hubId, roster] of this.hubRosters) {
+			const member = [...roster.values()].find(
+				(m) => m.instanceId === peerRef || m.name === peerRef || m.instanceId.startsWith(peerRef),
+			)
+			if (!member) continue
+			if (!member.xPublicKey)
+				return { ok: false, error: `Peer "${peerRef}" announces no sealed-envelope key` }
+			const inner = createMessage(
+				innerType,
+				this.keyPair.instanceId,
+				member.instanceId,
+				innerPayload,
+				this.keyPair.privateKey,
+				this.keyPair.pqPrivateKey,
+			)
+			const box = seal(
+				member.xPublicKey,
+				Buffer.from(JSON.stringify(inner), 'utf8'),
+				`${this.keyPair.instanceId}|${member.instanceId}`,
+				member.mlkemPublicKey,
+			)
+			if (!box) return { ok: false, error: 'Failed to seal envelope' }
+			const outer = createMessage(
+				'sealed',
+				this.keyPair.instanceId,
+				hubId,
+				{ to: member.instanceId, box, ...(ref ? { ref } : {}) },
+				this.keyPair.privateKey,
+				this.keyPair.pqPrivateKey,
+			)
+			const delivered = await this.transport.sendToPeer(hubId, outer)
+			return { ok: true, delivered, member, hubId, inner }
+		}
+		return { ok: false, error: `No connected peer: "${peerRef}"` }
+	}
+
+	/**
+	 * Seal a chat message to a hub-rostered member, send it via that hub, and wait for the hub's
+	 * verdict. Forwarded, or held: when the member is away the message goes to this node's own
+	 * outbox and leaves when the member reappears in a roster. A hub too old to give a verdict
+	 * is treated the way it always was — the write to the hub counts as the delivery.
+	 */
+	private async sendChatViaRelay(
+		peerRef: string,
+		text: string,
+	): Promise<{
+		ok: boolean
+		delivered?: boolean
+		queued?: boolean
+		relayed?: boolean
+		error?: string
+	}> {
+		const fromName = this.getInstanceName()
+		const sentAt = Date.now()
+		const ref = randomUUID()
+		const member = this.resolveRelayPeer(peerRef)
+		const verdict = this.awaitRelayVerdict(ref, member?.instanceId ?? peerRef)
+		const r = await this.sealToMemberViaRelay(
+			peerRef,
+			'chat:message',
+			{ text, fromName, sentAt },
+			ref,
+		)
+		if (!r.ok || !r.member || !r.inner) {
+			this.relayInflight.get(ref)?.settle({ kind: 'error', reason: r.error ?? 'unsealable' })
+			return { ok: false, error: r.error ?? `No connected peer: "${peerRef}"` }
+		}
+		await this.appendChat(r.member.instanceId, {
+			dir: 'out',
+			text,
+			fromName,
+			timestamp: sentAt,
+			messageId: r.inner.id,
+			relayed: true,
+		})
+		const o = await verdict
+		switch (o.kind) {
+			case 'ack':
+				return { ok: true, delivered: true, relayed: true }
+			case 'held': {
+				const entry = await this.chatOutbox?.add({
+					to: r.member.instanceId,
+					toName: r.member.name,
+					text,
+					sentAt,
+				})
+				if (entry) {
+					logger.info(`${r.member.name} is away — holding the message here until they are back`)
+					this.messageBus?.emit('volenet:chat:queued', {
+						to: entry.to,
+						toName: entry.toName,
+						ref: entry.ref,
+						text,
+						sentAt,
+						via: r.hubId ?? '',
+					})
+				}
+				return { ok: true, delivered: false, queued: true, relayed: true }
+			}
+			case 'error':
+				return { ok: true, delivered: false, relayed: true, error: o.reason }
+			default:
+				return { ok: true, delivered: r.delivered, relayed: true }
+		}
+	}
+
+	/**
+	 * The hub's verdict on an envelope we sent: forwarded, held because the member is away,
+	 * refused — or silence, from a hub too old to give one.
+	 */
+	private awaitRelayVerdict(ref: string, to: string): Promise<RelayOutcome> {
+		return new Promise<RelayOutcome>((resolve) => {
+			const finish = (o: RelayOutcome) => {
+				clearTimeout(timer)
+				this.relayInflight.delete(ref)
+				resolve(o)
+			}
+			const timer = setTimeout(() => finish({ kind: 'timeout' }), RELAY_VERDICT_TIMEOUT_MS)
+			this.relayInflight.set(ref, { to, settle: finish })
+		})
+	}
+
+	/**
+	 * Route a hub's relay:error to the envelope it is about. Older hubs echo no ref, so a verdict
+	 * without one settles everything in flight to that member — in practice the one message.
+	 */
+	private settleRelay(p: { to?: string; reason?: string; ref?: string; held?: boolean }): void {
+		const outcome: RelayOutcome =
+			p.held || p.reason === 'peer-unreachable'
+				? { kind: 'held' }
+				: { kind: 'error', reason: p.reason ?? 'unknown' }
+		if (typeof p.ref === 'string') {
+			this.relayInflight.get(p.ref)?.settle(outcome)
+			return
+		}
+		if (!p.to) return
+		for (const f of [...this.relayInflight.values()]) if (f.to === p.to) f.settle(outcome)
+	}
+
+	/**
+	 * Send what is waiting for anyone who is back. Runs on every roster update, so a member
+	 * reappearing on a hub is what triggers delivery — nothing polls. One message at a time and
+	 * in order, so a conversation arrives the way it was written.
+	 */
+	private async flushChatOutbox(): Promise<void> {
+		if (!this.chatOutbox || this.outboxFlushing || this.chatOutbox.size === 0) return
+		this.outboxFlushing = true
+		try {
+			for (const e of await this.chatOutbox.sweep()) {
+				logger.warn(
+					`Gave up on a message to ${e.toName || e.to.substring(0, 8)} written ${new Date(e.sentAt).toISOString()} — they never came back`,
+				)
+			}
+			const stillAway = new Set<string>()
+			for (const entry of this.chatOutbox.list()) {
+				if (stillAway.has(entry.to)) continue
+				const member = this.resolveRelayPeer(entry.to)
+				if (!member?.connected) continue
+				const ref = randomUUID()
+				const verdict = this.awaitRelayVerdict(ref, entry.to)
+				// Re-signed now: a signature is fresh for a minute and this may have waited days.
+				// `sentAt` tells the recipient when it was actually written.
+				const kind = entry.kind ?? 'chat'
+				const fromName = this.getInstanceName()
+				const r = await this.sealToMemberViaRelay(
+					entry.to,
+					kind === 'chat' ? 'chat:message' : `relay:${kind}`,
+					kind === 'chat'
+						? { text: entry.text, fromName, sentAt: entry.sentAt }
+						: kind === 'connect-request'
+							? { fromName, ...(entry.note ? { note: entry.note } : {}) }
+							: { fromName },
+					ref,
+				)
+				if (!r.ok) {
+					this.relayInflight.get(ref)?.settle({ kind: 'error', reason: r.error ?? 'unsealable' })
+					await this.chatOutbox.noteAttempt(entry.ref, r.error)
+					continue
+				}
+				const o = await verdict
+				if (o.kind === 'ack' || o.kind === 'timeout') {
+					await this.chatOutbox.remove(entry.ref)
+					logger.info(
+						`Delivered to ${entry.toName || entry.to.substring(0, 8)} a message that waited since ${new Date(entry.sentAt).toISOString()}`,
+					)
+					this.messageBus?.emit('volenet:chat:flushed', {
+						to: entry.to,
+						toName: entry.toName,
+						ref: entry.ref,
+						sentAt: entry.sentAt,
+					})
+				} else {
+					await this.chatOutbox.noteAttempt(entry.ref, o.kind === 'error' ? o.reason : 'held')
+					if (o.kind === 'held') stillAway.add(entry.to)
+				}
+			}
+		} finally {
+			this.outboxFlushing = false
+		}
+	}
+
+	/**
+	 * Outbound direct-seal transform. Wraps a message in a sealed:direct envelope when encryption is
+	 * enabled and the target peer supports it (announces an ML-KEM key ⟹ 4.12.0+, can unwrap). The
+	 * inner message is already signed; the recipient recovers and re-verifies it. Handshake, relay,
+	 * and leader types pass through untouched. Never throws — falls back to plaintext on any issue.
+	 */
+	private maybeSealDirect(peerId: string, message: VoleNetMessage): VoleNetMessage {
+		if (!this.config.encrypt || !this.keyPair?.privateKey) return message
+		if (PLAINTEXT_DIRECT_TYPES.has(message.type)) return message
+		const peer = this.discovery?.getInstances().find((i) => i.id === peerId)
+		// Seal only to a peer that announced BOTH agreement keys (the post-quantum-capable path).
+		if (!peer?.xPublicKey || !peer.mlkemPublicKey) return message
+		const aad = `${this.keyPair.instanceId}|${peerId}`
+		const box = seal(
+			peer.xPublicKey,
+			Buffer.from(JSON.stringify(message), 'utf8'),
+			aad,
+			peer.mlkemPublicKey,
+		)
+		if (!box) return message
+		return createMessage(
+			'sealed:direct',
+			this.keyPair.instanceId,
+			peerId,
+			{ box },
+			this.keyPair.privateKey,
+			this.keyPair.pqPrivateKey,
+		)
+	}
+
+	/** Resolve a relay-member ref (id / name / id-prefix) against every hub roster. */
+	private resolveRelayPeer(ref: string): RosterMember | undefined {
+		for (const roster of this.hubRosters.values()) {
+			const m = [...roster.values()].find(
+				(x) => x.instanceId === ref || x.name === ref || x.instanceId.startsWith(ref),
+			)
+			if (m) return m
+		}
+		return undefined
+	}
+
+	/** Persist consent to a peer, pinning its roster-vouched key line in relay_accepts. */
+	private async persistRelayAccept(member: RosterMember): Promise<void> {
+		try {
+			await addRelayAccept(this.getNetDir(), member.publicKey)
+		} catch (e) {
+			logger.warn(
+				`Failed to persist relay consent for ${member.instanceId.substring(0, 8)}: ${e instanceof Error ? e.message : String(e)}`,
+			)
+		}
+	}
+
+	/**
+	 * Ask a rostered member to accept relay contact. Initiating implies consent to receive its
+	 * reply, so the peer is added to my accept list immediately (persisted).
+	 */
+	async requestRelayConnect(
+		peerRef: string,
+		note?: string,
+	): Promise<{ ok: boolean; queued?: boolean; error?: string }> {
+		const fromName = this.getInstanceName()
+		const r = await this.sendConsentViaRelay(peerRef, 'connect-request', { fromName, note }, note)
+		if (!r.ok || !r.member)
+			return { ok: false, error: r.error ?? `No connected peer: "${peerRef}"` }
+		this.relayAcceptIds.add(r.member.instanceId)
+		this.relayOutgoing.add(r.member.instanceId)
+		await this.persistRelayAccept(r.member)
+		return { ok: true, ...(r.queued ? { queued: true } : {}) }
+	}
+
+	/**
+	 * Consent traffic goes through the same verdict-and-hold path as chat. It used to be
+	 * fire-and-forget, so a request to a member who had just locked their phone simply vanished —
+	 * and, on the older hub, so did the fact that anything had been sent.
+	 */
+	private async sendConsentViaRelay(
+		peerRef: string,
+		kind: 'connect-request' | 'connect-accept' | 'connect-deny',
+		payload: Record<string, unknown>,
+		note?: string,
+	): Promise<{ ok: boolean; member?: RosterMember; queued?: boolean; error?: string }> {
+		const member = this.resolveRelayPeer(peerRef)
+		const ref = randomUUID()
+		const verdict = this.awaitRelayVerdict(ref, member?.instanceId ?? peerRef)
+		const r = await this.sealToMemberViaRelay(peerRef, `relay:${kind}`, payload, ref)
+		if (!r.ok || !r.member) {
+			this.relayInflight.get(ref)?.settle({ kind: 'error', reason: r.error ?? 'unsealable' })
+			return { ok: false, error: r.error }
+		}
+		const o = await verdict
+		if (o.kind === 'held') {
+			await this.chatOutbox?.add({
+				kind,
+				to: r.member.instanceId,
+				toName: r.member.name,
+				text: '',
+				note,
+				sentAt: Date.now(),
+			})
+			logger.info(`${r.member.name} is away — holding the ${kind} here until they are back`)
+			return { ok: true, member: r.member, queued: true }
+		}
+		if (o.kind === 'error') return { ok: false, member: r.member, error: o.reason }
+		return { ok: true, member: r.member }
+	}
+
+	/** Approve an inbound connect-request: consent to the peer, persist it, and notify the peer. */
+	async approveRelayConnect(
+		peerRef: string,
+	): Promise<{ ok: boolean; queued?: boolean; error?: string }> {
+		const member = this.resolveRelayPeer(peerRef)
+		if (!member) return { ok: false, error: `No relay member: "${peerRef}"` }
+		this.relayAcceptIds.add(member.instanceId)
+		this.relayConfirmed.add(member.instanceId) // they requested me → mutual
+		this.relayRequests.delete(member.instanceId)
+		await this.persistRelayAccept(member)
+		const fromName = this.getInstanceName()
+		const r = await this.sendConsentViaRelay(member.instanceId, 'connect-accept', { fromName })
+		return { ok: true, ...(r.queued ? { queued: true } : {}) }
+	}
+
+	/** Deny an inbound connect-request: clear it and (best-effort) tell the peer. */
+	async denyRelayConnect(peerRef: string): Promise<{ ok: boolean; error?: string }> {
+		const member = this.resolveRelayPeer(peerRef)
+		this.relayRequests.delete(member?.instanceId ?? peerRef)
+		if (member) {
+			const fromName = this.getInstanceName()
+			await this.sendConsentViaRelay(member.instanceId, 'connect-deny', { fromName })
+		}
+		return { ok: true }
+	}
+
+	/** Withdraw previously-granted relay consent for a peer (removes it from relay_accepts). */
+	async revokeRelayConnect(peerRef: string): Promise<{ ok: boolean }> {
+		const id = this.resolveRelayPeer(peerRef)?.instanceId ?? peerRef
+		this.relayAcceptIds.delete(id)
+		this.relayConfirmed.delete(id)
+		this.relayOutgoing.delete(id)
+		this.relayRequests.delete(id)
+		await removeRelayAccept(this.getNetDir(), id).catch(() => false)
+		return { ok: true }
+	}
+
+	/** Inbound relay connect-requests awaiting my approval (newest first). */
+	getRelayRequests(): Array<{
+		id: string
+		name: string
+		viaHub: string
+		viaHubName: string
+		note?: string
+		ts: number
+	}> {
+		return [...this.relayRequests.values()].sort((a, b) => b.ts - a.ts)
+	}
+
+	/** Chat waiting on this node for recipients who are away. Own disk only, never a hub's. */
+	getChatOutbox(): OutboxEntry[] {
+		return this.chatOutbox?.list() ?? []
+	}
+
+	/** Who tried to reach me while I was away, per the hub that told me. Cleared as their messages arrive. */
+	getChatPending(): Array<RelayNotice & { viaHub: string }> {
+		return [...this.chatPending.values()].sort((a, b) => b.last - a.last)
+	}
+
+	/** Unseal, verify, and ingest an envelope addressed to us. Allowlist: chat, consent, files. */
+	private deliverSealed(fromId: string, box: SealedBox, bus?: EventSink, viaHub?: string): void {
+		if (!this.keyPair?.xPrivateKey) return
+		const plain = unseal(
+			this.keyPair.xPrivateKey,
+			box,
+			`${fromId}|${this.keyPair.instanceId}`,
+			this.keyPair.mlkemPrivateKey,
+		)
+		if (!plain) {
+			logger.warn(`Sealed envelope from ${fromId.substring(0, 8)} failed to unseal`)
+			return
+		}
+		let inner: VoleNetMessage
+		try {
+			inner = JSON.parse(plain.toString('utf8')) as VoleNetMessage
+		} catch {
+			return
+		}
+		// Relay allowlist: end-to-end chat, the consent handshake, and file-transfer control.
+		// Nothing executable rides — file bytes stream separately with their own consent gate.
+		const permitted =
+			inner.type === 'chat:message' ||
+			inner.type === 'relay:connect-request' ||
+			inner.type === 'relay:connect-accept' ||
+			inner.type === 'relay:connect-deny' ||
+			inner.type.startsWith('file:')
+		if (!permitted) {
+			logger.warn(
+				`Dropped relayed '${inner.type}' from ${fromId.substring(0, 8)} — not a permitted relay message`,
+			)
+			return
+		}
+		if (inner.from !== fromId || inner.to !== this.keyPair.instanceId) return
+		// Inner replay guard: a relay could re-wrap the same inner message in fresh outers.
+		const seenKey = `${inner.from}:${inner.id}`
+		const now = Date.now()
+		for (const [k, ts] of this.seenSealed) if (now - ts > 120_000) this.seenSealed.delete(k)
+		if (this.seenSealed.has(seenKey)) return
+		this.seenSealed.set(seenKey, now)
+		// Verify the inner signature: a directly-trusted key wins; else the hub-vouched roster key.
+		const directlyTrusted = this.discovery?.verifyMessageFrom(inner) ?? false
+		let valid = directlyTrusted
+		if (!valid) {
+			const member = this.findRosterMember(fromId)
+			const parsed = member ? parsePublicKey(member.publicKey) : null
+			if (parsed && parsed.instanceId === fromId)
+				valid = verifyMessage(inner, parsed.publicKey, parsed.pqPublicKey).valid
+		}
+		if (!valid) {
+			logger.warn(
+				`Relayed '${inner.type}' from ${fromId.substring(0, 8)} failed signature verification`,
+			)
+			return
+		}
+
+		// File-transfer control: its own consent gate (files.acceptFrom + explicit accept)
+		// lives in VoleNetFiles — the chat relay-consent below does not apply to files.
+		if (inner.type.startsWith('file:')) {
+			this.files?.handleMessage(inner, { relayed: true, viaHub })
+			return
+		}
+
+		// Consent handshake. Sharing a hub is not consent — a member's relayed chat is dropped
+		// (surfaced as a pending connect-request) until I accept it. A directly-trusted peer is
+		// exempt: I'd already accept its direct connection, so the relay isn't a new trust grant.
+		if (inner.type === 'relay:connect-request') {
+			const p = inner.payload as { fromName?: string; note?: string }
+			this.recordRelayRequest(fromId, p?.fromName, p?.note)
+			bus?.emit('volenet:relay:request', {
+				from: fromId,
+				fromName: p?.fromName || this.rosterName(fromId),
+				note: p?.note,
+			})
+			return
+		}
+		if (inner.type === 'relay:connect-accept') {
+			this.relayOutgoing.delete(fromId)
+			this.relayConfirmed.add(fromId)
+			bus?.emit('volenet:relay:accepted', { from: fromId, fromName: this.rosterName(fromId) })
+			return
+		}
+		if (inner.type === 'relay:connect-deny') {
+			this.relayOutgoing.delete(fromId)
+			bus?.emit('volenet:relay:denied', { from: fromId, fromName: this.rosterName(fromId) })
+			return
+		}
+
+		// chat:message
+		const payload = inner.payload as { text?: string; fromName?: string; sentAt?: number }
+		if (!payload?.text) return
+		const fromName = payload.fromName || fromId.substring(0, 8)
+		// A message that waited in the sender's outbox says when it was written. That is the time
+		// to keep — not when the re-signed envelope finally crossed the hub. Bounded so a sender
+		// cannot claim a future, beyond ordinary clock skew.
+		const sentAt =
+			typeof payload.sentAt === 'number' &&
+			payload.sentAt > 0 &&
+			payload.sentAt <= inner.timestamp + 60_000
+				? payload.sentAt
+				: inner.timestamp
+		if (!directlyTrusted && !this.isRelayAccepted(fromId, fromName)) {
+			this.recordRelayRequest(fromId, fromName)
+			bus?.emit('volenet:relay:request', { from: fromId, fromName })
+			logger.info(
+				`Held relayed chat from unaccepted ${fromName} (${fromId.substring(0, 8)}) — awaiting consent`,
+			)
+			return
+		}
+		this.chatPending.delete(fromId)
+		this.lastChatFrom.set(fromId, Math.max(inner.timestamp, this.lastChatFrom.get(fromId) ?? 0))
+		void this.appendChat(fromId, {
+			dir: 'in',
+			text: payload.text,
+			fromName,
+			timestamp: sentAt,
+			messageId: inner.id,
+			relayed: true,
+		})
+		bus?.emit('volenet:chat', {
+			from: fromId,
+			fromName,
+			text: payload.text,
+			messageId: inner.id,
+			timestamp: sentAt,
+			relayed: true,
+		})
+	}
+
+	/** True when a relay sender may reach me: '*' policy, an acceptFrom match, or a prior approval. */
+	private isRelayAccepted(fromId: string, fromName?: string): boolean {
+		const policy = this.config.relay?.acceptFrom
+		if (policy === '*') return true
+		if (Array.isArray(policy)) {
+			for (const raw of policy) {
+				const t = typeof raw === 'string' ? raw.trim() : ''
+				if (!t) continue
+				if (t === '*') return true
+				if (t === fromId || fromId.startsWith(t)) return true
+				if (fromName && t === fromName) return true
+			}
+		}
+		return this.relayAcceptIds.has(fromId)
+	}
+
+	/** Record (or refresh) an inbound relay connect-request awaiting my approval. */
+	private recordRelayRequest(fromId: string, fromName?: string, note?: string): void {
+		let viaHub = ''
+		let viaHubName = ''
+		for (const [hubId, roster] of this.hubRosters) {
+			if (roster.has(fromId)) {
+				viaHub = hubId
+				viaHubName = this.getInstances().find((i) => i.id === hubId)?.name ?? hubId.substring(0, 8)
+				break
+			}
+		}
+		this.relayRequests.set(fromId, {
+			id: fromId,
+			name: fromName || this.rosterName(fromId),
+			viaHub,
+			viaHubName,
+			note,
+			ts: Date.now(),
+		})
+	}
+
+	private rosterName(id: string): string {
+		return this.findRosterMember(id)?.name ?? id.substring(0, 8)
+	}
+
+	private findRosterMember(id: string): RosterMember | undefined {
+		for (const roster of this.hubRosters.values()) {
+			const m = roster.get(id)
+			if (m) return m
+		}
+		return undefined
+	}
+
+	/** Hub: push the current member directory to every connected member. */
+	private broadcastRoster(): void {
+		if (!this.keyPair || !this.transport || !this.discovery) return
+		const connected = new Set(
+			this.transport
+				.getPeers()
+				.filter((p) => p.connected)
+				.map((p) => p.peerId),
+		)
+		const members: RosterMember[] = this.discovery.getInstances().map((i) => ({
+			instanceId: i.id,
+			name: i.name,
+			publicKey: i.publicKey,
+			xPublicKey: i.xPublicKey,
+			mlkemPublicKey: i.mlkemPublicKey,
+			connected: connected.has(i.id),
+		}))
+		for (const id of connected) {
+			const msg = createMessage(
+				'roster',
+				this.keyPair.instanceId,
+				id,
+				{ members },
+				this.keyPair.privateKey,
+				this.keyPair.pqPrivateKey,
+			)
+			void this.transport.sendToPeer(id, msg)
+		}
+	}
+
+	/** Hand a member that just reconnected everything the hub noted for it while it was away. */
+	private async sendRelayNotices(memberId: string): Promise<void> {
+		if (!this.relayNotices || !this.keyPair || !this.transport) return
+		const senders = await this.relayNotices.take(memberId)
+		if (senders.length === 0) return
+		const msg = createMessage(
+			'relay:pending',
+			this.keyPair.instanceId,
+			memberId,
+			{ senders },
+			this.keyPair.privateKey,
+			this.keyPair.pqPrivateKey,
+		)
+		const sent = await this.transport.sendToPeer(memberId, msg)
+		// Dropped off again before we could say so — keep them for next time.
+		if (!sent) await this.relayNotices.restore(memberId, senders)
+	}
+
+	/** Rosters received from relay hubs (hub instanceId → member directory). */
+	getRosters(): Map<string, Map<string, RosterMember>> {
+		return this.hubRosters
+	}
+
+	/**
+	 * Relay-reachable members from all hub rosters, flattened for the dashboard.
+	 * A member we ALSO connect to directly is omitted here — direct trumps relay, the same
+	 * precedence sendChat() uses — so the UI never lists one peer in two places.
+	 */
+	getRelayMembers(): Array<{
+		id: string
+		name: string
+		viaHub: string
+		viaHubName: string
+		connected: boolean
+		/** I accept this member's relayed chat ('*'/acceptFrom match or an approval). */
+		accepted: boolean
+		/** This member has an inbound connect-request awaiting my approval. */
+		incoming: boolean
+		/** I've requested this member but it hasn't accepted yet. */
+		awaiting: boolean
+	}> {
+		const direct = new Set(this.getInstances().map((i) => i.id))
+		const out: Array<{
+			id: string
+			name: string
+			viaHub: string
+			viaHubName: string
+			connected: boolean
+			accepted: boolean
+			incoming: boolean
+			awaiting: boolean
+		}> = []
+		const seen = new Set<string>()
+		for (const [hubId, roster] of this.hubRosters) {
+			const hubName = this.getInstances().find((i) => i.id === hubId)?.name ?? hubId.substring(0, 8)
+			for (const m of roster.values()) {
+				if (m.instanceId === this.keyPair?.instanceId) continue // self
+				if (direct.has(m.instanceId)) continue // reachable directly — shown as a direct peer
+				if (seen.has(m.instanceId)) continue // same member vouched by two hubs — list once
+				seen.add(m.instanceId)
+				out.push({
+					id: m.instanceId,
+					name: m.name,
+					viaHub: hubId,
+					viaHubName: hubName,
+					connected: m.connected,
+					accepted: this.isRelayAccepted(m.instanceId, m.name),
+					incoming: this.relayRequests.has(m.instanceId),
+					awaiting: this.relayOutgoing.has(m.instanceId) && !this.relayConfirmed.has(m.instanceId),
+				})
+			}
+		}
+		return out
+	}
+
+	/**
+	 * Get all remote tools.
+	 */
+	getRemoteTools(): RemoteToolInfo[] {
+		return this.discovery?.getRemoteTools() ?? []
+	}
+
+	/**
+	 * Find which peer owns a tool.
+	 */
+	findToolOwner(toolName: string): { instanceId: string; instance: VoleNetInstance } | null {
+		return this.discovery?.findToolOwner(toolName) ?? null
+	}
+
+	/**
+	 * Get the remote task manager.
+	 */
+	getRemoteTaskManager(): RemoteTaskManager | null {
+		return this.remoteTaskMgr
+	}
+
+	/**
+	 * Get the sync manager (for memory/session propagation).
+	 */
+	getSync(): VoleNetSync | null {
+		return this.sync
+	}
+
+	/**
+	 * Get the leader election manager.
+	 */
+	getLeader(): VoleNetLeader | null {
+		return this.leader
+	}
+
+	/**
+	 * Check if this instance is the VoleNet leader.
+	 */
+	isLeader(): boolean {
+		return this.leader?.isLeader() ?? true // standalone = always leader
+	}
+
+	/**
+	 * Check if this instance should run heartbeat.
+	 * In "independent" mode, every instance runs heartbeat.
+	 * In "leader" mode (default), only the leader runs it.
+	 */
+	shouldRunHeartbeat(): boolean {
+		if (!this.started) return true // standalone = always run
+		if (this.config.heartbeatMode === 'independent') return true
+		return this.isLeader()
+	}
+
+	/**
+	 * Find the best peer for load-balanced task routing.
+	 * Returns null if local should handle it (or no peers available).
+	 */
+	findLeastLoadedPeer(): VoleNetInstance | null {
+		if (this.config.brainMode !== 'loadbalance') return null
+		const instances = this.discovery?.getInstances() ?? []
+		if (instances.length === 0) return null
+		// Sort by load ascending, pick lowest
+		const sorted = [...instances].sort((a, b) => a.load - b.load)
+		// Only forward if the peer has lower load than us
+		// (our load is estimated from task queue size)
+		return sorted[0].load < 0.8 ? sorted[0] : null
+	}
+
+	/**
+	 * Check if a task should be forwarded to a peer (overflow mode).
+	 * Returns the target peer or null if local should handle it.
+	 */
+	shouldForwardTask(currentQueueSize: number): VoleNetInstance | null {
+		if (this.config.taskOverflow !== 'forward') return null
+		const maxQueued = this.config.maxQueuedTasks ?? 10
+		if (currentQueueSize < maxQueued) return null
+		// Forward to least-loaded peer
+		const instances = this.discovery?.getInstances() ?? []
+		if (instances.length === 0) return null
+		const sorted = [...instances].sort((a, b) => a.load - b.load)
+		return sorted[0]
+	}
+
+	/**
+	 * Check if this instance should delegate thinking to a remote brain.
+	 * Returns the target peer instance ID, or null if local brain should be used.
+	 */
+	shouldDelegateBrain(): string | null {
+		const brainSource = this.config.brainSource
+		if (!brainSource || brainSource === 'local') return null
+
+		const instances = this.discovery?.getInstances() ?? []
+		if (instances.length === 0) return null
+
+		if (brainSource === 'remote') {
+			// Find any peer — preferring coordinators
+			const sorted = [...instances].sort((a, b) => {
+				if (a.role === 'coordinator' && b.role !== 'coordinator') return -1
+				if (b.role === 'coordinator' && a.role !== 'coordinator') return 1
+				return 0
+			})
+			return sorted[0]?.id ?? null
+		}
+
+		// Specific instance name
+		const target = instances.find((i) => i.name === brainSource)
+		return target?.id ?? null
+	}
+
+	/** Handle a public self-join request (HTTP POST /volenet/join). Returns status + JSON body. */
+	async handlePublicJoin(body: unknown, ip: string): Promise<{ status: number; json: unknown }> {
+		const pj = this.config.publicJoin
+		if (!pj?.enabled) return { status: 404, json: { error: 'public join disabled' } }
+
+		const { publicKey, name } = (body ?? {}) as { publicKey?: string; name?: string }
+		if (!publicKey || !parsePublicKey(publicKey)) {
+			return { status: 400, json: { error: 'invalid public key' } }
+		}
+
+		// Rate limit per IP.
+		const now = Date.now()
+		const rpm = pj.ratePerMinute ?? 5
+		// Prune stale per-IP windows so the join map can't grow unbounded under IP-spray.
+		if (this.joinTimestamps.size > 4096) {
+			for (const [k, ts] of this.joinTimestamps) {
+				if (ts.length === 0 || now - ts[ts.length - 1] > 60_000) this.joinTimestamps.delete(k)
+			}
+		}
+		const recent = (this.joinTimestamps.get(ip) ?? []).filter((t) => now - t < 60_000)
+		if (recent.length >= rpm) return { status: 429, json: { error: 'rate limited' } }
+		recent.push(now)
+		this.joinTimestamps.set(ip, recent)
+
+		const netDir = this.getNetDir()
+		await fs.mkdir(netDir, { recursive: true })
+		const safeName = (name ?? 'guest').slice(0, 64)
+
+		// Manual-approval mode: queue the request, do not auto-trust.
+		if (pj.requireApproval) {
+			await fs.appendFile(
+				path.join(netDir, 'pending_joins.jsonl'),
+				`${JSON.stringify({ publicKey, name: safeName, ip, at: new Date().toISOString() })}\n`,
+				'utf-8',
+			)
+			return {
+				status: 202,
+				json: { ok: true, pending: true, message: 'Join request received — pending approval.' },
+			}
+		}
+
+		// Peer cap.
+		const existing = await loadAuthorizedVoles(netDir)
+		if (existing.size >= (pj.maxPeers ?? 200)) {
+			return { status: 503, json: { error: 'mesh is full' } }
+		}
+
+		await trustPeer(netDir, publicKey, { allowUpgrade: false })
+		await this.discovery?.reloadAuthorized()
+		logger.info(`Public join: trusted guest "${safeName}" from ${ip}`)
+		return {
+			status: 200,
+			json: {
+				ok: true,
+				hubPublicKey: this.keyPair?.publicKeyString,
+				instanceName: this.config.instanceName ?? 'vole',
+				port: this.config.port ?? 9700,
+			},
+		}
+	}
+
+	// ── Consent-based pairing (vole net pair) ─────────────────────────────────
+
+	private pairRequestsPath(): string {
+		return path.join(this.getNetDir(), 'pair_requests.json')
+	}
+
+	private async loadPairRequests(): Promise<void> {
+		try {
+			const raw = JSON.parse(await fs.readFile(this.pairRequestsPath(), 'utf-8')) as Array<{
+				id: string
+				name: string
+				publicKey: string
+				endpoint?: string
+				note?: string
+				ts: number
+			}>
+			for (const r of raw) if (r?.id && r.publicKey) this.pairRequests.set(r.id, r)
+		} catch {
+			/* none yet */
+		}
+	}
+
+	private async persistPairRequests(): Promise<void> {
+		try {
+			await fs.writeFile(
+				this.pairRequestsPath(),
+				JSON.stringify([...this.pairRequests.values()], null, 2),
+			)
+		} catch (err) {
+			logger.warn(`Could not persist pair requests: ${err instanceof Error ? err.message : err}`)
+		}
+	}
+
+	/** Handle POST /volenet/pair — queue the introduction; trust NOTHING until acceptPair. */
+	async handlePairRequest(
+		body: unknown,
+		ip: string,
+		bus?: EventSink,
+	): Promise<{ status: number; json: unknown }> {
+		const { publicKey, name, note, endpoint } = (body ?? {}) as {
+			publicKey?: string
+			name?: string
+			note?: string
+			endpoint?: string
+		}
+		if (!publicKey || !parsePublicKey(publicKey)) {
+			return { status: 400, json: { error: 'invalid public key' } }
+		}
+		// Rate limit per IP (same policy shape as publicJoin: 5/min).
+		const now = Date.now()
+		if (this.pairTimestamps.size > 4096) {
+			for (const [k, ts] of this.pairTimestamps) {
+				if (ts.length === 0 || now - ts[ts.length - 1] > 60_000) this.pairTimestamps.delete(k)
+			}
+		}
+		const window = (this.pairTimestamps.get(ip) ?? []).filter((t) => now - t < 60_000)
+		if (window.length >= 5) return { status: 429, json: { error: 'rate limited' } }
+		window.push(now)
+		this.pairTimestamps.set(ip, window)
+
+		const parsed = parsePublicKey(publicKey)!
+		const already = await loadAuthorizedVoles(this.getNetDir())
+		if (already.has(parsed.instanceId)) {
+			return { status: 200, json: { ok: true, alreadyTrusted: true } }
+		}
+		if (this.pairRequests.size >= 32 && !this.pairRequests.has(parsed.instanceId)) {
+			return { status: 503, json: { error: 'too many pending pair requests' } }
+		}
+		const safeName =
+			(typeof name === 'string' ? name : '').slice(0, 64) || parsed.instanceId.substring(0, 8)
+		this.pairRequests.set(parsed.instanceId, {
+			id: parsed.instanceId,
+			name: safeName,
+			publicKey,
+			endpoint: typeof endpoint === 'string' ? endpoint.slice(0, 200) : undefined,
+			note: typeof note === 'string' ? note.slice(0, 200) : undefined,
+			ts: now,
+		})
+		await this.persistPairRequests()
+		bus?.emit('volenet:pair:request', {
+			from: parsed.instanceId,
+			fromName: safeName,
+			note: typeof note === 'string' ? note.slice(0, 200) : undefined,
+		})
+		logger.info(`Pair request from "${safeName}" (${parsed.instanceId.substring(0, 8)}) via ${ip}`)
+		return {
+			status: 200,
+			json: {
+				ok: true,
+				pending: true,
+				message: 'Pair request received — awaiting operator approval.',
+			},
+		}
+	}
+
+	listPairRequests(): Array<{
+		id: string
+		name: string
+		endpoint?: string
+		note?: string
+		ts: number
+	}> {
+		return [...this.pairRequests.values()].map(({ publicKey: _pk, ...rest }) => rest)
+	}
+
+	/** Operator consent: trust the requester's pinned key, live-reload, dial back if possible. */
+	async acceptPair(ref: string): Promise<{ ok: boolean; name?: string; error?: string }> {
+		const req = [...this.pairRequests.values()].find(
+			(r) => r.id === ref || r.name === ref || r.id.startsWith(ref),
+		)
+		if (!req) return { ok: false, error: `no pending pair request matching "${ref}"` }
+		await trustPeer(this.getNetDir(), req.publicKey)
+		await this.discovery?.reloadAuthorized()
+		this.pairRequests.delete(req.id)
+		await this.persistPairRequests()
+		// Save the peer, exactly as initiatePair does for the side that asked. Accepting used to
+		// trust the key and dial the endpoint without ever recording it, so pairing came out
+		// one-sided: chat and file transfer worked over the connection the other node had opened,
+		// but this node had no peer of its own — nothing to reconnect to after a restart, and an
+		// empty peer list until the operator added it by hand or sent a request back.
+		if (req.endpoint) {
+			await this.addPeerEntry(req.endpoint) // also dials it
+		}
+		logger.info(
+			`Pair accepted: "${req.name}" (${req.id.substring(0, 8)}) is now trusted${req.endpoint ? ` and saved as a peer (${req.endpoint})` : ' (no endpoint advertised — it must connect to us)'}`,
+		)
+		return { ok: true, name: req.name }
+	}
+
+	async denyPair(ref: string): Promise<{ ok: boolean }> {
+		const req = [...this.pairRequests.values()].find(
+			(r) => r.id === ref || r.name === ref || r.id.startsWith(ref),
+		)
+		if (!req) return { ok: false }
+		this.pairRequests.delete(req.id)
+		await this.persistPairRequests()
+		return { ok: true }
+	}
+
+	/** Fetch a remote node's identity for the operator to fingerprint before pairing. */
+	async probePair(url: string): Promise<{
+		ok: boolean
+		name?: string
+		fingerprint?: string
+		publicKey?: string
+		alreadyTrusted?: boolean
+		error?: string
+	}> {
+		const base = url.replace(/\/$/, '')
+		let info: { publicKey?: string; name?: string }
+		try {
+			const r = await fetch(`${base}/volenet/info`, { signal: AbortSignal.timeout(8000) })
+			info = (await r.json()) as typeof info
+		} catch (err) {
+			return {
+				ok: false,
+				error: `could not reach ${base}: ${err instanceof Error ? err.message : err}`,
+			}
+		}
+		const parsed = info.publicKey ? parsePublicKey(info.publicKey) : null
+		if (!parsed) return { ok: false, error: 'peer offered no public key (openvole < 4.13?)' }
+		const trusted = await loadAuthorizedVoles(this.getNetDir())
+		return {
+			ok: true,
+			name: info.name,
+			fingerprint: parsed.instanceId,
+			publicKey: info.publicKey,
+			alreadyTrusted: trusted.has(parsed.instanceId),
+		}
+	}
+
+	/** Record a peer URL in the live config, ask the host to remember it, then dial it. */
+	private async addPeerEntry(url: string): Promise<void> {
+		const base = url.replace(/\/$/, '')
+		this.config.peers = this.config.peers ?? []
+		if (!this.config.peers.some((p) => p.url === base)) {
+			this.config.peers.push({ url: base, trust: 'full' })
+		}
+		try {
+			// Writing it down is the host's business: this library does not know what shape its
+			// config file is, and guessing would corrupt one. A host that wants a learned peer to
+			// survive a restart supplies persistPeer; without it the entry is live-only.
+			await this.config.persistPeer?.(base)
+		} catch (err) {
+			logger.warn(`Could not persist peer entry: ${err instanceof Error ? err.message : err}`)
+		}
+		void this.discovery?.connectToPeer(base).catch(() => {})
+	}
+
+	/**
+	 * Dashboard-initiated pairing: trust the probed key (the operator confirmed the
+	 * fingerprint client-side), persist + dial the peer, and file the pair request for
+	 * the other operator. Fully live — no restart needed on this side.
+	 */
+	async initiatePair(
+		url: string,
+		publicKey: string,
+		note?: string,
+	): Promise<{ ok: boolean; pending?: boolean; alreadyTrusted?: boolean; error?: string }> {
+		if (!this.keyPair) return { ok: false, error: 'VoleNet not started' }
+		const base = url.replace(/\/$/, '')
+		if (!parsePublicKey(publicKey)) return { ok: false, error: 'invalid public key' }
+		await trustPeer(this.getNetDir(), publicKey)
+		await this.discovery?.reloadAuthorized()
+		await this.addPeerEntry(base)
+		try {
+			const r = await fetch(`${base}/volenet/pair`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					publicKey: this.keyPair.publicKeyString,
+					name: this.config.instanceName ?? 'vole',
+					note,
+					endpoint: this.transport
+						? buildAdvertisedEndpoint({
+								publicUrl: this.config.publicUrl ?? process.env.VOLE_NET_PUBLIC_URL,
+								tls: !!this.config.tls,
+								hostname: this.getHostname(),
+								port: this.config.port ?? 9700,
+							})
+						: undefined,
+				}),
+				signal: AbortSignal.timeout(8000),
+			})
+			const resp = (await r.json()) as {
+				ok?: boolean
+				pending?: boolean
+				alreadyTrusted?: boolean
+				error?: string
+			}
+			if (!resp.ok) return { ok: false, error: resp.error ?? `pair request failed (${r.status})` }
+			return { ok: true, pending: resp.pending, alreadyTrusted: resp.alreadyTrusted }
+		} catch (err) {
+			return { ok: false, error: err instanceof Error ? err.message : String(err) }
+		}
+	}
+
+	/** Dashboard-initiated public-hub join (the vole net join flow, in-process and live). */
+	async initiateJoin(
+		url: string,
+	): Promise<{ ok: boolean; pending?: boolean; hubName?: string; error?: string }> {
+		if (!this.keyPair) return { ok: false, error: 'VoleNet not started' }
+		const base = url.replace(/\/$/, '')
+		try {
+			const r = await fetch(`${base}/volenet/join`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					publicKey: this.keyPair.publicKeyString,
+					name: this.config.instanceName ?? 'vole',
+				}),
+				signal: AbortSignal.timeout(10000),
+			})
+			const text = await r.text()
+			if (r.status === 404 || !text.trim()) {
+				return {
+					ok: false,
+					error: 'not a public hub (publicJoin is not enabled there) — use pair instead',
+				}
+			}
+			const resp = JSON.parse(text) as {
+				ok?: boolean
+				pending?: boolean
+				hubPublicKey?: string
+				instanceName?: string
+				error?: string
+			}
+			if (!r.ok || !resp.ok) return { ok: false, error: resp.error ?? `join failed (${r.status})` }
+			if (resp.pending) return { ok: true, pending: true, hubName: resp.instanceName }
+			if (resp.hubPublicKey && parsePublicKey(resp.hubPublicKey)) {
+				await trustPeer(this.getNetDir(), resp.hubPublicKey)
+				await this.discovery?.reloadAuthorized()
+			}
+			await this.addPeerEntry(base)
+			return { ok: true, hubName: resp.instanceName }
+		} catch (err) {
+			return { ok: false, error: err instanceof Error ? err.message : String(err) }
+		}
+	}
+
+	/**
+	 * Check if a specific peer is allowed to use our brain.
+	 */
+	isPeerAllowedBrain(peerId: string): boolean {
+		return this.getPeerTrust(peerId)?.allowBrain === true
+	}
+
+	/**
+	 * Whether this peer may call our tools at all — tool/full trust (from net.peers OR a
+	 * publicJoin guest's granted trustLevel), or share.tools. Uses getPeerTrust, not
+	 * matchPeerConfig, so a publicJoin guest's `trustLevel: "tool"` actually grants tool
+	 * access — matching the documented behavior and how isPeerAllowedBrain already works.
+	 * (Per-tool curation still applies via share.toolAllow in isPeerAllowedTool.)
+	 */
+	private peerToolsEnabled(peerId: string): boolean {
+		const trust = this.getPeerTrust(peerId)
+		if (trust && (trust.trust === 'full' || trust.trust === 'tool')) return true
+		return this.config.share?.tools === true
+	}
+
+	/** Whether this peer may call a specific tool (honors per-peer allow/deny lists). */
+	isPeerAllowedTool(peerId: string, toolName: string): boolean {
+		const explicit = this.matchPeerConfig(peerId)
+		if (explicit?.denyTools?.some((p) => matchToolPattern(p, toolName))) return false
+		if (explicit?.allowTools && explicit.allowTools.length > 0) {
+			return explicit.allowTools.some((p) => matchToolPattern(p, toolName))
+		}
+		// Peers without an explicit entry (e.g. public joiners) honor the share-level allowlist.
+		if (!isSharedTool(toolName, this.config.share?.toolAllow)) return false
+		return this.peerToolsEnabled(peerId)
+	}
+
+	/**
+	 * Match a connected peer to its config entry.
+	 * Matches by port (handles localhost vs real IP) or by instance name.
+	 */
+	private matchPeerConfig(peerId: string): {
+		url?: string
+		id?: string
+		name?: string
+		trust?: string
+		allowTools?: string[]
+		denyTools?: string[]
+		allowBrain?: boolean
+	} | null {
+		if (!this.config.peers) return null
+		const instance = this.discovery?.getInstances().find((i) => i.id === peerId)
+		if (!instance) return null
+
+		// Identity first. A peer that advertises no endpoint — a phone, anything that can only
+		// dial us — can never match by address, so this is the only way to say what it may do.
+		// An id prefix must be long enough to mean something; a name is convenience, not proof.
+		for (const peerConfig of this.config.peers) {
+			if (peerConfig.id) {
+				const want = peerConfig.id.trim()
+				if (want.length >= 8 && (peerId === want || peerId.startsWith(want))) return peerConfig
+			} else if (peerConfig.name && instance.name === peerConfig.name) {
+				return peerConfig
+			}
+		}
+
+		for (const peerConfig of this.config.peers) {
+			if (!peerConfig.url) continue
+			try {
+				const configUrl = new URL(peerConfig.url)
+				const configPort = configUrl.port || (configUrl.protocol === 'https:' ? '443' : '80')
+
+				// Match by port (handles localhost:9701 matching 192.168.x.x:9701)
+				if (instance.endpoint.includes(`:${configPort}`)) {
+					return peerConfig
+				}
+
+				// Also match by exact host
+				if (instance.endpoint.includes(configUrl.host)) {
+					return peerConfig
+				}
+			} catch {
+				continue
+			}
+		}
+		return null
+	}
+
+	/**
+	 * Get trust level for a peer.
+	 */
+	getPeerTrust(
+		peerId: string,
+	): { trust: string; allowTools?: string[]; denyTools?: string[]; allowBrain?: boolean } | null {
+		const peerConfig = this.matchPeerConfig(peerId)
+		if (peerConfig) {
+			return {
+				trust: peerConfig.trust ?? 'full',
+				allowTools: peerConfig.allowTools,
+				denyTools: peerConfig.denyTools,
+				allowBrain: peerConfig.allowBrain,
+			}
+		}
+		// Self-joined guest: authenticated (a known discovery instance) but not in static
+		// peers config. Grant the restricted publicJoin trust — never 'full'.
+		const pj = this.config.publicJoin
+		if (pj?.enabled && this.discovery?.getInstances().some((i) => i.id === peerId)) {
+			return { trust: pj.trustLevel ?? 'tool', allowBrain: pj.allowBrain ?? false }
+		}
+		return null
+	}
+
+	/**
+	 * Get the keypair (for CLI display).
+	 */
+	/** Our instance name (for message framing). */
+	getInstanceName(): string {
+		return this.config.instanceName ?? 'vole'
+	}
+
+	getKeyPair(): VoleKeyPair | null {
+		return this.keyPair
+	}
+
+	/**
+	 * Get the transport (for sending messages).
+	 */
+	getTransport(): VoleNetTransport | null {
+		return this.transport
+	}
+
+	/**
+	 * Get the discovery manager.
+	 */
+	getDiscovery(): VoleNetDiscovery | null {
+		return this.discovery
+	}
+
+	/**
+	 * Check if VoleNet is active.
+	 */
+	isActive(): boolean {
+		return this.started
+	}
+
+	private getNetDir(): string {
+		const keyPath = this.config.keyPath ?? '.openvole/net/vole_key'
+		return path.resolve(this.projectRoot, path.dirname(keyPath))
+	}
+
+	private getHostname(): string {
+		// Explicit override wins — required for TLS so the advertised host matches the cert.
+		const override = this.config.hostname ?? process.env.VOLE_NET_HOSTNAME
+		if (override?.trim()) return override.trim()
+		const nets = os.networkInterfaces()
+		if (!nets) return 'localhost'
+		// Find first non-internal IPv4 address
+		for (const name of Object.keys(nets)) {
+			for (const net of nets[name] ?? []) {
+				if (net.family === 'IPv4' && !net.internal) {
+					return net.address
+				}
+			}
+		}
+		return 'localhost'
+	}
+
+	private getCapabilities(): string[] {
+		const caps: string[] = []
+		if (this.toolRegistry) {
+			// List paw categories as capabilities
+			const pawNames = new Set(this.toolRegistry.list().map((t) => t.pawName))
+			for (const name of pawNames) {
+				if (name !== '__core__') caps.push(name)
+			}
+		}
+		return caps
+	}
+}
+
+// Re-export key types and functions for CLI use
+export {
+	generateKeyPair,
+	loadKeyPair,
+	trustPeer,
+	revokePeer,
+	loadAuthorizedVoles,
+	loadRelayAccepts,
+	addRelayAccept,
+	removeRelayAccept,
+	parsePublicKey,
+} from './keys.js'
+export type { VoleKeyPair } from './keys.js'
+export type { VoleNetInstance, RemoteToolInfo } from './protocol.js'
+export { RemoteTaskManager } from './remote-task.js'
+export type {
+	RemoteTaskRequest,
+	RemoteTaskResult,
+	RemoteToolCallRequest,
+	RemoteToolCallResult,
+} from './remote-task.js'
+export { VoleNetSync } from './sync.js'
+export type {
+	MemorySyncEntry,
+	MemorySearchRequest,
+	MemorySearchResult,
+	SessionSyncEntry,
+} from './sync.js'
+export { VoleNetLeader } from './leader.js'
+export type { LeaderState } from './leader.js'
+
+/**
+ * Merge the transport-verified caller identity into remote tool params.
+ * Always overwrites any incoming `__caller` — a peer cannot impersonate another instance.
+ * Tools that want attribution declare an optional `__caller` parameter; others ignore it.
+ */
+export function withVerifiedCaller(
+	params: unknown,
+	instanceId: string,
+	name?: string,
+): Record<string, unknown> {
+	const base =
+		typeof params === 'object' && params !== null && !Array.isArray(params)
+			? { ...(params as Record<string, unknown>) }
+			: {}
+	base.__caller = { instanceId, name: name ?? instanceId.substring(0, 8) }
+	return base
+}
+
+/**
+ * The endpoint an instance advertises to peers. An explicit publicUrl wins outright —
+ * set it when VoleNet sits behind a reverse proxy so peers are told the proxy URL
+ * (e.g. "https://club.example.com/mesh") instead of a raw listen port that may be firewalled.
+ */
+export function buildAdvertisedEndpoint(opts: {
+	publicUrl?: string
+	tls?: boolean
+	hostname: string
+	port: number
+}): string {
+	const override = opts.publicUrl?.trim().replace(/\/+$/, '')
+	if (override) return override
+	const scheme = opts.tls ? 'https' : 'http'
+	return `${scheme}://${opts.hostname}:${opts.port}`
+}
+
+type PeerEntry = { url: string; trust?: string } & Record<string, unknown>
+
+/**
+ * Add a peer URL to a config peers list, REPLACING any existing entry on the same hostname —
+ * re-joining a hub at a new endpoint (a proxied /mesh path instead of a raw :9710 port) must
+ * update the entry, not stack a dead duplicate beside it. The replaced entry's trust and
+ * per-peer settings carry over. Returns the new list plus the URL it replaced, if any.
+ */
+export function upsertPeerUrl(
+	peers: PeerEntry[],
+	url: string,
+): { peers: PeerEntry[]; replaced?: string } {
+	const norm = (u: string) => u.trim().replace(/\/+$/, '')
+	const hostOf = (u: string): string | null => {
+		try {
+			return new URL(norm(u)).hostname || null
+		} catch {
+			return null
+		}
+	}
+	const target = norm(url)
+	if (peers.some((p) => norm(p.url) === target)) return { peers }
+	const targetHost = hostOf(target)
+	const stale = targetHost ? peers.find((p) => hostOf(p.url) === targetHost) : undefined
+	const kept = stale ? peers.filter((p) => p !== stale) : peers.slice()
+	kept.push(stale ? { ...stale, url: target } : { url: target, trust: 'full' })
+	return { peers: kept, replaced: stale ? norm(stale.url) : undefined }
+}
+
+// ── The library's public surface ───────────────────────────────────────────────────────────
+// Everything a host needs to run a node, verify a peer, or seal a message, without reaching
+// into subpaths. Kept at the bottom so the file above reads as the manager it is.
+
+export { createLogger, closeLogger, setLoggerFactory } from './logger.js'
+export type { Logger, LoggerFactory } from './logger.js'
+export { CONTROL_PLANE_PAWS, isControlPlanePaw } from './tools.js'
+export type { SharedToolDefinition, SharedToolEntry, ToolProvider } from './tools.js'
+export { createMessage, verifyMessage } from './protocol.js'
+export type { VoleNetMessage, VoleNetMessageType } from './protocol.js'
+export { seal, unseal } from './seal.js'
+export type { SealedBox } from './seal.js'
+export {
+	ChatOutbox,
+	RelayNotices,
+	DEFAULT_OUTBOX_TTL_MS,
+	DEFAULT_NOTICE_TTL_MS,
+} from './chat-outbox.js'
+export type { OutboxEntry, OutboxKind, RelayNotice } from './chat-outbox.js'
+export { ResultOutbox, DEFAULT_RESULT_TTL_MS, MAX_RESULTS_PER_PEER } from './result-outbox.js'
+export type { PendingResult } from './result-outbox.js'
+export { VoleNetTransport } from './transport.js'
+export { VoleNetDiscovery, findEndpointDrift } from './discovery.js'

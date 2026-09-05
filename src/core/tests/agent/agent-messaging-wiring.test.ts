@@ -41,7 +41,11 @@ describe('agent messaging wiring', () => {
 		// By source, not by name pattern: a pattern has to be kept in step with every tool added
 		// and quietly misses the first one somebody forgets.
 		expect(types).toContain("CONTROL_PLANE_PAWS = ['__orchestrate__', '__agent_chat__']")
-		const net = await read('net/index.ts')
+		// The filter lives with the network that enforces it, which is now its own package.
+		const net = await fs.readFile(
+			path.join(SRC, '../../volenet/src/index.ts'),
+			'utf-8',
+		)
 		expect(net).toContain('.filter((t) => !isControlPlanePaw(t.pawName))')
 	})
 
