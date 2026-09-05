@@ -88,7 +88,7 @@ export const TOOLS: ToolDef[] = [
 			const lines = [
 				`name        ${node.options.name}`,
 				`instanceId  ${key?.instanceId ?? '(not started)'}`,
-				`hub         ${node.options.hub ?? '(none configured)'}`,
+				`hub         ${node.hubStatus}`,
 				`connected   ${online} peer(s) online`,
 				`listening   port ${node.options.port} (reachable only from networks that can dial it)`,
 				`store       ${node.options.dir}`,

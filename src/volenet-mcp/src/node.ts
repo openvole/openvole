@@ -11,7 +11,7 @@
  */
 import * as os from 'node:os'
 import * as path from 'node:path'
-import { VoleNetManager, createMessageBus } from 'openvole'
+import { VoleNetManager, createMessageBus, loadAuthorizedVoles, parsePublicKey } from 'openvole'
 import { Inbox } from './inbox.js'
 
 export interface NodeOptions {
@@ -43,6 +43,8 @@ export interface Notice {
 export interface Node {
 	net: VoleNetManager
 	inbox: Inbox
+	/** What happened when we tried to join the configured hub, for whoami to report honestly. */
+	hubStatus: string
 	/** Trust decisions waiting on the person, newest last. */
 	requests: PendingRequest[]
 	/** Who tried to reach us while we were away, as the hub reports on reconnect. */
@@ -123,12 +125,48 @@ export async function startNode(options: NodeOptions): Promise<Node> {
 
 	await net.start(undefined, bus)
 
+	// Dialling a hub we have never met gets a 401: it has no reason to trust this key yet. The
+	// join flow is what introduces us, and it hands back the hub's own key to pin — the half that
+	// matters, since from then on only that key may sign hub traffic to us.
+	let hubStatus = 'no hub configured'
+	if (options.hub) {
+		hubStatus = (await alreadyTrusts(options.dir, options.hub))
+			? `joined ${options.hub}`
+			: await join(net, options.hub)
+	}
+
 	return {
 		net,
 		inbox,
 		requests,
 		notices,
 		options,
+		hubStatus,
 		stop: () => net.stop(),
+	}
+}
+
+async function join(net: VoleNetManager, hub: string): Promise<string> {
+	const res = await net.initiateJoin(hub)
+	if (!res.ok) return `could not join ${hub}: ${res.error}`
+	if (res.pending) return `waiting for approval at ${hub}`
+	return `joined ${res.hubName ?? hub}`
+}
+
+/**
+ * Whether the hub at this URL is already trusted, so a restart does not re-join every time.
+ * It asks who the hub says it is, then looks that id up in what we already trust.
+ */
+async function alreadyTrusts(dir: string, hub: string): Promise<boolean> {
+	try {
+		const r = await fetch(`${hub.replace(/\/$/, '')}/volenet/info`, {
+			signal: AbortSignal.timeout(8000),
+		})
+		const info = (await r.json()) as { publicKey?: string }
+		const parsed = info.publicKey ? parsePublicKey(info.publicKey) : null
+		if (!parsed) return false
+		return (await loadAuthorizedVoles(path.join(dir, 'net'))).has(parsed.instanceId)
+	} catch {
+		return false
 	}
 }
