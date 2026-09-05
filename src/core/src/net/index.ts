@@ -889,6 +889,13 @@ export class VoleNetManager {
 						: request.input
 					const runSource = isChat ? `net:${message.from.substring(0, 8)}` : 'agent'
 					const task = taskQueue.enqueue(runInput, runSource, {
+						// A peer's chat is a conversation, so it gets a session: history loads, the
+						// answer is appended to it, and — because the reply address is derived from
+						// the session — the report goes back to this peer instead of the dashboard.
+						// Without it every rule in replyAddressFor fell through to 'dashboard', so the
+						// agent wrote a status report about the peer to its human and that text was
+						// what the peer received. A one-shot task is not a conversation and gets none.
+						...(isChat ? { sessionId: runSource } : {}),
 						metadata: {
 							maxIterations: request.maxIterations ?? 10,
 							remotePeerId: message.from,

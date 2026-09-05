@@ -4,6 +4,12 @@
 
 > Ships as `openvole` 4.20.0. A connection request to someone who is away now waits and arrives when they are back, the way chat already does, and a peer with no address can finally be named in `net.peers`.
 
+### Fixed
+
+- **A peer's brain question was answered to the dashboard, not to the peer.** A `task:delegate` carrying a `fromName` is chat — the peer is talking to the agent — but it was enqueued with no `sessionId`, so every rule in `replyAddressFor` fell through to `dashboard`. The agent was told its report went to its human, so it wrote a status update *about* the peer ("The reply to X timed out… no further action needed"), and that text was what the peer received. The same report also landed in the dashboard Chat tab, so one question produced two copies of the wrong thing. Worse, believing the answer was going elsewhere, the agent would call `net_message` to reach the peer "properly" — which hangs against a phone, since a chat client has no brain to answer with.
+
+  A delegated peer chat now runs as a turn in that peer's own conversation (`net:<peerId8>`, matching the source it already ran under). History loads, the exchange is transcribed, and the reply address is the peer. A one-shot delegation — no `fromName` — is not a conversation and still gets none. Peer brain replies no longer appear in the dashboard Chat tab; they are in that peer's session.
+
 ### Added
 
 - **A brain answer whose asker has gone now waits, and goes out when they come back.** `task:delegate` runs our brain, which takes as long as a model takes — and whoever asked from a phone may well have closed it by then. The reply was written to whatever socket the peer had, the boolean that says whether it landed was discarded, and the log said "result sent" either way. Nobody else held a copy: the asker has the question, we have the only answer.
