@@ -1,0 +1,54 @@
+{
+  "name": "@openvole/volenet-mcp",
+  "version": "0.1.0",
+  "description": "VoleNet as an MCP server — give Claude Code an identity on the mesh, so it can reach people and other agents across machines",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "volenet-mcp": "./dist/index.js"
+  },
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "openvole": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsup": "^8.3.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "license": "MIT",
+  "homepage": "https://openvole.com/openvole/volenet",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/openvole/openvole",
+    "directory": "src/volenet-mcp"
+  },
+  "keywords": [
+    "openvole",
+    "volenet",
+    "mcp",
+    "claude-code",
+    "agent"
+  ]
+}

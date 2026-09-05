@@ -4,6 +4,16 @@
 
 > Ships as `openvole` 4.20.0. A connection request to someone who is away now waits and arrives when they are back, the way chat already does, and a peer with no address can finally be named in `net.peers`.
 
+### Added
+
+- **`@openvole/volenet-mcp` — VoleNet as an MCP server, so Claude Code gets an identity on the mesh.** A coding session is very good inside one machine and one session: it cannot message a person on their phone, cannot talk to an agent someone else owns, and has no identity that outlives the session. A subagent does not solve that — it is the same principal on the same machine. This publishes the part that is not coding-assistant work: signed identity, hybrid post-quantum sealing, a hub that carries ciphertext it cannot read, consent before anyone may message you, and hold-and-forward for a peer who is not there.
+
+  `claude mcp add volenet -- npx -y @openvole/volenet-mcp`, and the session has its own keypair, its own consent decisions and its own inbox. Eight tools rather than an agent's whole registry, because a tool list is spent from the client's context on every turn: `volenet_whoami`, `volenet_peers`, `volenet_inbox`, `volenet_send`, `volenet_history`, `volenet_ask`, `volenet_requests`, `volenet_connect`. The node lives as long as the editor session, which VoleNet already supports — senders hold what they could not deliver and flush on reconnect, and a hub hands over notices about who tried.
+
+  `volenet_send` is chat and does not run the peer's brain, which is what reaches a person on the phone app — `net_message` only ever asked a peer's brain and therefore hung against a client that has no brain. Pairing by URL is two calls: the first reports the fingerprint of whoever answered, the second confirms it, because trusting a URL blind is trusting whoever holds it.
+
+- **Identity primitives are exported from the package root** — `generateKeyPair`, `loadKeyPair`, `trustPeer`, `revokePeer`, `loadAuthorizedVoles`, `parsePublicKey` — so anything running a node of its own no longer has to reach into `openvole/dist/net/keys.js`.
+
 ### Fixed
 
 - **A peer's brain question was answered to the dashboard, not to the peer.** A `task:delegate` carrying a `fromName` is chat — the peer is talking to the agent — but it was enqueued with no `sessionId`, so every rule in `replyAddressFor` fell through to `dashboard`. The agent was told its report went to its human, so it wrote a status update *about* the peer ("The reply to X timed out… no further action needed"), and that text was what the peer received. The same report also landed in the dashboard Chat tab, so one question produced two copies of the wrong thing. Worse, believing the answer was going elsewhere, the agent would call `net_message` to reach the peer "properly" — which hangs against a phone, since a chat client has no brain to answer with.

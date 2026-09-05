@@ -24,6 +24,16 @@ export { DockerSandboxManager } from './paw/docker-sandbox.js'
 export { VoleHubClient } from './skill/volehub.js'
 export type { VoleHubSkill, VoleHubIndex } from './skill/volehub.js'
 export { VoleNetManager } from './net/index.js'
+// Identity and trust primitives, for anything that runs a node of its own (the VoleNet MCP
+// server, tests, tooling) rather than reaching for the CLI.
+export {
+	generateKeyPair,
+	loadAuthorizedVoles,
+	loadKeyPair,
+	parsePublicKey,
+	revokePeer,
+	trustPeer,
+} from './net/keys.js'
 export type { VoleNetConfig } from './net/index.js'
 export { AgentManager } from './agent/manager.js'
 export type { AgentEntry, AgentRegistry, AgentStatus, AgentRunState } from './agent/types.js'
