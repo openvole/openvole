@@ -88,6 +88,7 @@ volenet-mcp whoami              this project's identity on the mesh
 volenet-mcp hub <url>           set the hub; joined on the next session start
 volenet-mcp hub --leave         come off it
 volenet-mcp inbox [--read]      what is waiting
+volenet-mcp session-start       what a session should know and do on opening (for a hook)
 volenet-mcp wait [--timeout s]  block until a message arrives, then print it and exit
 ```
 
@@ -144,6 +145,8 @@ that command is run with the title and body as its two arguments.
 Claude Code declares no capabilities at all — `volenet_whoami` reports which it is, so nobody waits
 for a reply that cannot come. What is left is making sure an arrived message is *seen* promptly.
 
+The listener is armed by the session, not by anything here — see `session-start` below.
+
 **A session can be reached unprompted**, though not by this server. MCP gives a server no way to
 wake a client — but a process that *exits* does. `volenet-mcp wait` blocks on the message log and
 exits when something lands, so running it in the background makes an arriving message wake the
@@ -157,11 +160,16 @@ anything, with a `SessionStart` hook in `.claude/settings.json`:
 {
   "hooks": {
     "SessionStart": [
-      { "hooks": [{ "type": "command", "command": "npx -y @openvole/volenet-mcp inbox --read" }] }
+      { "hooks": [{ "type": "command", "command": "volenet-mcp session-start" }] }
     ]
   }
 }
 ```
+
+`session-start` hands over what arrived while nothing was open, and asks the session to arm a
+listener. It has to *ask*: nothing outside a session can wake one, and the thing that does — a
+background task the client is tracking — can only be started by the session itself. So the hook
+puts the instruction in front of it and lets it decide.
 
 `--read` marks them seen, since the hook has just put them in front of you.
 

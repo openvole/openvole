@@ -25,6 +25,7 @@ const USAGE = `volenet-mcp — VoleNet as an MCP server
   volenet-mcp daemon               run the node in the foreground (normally started for you)
   volenet-mcp hub [url|--leave]    which hub to use; takes effect on the next session
   volenet-mcp adopt                take over an identity left at the old shared location
+  volenet-mcp session-start        what a session should know and do on opening (for a hook)
   volenet-mcp wait [--timeout <s>]  block until a message arrives, then print it and exit
   volenet-mcp inbox [--read] [--quiet]
                                    messages waiting. --read marks them seen, --quiet says
@@ -142,6 +143,37 @@ export async function run(argv: string[], out = process.stdout): Promise<number>
 		await saveStored(dir, { hub: url.replace(/\/$/, '') })
 		out.write(
 			`Hub set to ${url}.\nIt is joined the next time the server starts — restart Claude Code, or ask for volenet_hub to do it now.\n`,
+		)
+		return 0
+	}
+
+	if (command === 'session-start') {
+		// For a SessionStart hook. Two jobs: hand over what arrived while nothing was open, and
+		// ask the session to arm a listener.
+		//
+		// The asking is the point. Nothing here can wake a session — an MCP server has no way to,
+		// and a hook's own exit does not either. What *does* wake one is a background task the
+		// client is tracking, and only the session itself can start one. So this cannot arm the
+		// listener; it can only tell the session to, and let it decide.
+		const inbox = new Inbox(dir, cursorKey())
+		await inbox.load()
+		const unread = inbox.unread()
+		if (unread.length > 0) {
+			out.write(
+				`${unread.length} VoleNet message${unread.length === 1 ? '' : 's'} arrived while you were away:\n\n`,
+			)
+			for (const m of unread) out.write(`  [${when(m.ts)}] ${m.peerName}: ${m.text}\n`)
+			out.write('\n')
+			await inbox.markRead()
+		}
+		const self = process.argv[1]?.endsWith('.js') ? `node ${process.argv[1]}` : 'volenet-mcp'
+		out.write(
+			'VoleNet is connected for this project. To be told about messages as they arrive rather ' +
+				'than on the next thing the user types, run this as a background task now, and again ' +
+				'each time it returns:\n\n' +
+				`  ${self} wait --timeout 3000\n\n` +
+				'It blocks until a message lands, then exits — which is what reaches a session that is ' +
+				'otherwise idle.\n',
 		)
 		return 0
 	}
