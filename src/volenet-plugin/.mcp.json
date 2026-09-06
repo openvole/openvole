@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "volenet": {
+      "command": "npx",
+      "args": ["-y", "@openvole/volenet-mcp"]
+    }
+  }
+}

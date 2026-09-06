@@ -1,0 +1,14 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "npx -y @openvole/volenet-mcp session-start --catch-up"
+          }
+        ]
+      }
+    ]
+  }
+}
