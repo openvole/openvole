@@ -4,6 +4,7 @@ import * as path from 'node:path'
 import { VoleNetManager, generateKeyPair } from '@openvole/volenet'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { loadStored } from '../src/config.js'
+import { unreadFooter } from '../src/index.js'
 import { type Node, startNode } from '../src/node.js'
 import { TOOLS } from '../src/tools.js'
 
@@ -152,6 +153,39 @@ describe('a Claude Code session on the mesh', () => {
 		const rejoined = await call('volenet_hub', { url: `http://127.0.0.1:${AGENT}` })
 		expect(rejoined).toContain('Joined')
 		expect((await loadStored(sessionRoot)).hub).toBe(`http://127.0.0.1:${AGENT}`)
+	}, 30000)
+
+	it('waits for a reply instead of making the session poll for one', async () => {
+		const me = session.net.getKeyPair()!.instanceId
+		// Nothing has arrived yet, so this really does block until the message lands.
+		const waiting = call('volenet_wait', { from: 'agent-b', timeout_ms: 15000 })
+		await new Promise((r) => setTimeout(r, 300))
+		await agent.sendChat(me, 'while you were waiting')
+
+		expect(await waiting).toContain('while you were waiting')
+		expect(session.inbox.unread()).toHaveLength(0)
+	}, 30000)
+
+	it('gives up cleanly, and says the message is not lost', async () => {
+		const out = await call('volenet_wait', { from: 'agent-b', timeout_ms: 1000 })
+		expect(out).toContain('Nothing arrived')
+		expect(out).toContain('not lost')
+	}, 30000)
+
+	it('tells the session what is unread, on the result of any other tool', async () => {
+		const me = session.net.getKeyPair()!.instanceId
+		await agent.sendChat(me, 'ambient')
+		await until(() => session.inbox.unread().length > 0)
+
+		// Appended to every tool's result, because MCP cannot push and an arrived message would
+		// otherwise sit unseen until somebody thought to look.
+		expect(unreadFooter(session, 'volenet_peers')).toContain('1 unread message from agent-b')
+		// The two that just showed them do not then claim they are still waiting.
+		expect(unreadFooter(session, 'volenet_inbox')).toBe('')
+		expect(unreadFooter(session, 'volenet_wait')).toBe('')
+
+		await call('volenet_inbox')
+		expect(unreadFooter(session, 'volenet_peers')).toBe('')
 	}, 30000)
 
 	it('answers honestly for a peer it cannot find', async () => {

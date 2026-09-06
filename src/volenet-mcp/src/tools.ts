@@ -287,6 +287,44 @@ export const TOOLS: ToolDef[] = [
 		},
 	},
 	{
+		name: 'volenet_wait',
+		description:
+			'Wait for the next message to arrive, instead of checking again later. Use it whenever you have said something and a reply is expected — it turns a mailbox into a conversation. Returns as soon as anything lands, or reports that nothing came within the time given. Nothing is lost either way: a message that arrives after you stop waiting is still in the inbox.',
+		inputSchema: obj({
+			from: str('Only wake for this peer, by name or id. Omit to wake for anyone.'),
+			timeout_ms: num('How long to wait. Default 60000, maximum 300000.'),
+		}),
+		async run(node, args) {
+			const limit = Math.min(Math.max(Number(args.timeout_ms ?? 60_000), 1_000), 300_000)
+			const want = args.from ? resolve(node, String(args.from)) : undefined
+			const wanted = (m: { peerId: string }) => !args.from || m.peerId === (want?.id ?? args.from)
+
+			// Anything already unread counts as arrived: waiting for the next one would skip it.
+			const already = node.inbox.unread().filter(wanted)
+			if (already.length === 0) {
+				await new Promise<void>((done) => {
+					const timer = setTimeout(() => {
+						off()
+						done()
+					}, limit)
+					const off = node.onMessage((m) => {
+						if (!wanted(m)) return
+						clearTimeout(timer)
+						off()
+						done()
+					})
+				})
+			}
+
+			const arrived = node.inbox.unread().filter(wanted)
+			await node.inbox.markRead()
+			if (arrived.length === 0) {
+				return `Nothing arrived within ${Math.round(limit / 1000)}s${args.from ? ` from ${want?.name ?? args.from}` : ''}. It is not lost — whatever they send lands in the inbox whenever it comes.`
+			}
+			return arrived.map((m) => `[${when(m.ts)}] ${m.peerName}: ${m.text}`).join('\n')
+		},
+	},
+	{
 		name: 'volenet_hub',
 		description:
 			'Join a hub, leave one, or report which hub this session is on. A hub makes you reachable by people and agents that cannot dial your machine — it carries sealed traffic it cannot read, and stores no message. Called with no arguments it just reports. The choice is remembered, so the next session starts where this one left off.',

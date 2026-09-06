@@ -25,6 +25,22 @@ export { type Settings, defaultDir, defaultName, loadStored, saveStored } from '
 export { type Node, type NodeOptions, resolveSettings, startNode } from './node.js'
 export { TOOLS, type ToolDef } from './tools.js'
 
+/**
+ * What is waiting, appended to every tool's result.
+ *
+ * MCP has no way for a server to push, so an arrived message would otherwise sit unseen until
+ * somebody thought to look. Saying so on every result means any use of any tool surfaces it —
+ * ambient awareness in place of the notification the protocol cannot send. The tools that just
+ * showed you the messages are excluded, since they leave nothing unread.
+ */
+export function unreadFooter(node: Node, toolName: string): string {
+	if (toolName === 'volenet_inbox' || toolName === 'volenet_wait') return ''
+	const unread = node.inbox.unread()
+	if (unread.length === 0) return ''
+	const who = [...new Set(unread.map((m) => m.peerName))].join(', ')
+	return `\n\n— ${unread.length} unread message${unread.length === 1 ? '' : 's'} from ${who}. Read them with volenet_inbox.`
+}
+
 /** Wire the tools to an MCP server. Separated so a test can drive it without a transport. */
 export function createServer(node: Node): Server {
 	const server = new Server({ name: 'volenet', version: '0.1.0' }, { capabilities: { tools: {} } })
@@ -47,7 +63,7 @@ export function createServer(node: Node): Server {
 		}
 		try {
 			const text = await tool.run(node, (request.params.arguments ?? {}) as Record<string, unknown>)
-			return { content: [{ type: 'text' as const, text }] }
+			return { content: [{ type: 'text' as const, text: text + unreadFooter(node, tool.name) }] }
 		} catch (err) {
 			// A failed tool is a result, not a crash: the session should see why and carry on.
 			return {

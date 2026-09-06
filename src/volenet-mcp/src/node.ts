@@ -17,7 +17,7 @@ import {
 	parsePublicKey,
 } from '@openvole/volenet'
 import { type Settings, resolveSettings } from './config.js'
-import { Inbox } from './inbox.js'
+import { Inbox, type Message } from './inbox.js'
 
 /** What a node needs to start. Resolved from stored settings, env and defaults. */
 export type NodeOptions = Settings
@@ -49,6 +49,11 @@ export interface Node {
 	/** Who tried to reach us while we were away, as the hub reports on reconnect. */
 	notices: Notice[]
 	options: NodeOptions
+	/**
+	 * Be told when a message lands. MCP cannot push, so a session that wants to *wait* for a reply
+	 * — rather than poll for one — needs somewhere to hang a promise. Returns an unsubscribe.
+	 */
+	onMessage: (fn: (m: Message) => void) => () => void
 	stop: () => Promise<void>
 }
 
@@ -74,6 +79,7 @@ export async function startNode(options: NodeOptions): Promise<Node> {
 		options.dir,
 	)
 
+	const listeners = new Set<(m: Message) => void>()
 	bus.on('volenet:chat', (d) => {
 		const m = d as {
 			from: string
@@ -82,13 +88,17 @@ export async function startNode(options: NodeOptions): Promise<Node> {
 			messageId: string
 			timestamp: number
 		}
-		void inbox.add({
+		const message: Message = {
 			peerId: m.from,
 			peerName: m.fromName,
 			dir: 'in',
 			text: m.text,
 			ts: m.timestamp,
 			id: m.messageId,
+		}
+		// Only a message we had not already recorded wakes a waiter, so a replay cannot.
+		void inbox.add(message).then((added) => {
+			if (added) for (const fn of listeners) fn(message)
 		})
 	})
 
@@ -128,6 +138,10 @@ export async function startNode(options: NodeOptions): Promise<Node> {
 		notices,
 		options,
 		hubStatus,
+		onMessage: (fn) => {
+			listeners.add(fn)
+			return () => listeners.delete(fn)
+		},
 		stop: () => net.stop(),
 	}
 }
