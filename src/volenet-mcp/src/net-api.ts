@@ -56,6 +56,13 @@ export interface Identity {
 	publicKeyString: string
 }
 
+export interface RoomView {
+	room: string
+	name: string
+	topic?: string
+	members: Array<{ instanceId: string; name: string }>
+}
+
 /** A node, wherever it happens to be running. */
 export interface NetLike {
 	identity(): Promise<Identity | null>
@@ -89,6 +96,18 @@ export interface NetLike {
 	): Promise<{ ok: boolean; queued?: boolean; error?: string }>
 	approveRelayConnect(ref: string): Promise<{ ok: boolean; error?: string }>
 	denyRelayConnect(ref: string): Promise<{ ok: boolean; error?: string }>
+	/** Rooms this node is in, as its hub last described them (PROTOCOL.md §7c). */
+	rooms(): Promise<RoomView[]>
+	roomCommand(
+		hub: string,
+		type: 'room:create' | 'room:join' | 'room:leave' | 'room:invite' | 'room:list',
+		payload: Record<string, unknown>,
+	): Promise<{ ok: boolean; error?: string }>
+	/** Post to a room: one sealed copy per member, so there is no key and no rotation. */
+	postToRoom(
+		room: string,
+		text: string,
+	): Promise<{ ok: boolean; sent: number; held: number; skipped: number; error?: string }>
 	listPairRequests(): Promise<PairRequestInfo[]>
 	acceptPair(ref: string, grant?: PairGrantInput): Promise<{ ok: boolean; error?: string }>
 	denyPair(ref: string): Promise<{ ok: boolean }>
@@ -146,6 +165,16 @@ export function localNet(m: VoleNetManager): NetLike {
 				wants: r.wants,
 			}))
 		},
+		async rooms() {
+			return m.getRooms().map((r) => ({
+				room: r.room,
+				name: r.name,
+				topic: r.topic,
+				members: r.members.map((x) => ({ instanceId: x.instanceId, name: x.name })),
+			}))
+		},
+		roomCommand: (hub, type, payload) => m.roomCommand(hub, type, payload),
+		postToRoom: (room, text) => m.postToRoom(room, text),
 		acceptPair: (ref, grant) => m.acceptPair(ref, grant),
 		denyPair: (ref) => m.denyPair(ref),
 	}
@@ -166,6 +195,9 @@ export const NET_METHODS = [
 	'requestRelayConnect',
 	'approveRelayConnect',
 	'denyRelayConnect',
+	'rooms',
+	'roomCommand',
+	'postToRoom',
 	'listPairRequests',
 	'acceptPair',
 	'denyPair',

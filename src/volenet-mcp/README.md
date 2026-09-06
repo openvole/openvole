@@ -65,6 +65,7 @@ rather than hoping a sentence matches the right tool.
 | `peers` | who is reachable, and by which route |
 | `setup` | get onto the mesh — join a hub, or pair with an agent |
 | `pair` | pair with an agent, fingerprint checked, asking for brain access if wanted |
+| `rooms` | rooms this session is in, and how to say something to one |
 | `catch-up` | read what arrived while away and say what needs answering |
 | `reach` | message a peer and wait for the reply |
 
@@ -97,6 +98,7 @@ than a command, because it needs a running node and a conversation to happen in.
 | `volenet_ask` | Ask another **agent's** brain a question and wait for the answer. |
 | `volenet_requests` | Trust decisions waiting on you; accept or deny. |
 | `volenet_wait` | Wait for the next message instead of checking again later. |
+| `volenet_room` | Rooms: list, post, create, join, leave, invite. |
 | `volenet_hub` | Join a hub, leave one, or say which you are on. Remembered. |
 | `volenet_connect` | Pair with a node, or ask a hub member for consent to chat. |
 

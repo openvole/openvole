@@ -373,6 +373,85 @@ export const TOOLS: ToolDef[] = [
 		},
 	},
 	{
+		name: 'volenet_room',
+		description:
+			'Rooms: several people and agents in one conversation. With no arguments it lists the rooms this session is in. Give `post` to say something to a room — every member gets their own sealed copy, so there is no shared key and removing someone stops them reading immediately. Give `create`, `join`, `leave` or `invite` to change membership, which the hub keeps. A room does not create consent: a member who has not accepted you will not receive your posts.',
+		inputSchema: obj({
+			room: str('Which room, by id or name (see the list)'),
+			post: str('Say this to the room'),
+			create: str('Make a room with this name'),
+			join: str('Join a room by id'),
+			leave: { type: 'boolean' as const, description: 'Leave the room named in `room`' },
+			invite: str('Bring this peer (name or id) into the room named in `room`'),
+			hub: str('Which hub holds the room. Only needed with more than one.'),
+		}),
+		async run(node, args) {
+			const hubOf = async () => {
+				if (args.hub) return String(args.hub)
+				const hubs = (await node.net.instances()).filter((i) => i.connected)
+				if (hubs.length === 0) return null
+				return hubs[0]!.id
+			}
+			const find = async (ref: string) => {
+				const all = await node.net.rooms()
+				return all.find((r) => r.room === ref) ?? all.find((r) => r.name === ref)
+			}
+
+			if (args.create || args.join || args.leave || args.invite) {
+				const hub = await hubOf()
+				if (!hub)
+					return 'No hub connected. A room lives on a hub — join one first with volenet_hub.'
+				if (args.create) {
+					const res = await node.net.roomCommand(hub, 'room:create', { name: String(args.create) })
+					return res.ok
+						? `Asked for a room called "${args.create}". Call this again in a moment to see it.`
+						: `Could not: ${res.error}`
+				}
+				if (args.join) {
+					const res = await node.net.roomCommand(hub, 'room:join', { room: String(args.join) })
+					return res.ok ? `Asked to join ${args.join}.` : `Could not: ${res.error}`
+				}
+				const room = args.room ? await find(String(args.room)) : undefined
+				if (!room) return 'Name the room with `room` — see the list.'
+				if (args.leave) {
+					const res = await node.net.roomCommand(hub, 'room:leave', { room: room.room })
+					return res.ok ? `Left ${room.name}.` : `Could not: ${res.error}`
+				}
+				const peer = await resolve(node, String(args.invite))
+				const res = await node.net.roomCommand(hub, 'room:invite', {
+					room: room.room,
+					member: peer?.id ?? String(args.invite),
+				})
+				return res.ok
+					? `Invited ${peer?.name ?? args.invite} to ${room.name}.`
+					: `Could not: ${res.error}`
+			}
+
+			if (args.post) {
+				const room = args.room ? await find(String(args.room)) : (await node.net.rooms())[0]
+				if (!room) return 'No room to post to. Create or join one first.'
+				const res = await node.net.postToRoom(room.room, String(args.post))
+				if (!res.ok) return `Not posted: ${res.error}`
+				const bits = [`Posted to ${room.name}: ${res.sent} delivered`]
+				if (res.held) bits.push(`${res.held} waiting for members who are away`)
+				if (res.skipped)
+					bits.push(`${res.skipped} could not be reached — they may not have accepted you`)
+				return `${bits.join(', ')}.`
+			}
+
+			const all = await node.net.rooms()
+			if (all.length === 0) {
+				return 'Not in any room. Create one with create:"name", or join one you have been given the id for.'
+			}
+			return all
+				.map(
+					(r) =>
+						`  ${r.name}  ${r.room.substring(0, 8)}  ${r.members.length} member(s): ${r.members.map((m) => m.name).join(', ')}`,
+				)
+				.join('\n')
+		},
+	},
+	{
 		name: 'volenet_connect',
 		description:
 			'Reach out to someone new: pair directly with a node at a URL, or ask a hub member for consent to chat. Pairing is two calls — the first reports the fingerprint of whoever answers, the second confirms it — because trusting a URL blind is trusting whoever holds it. Neither side trusts you until they accept.',

@@ -56,6 +56,23 @@ is sent whenever they return. If the list is empty, say why — no hub, no pairi
 \`setup\`.`,
 	},
 	{
+		name: 'rooms',
+		description: 'Rooms this session is in, and how to say something to one.',
+		render: () => `Show the VoleNet rooms this session is in.
+
+Call \`volenet_room\` with no arguments. For each, say who is in it — a room is several people and
+agents in one conversation, so who else is there is the useful part.
+
+To say something, \`volenet_room\` with \`post\` and \`room\`. Every member gets their own sealed copy;
+there is no shared key, which is why removing somebody stops them reading immediately. Report what
+came back honestly: some copies may be waiting for members who are away, and some may not have been
+sent at all because that member has not accepted this session — **a room does not create consent**,
+so say that rather than let it read as a failure.
+
+If there are no rooms, offer to make one (\`create\`) or to join one by id (\`join\`). A room lives on
+a hub, so one has to be joined first.`,
+	},
+	{
 		name: 'setup',
 		description: 'Get this session onto the VoleNet mesh — join a hub, or pair with an agent.',
 		render: () => `Get this session onto the VoleNet mesh.

@@ -14,6 +14,7 @@ describe('prompts', () => {
 			'pair',
 			'peers',
 			'reach',
+			'rooms',
 			'setup',
 			'whoami',
 		])

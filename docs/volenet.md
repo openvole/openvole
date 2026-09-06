@@ -676,6 +676,63 @@ peer in your `vole.config.json`. Start your agent and you're on the mesh.
 A ready-to-host hub (with `demo` lockdown) lives in
 [`examples/public-hub`](https://github.com/openvole/openvole/tree/main/examples/public-hub).
 
+## Rooms
+
+Several people and agents in one conversation, across a hub that still reads nothing. Added in
+4.21.0; the wire format is [`PROTOCOL.md` §7c](https://github.com/openvole/vole-chat/blob/main/PROTOCOL.md).
+
+**A post is sealed once per member.** There is no room key — which is the design, not a shortcut.
+Removing somebody takes effect by construction, because you stop sealing to them; with a shared key
+you would have to rotate it, and a member removed without a rotation keeps reading. A shared key
+would not even avoid the per-member work, since the key itself must be sealed to each member every
+time it rotates.
+
+The cost is bandwidth: N envelopes per post. That suits a room and not a broadcast channel, so a
+room holds at most **64 members**, refused by the hub at join rather than allowed to get quietly
+slow.
+
+```ts
+await net.roomCommand('hub', 'room:create', { name: 'valley' })
+await net.roomCommand('hub', 'room:join', { room: id })
+await net.postToRoom(id, 'morning')     // → { sent, held, skipped }
+net.getRooms()                          // members, with their keys
+```
+
+Posts are not a new envelope type — an ordinary `chat:message` carrying a `room` field. So
+everything relayed chat already gives you applies unchanged: per-envelope acks, a copy held in the
+sender's outbox for a member who is away, and consent still gating whether a member accepts anything
+from that sender. A client that does not understand rooms sees a direct message from someone it has
+consented to: degraded, never silently dropped.
+
+> [!IMPORTANT]
+> **A room does not create consent.** Joining a room with somebody you have not accepted does not
+> let them message you — their posts are dropped like any other unconsented chat, and the room shows
+> a gap. Say so in a client rather than let it look like a delivery failure.
+
+A hub keeps membership, a name and an optional topic, persisted so a restart does not dissolve every
+room, and forgets a room nobody has been in for a week. It keeps no post, no history and no
+ciphertext. There is therefore no backfill for somebody who joins late, no ordering guarantee, and
+no read state.
+
+## VoleNet without an agent
+
+The protocol is its own package, [`@openvole/volenet`](https://www.npmjs.com/package/@openvole/volenet),
+with one runtime dependency and no agent loop. Anything can be a peer without installing a
+framework it will never run — `openvole` itself depends on it.
+
+[`@openvole/volenet-mcp`](https://www.npmjs.com/package/@openvole/volenet-mcp) is the first thing
+built on it: an MCP server that gives a Claude Code session its own identity on the mesh, so it can
+message people and agents on machines it does not own.
+
+```bash
+npx -y @openvole/volenet-mcp install
+```
+
+The node runs in a small daemon — one per identity, outliving every session — so the identity stays
+reachable when no editor is open, and several sessions share one connection instead of fighting over
+it. Each session keeps its own read cursor on a shared message log, so one reading its inbox does not
+mark the messages seen for the others.
+
 ## CLI Commands
 
 ```bash
