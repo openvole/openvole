@@ -188,6 +188,21 @@ describe('a Claude Code session on the mesh', () => {
 		expect(unreadFooter(session, 'volenet_peers')).toBe('')
 	}, 30000)
 
+	it('takes another port rather than crashing when one is already in use', async () => {
+		// Two editor sessions open at once used to mean the second failed to bind and died. The
+		// listener exists so peers can dial in, which for a session behind NAT never happens — not
+		// worth failing over.
+		const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'volenet-mcp-second-'))
+		const second = await startNode({ name: 'second', dir, port: session.options.port })
+		try {
+			expect(second.options.port).not.toBe(session.options.port)
+			expect(second.options.port).toBeGreaterThan(0)
+			expect(second.net.getKeyPair()?.instanceId).toBeTruthy()
+		} finally {
+			await second.stop()
+		}
+	}, 30000)
+
 	it('answers honestly for a peer it cannot find', async () => {
 		expect(await call('volenet_ask', { to: 'nobody', question: 'are you there' })).toContain(
 			'No peer found',

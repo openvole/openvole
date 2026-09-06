@@ -12,6 +12,8 @@
 
   Only asks this node understands are stored: an unrecognised one is dropped rather than kept, so a request cannot smuggle a permission past an operator who never saw it named.
 
+- **Two sessions at once no longer means the second one dies.** A node serves the VoleNet endpoints so peers can dial *in*, on port 9750 by default — which for a session behind NAT essentially never happens, since it dials out to a hub or an agent. But two editor sessions meant two nodes, and the second failed to bind and exited. It now takes the configured port when free and any free port when not, and reports what it actually bound. `VoleNetTransport.getPort()` returns the bound port, which differs from the configured one whenever a host passes 0.
+
 - **`install` now registers for every project by default.** It defaulted to the current project, while the identity it installs is per machine — one keypair in the home directory, shared by every session. Installing once and then finding no tools in the next directory you opened was the result. `--local` limits it to one project.
 
 - **`@openvole/volenet-mcp` ships guided flows as MCP prompts** — `setup`, `catch-up`, `pair`, `reach` — which the client surfaces as commands. A tool list says what a session *can* do, not what to do first or what the words mean; in a fresh session, pairing worked only if the model happened to match a sentence to the right tool. The `pair` flow now also asks whether brain access is wanted and sends it with the request, and `volenet_connect` takes `brain: true`.

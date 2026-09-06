@@ -514,6 +514,15 @@ export class VoleNetTransport {
 	}
 
 	/** Bind the listening port, retrying briefly on EADDRINUSE (covers restart races). */
+	/**
+	 * The port actually bound, which is not always the one configured — a host may pass 0 and let
+	 * the OS choose. Null before the server is listening.
+	 */
+	getPort(): number | null {
+		const addr = this.server?.address()
+		return addr && typeof addr === 'object' ? addr.port : null
+	}
+
 	private async listen(): Promise<void> {
 		const maxAttempts = 5
 		const retryDelayMs = 300

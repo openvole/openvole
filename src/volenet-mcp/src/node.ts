@@ -9,6 +9,7 @@
  * what it could not deliver and flushes when we reappear, and a hub hands us notices about who
  * tried while we were gone. So an intermittent peer is a supported peer, not a degraded one.
  */
+import * as net from 'node:net'
 import * as path from 'node:path'
 import {
 	VoleNetManager,
@@ -57,6 +58,24 @@ export interface Node {
 	stop: () => Promise<void>
 }
 
+/**
+ * Whether anything is already listening on a port.
+ *
+ * A node serves the VoleNet endpoints so peers can dial *in*, which for a session behind NAT
+ * essentially never happens — it dials out, to a hub or to an agent. So a taken port is not worth
+ * failing over: two editor sessions open at once would otherwise mean the second one crashes, and
+ * the thing it crashed over is a listener nobody was going to use.
+ */
+async function isFree(port: number): Promise<boolean> {
+	return new Promise((resolve) => {
+		const probe = net
+			.createServer()
+			.once('error', () => resolve(false))
+			.once('listening', () => probe.close(() => resolve(true)))
+			.listen(port, '0.0.0.0')
+	})
+}
+
 export async function startNode(options: NodeOptions): Promise<Node> {
 	const bus = createEventBus()
 	const inbox = new Inbox(path.join(options.dir, 'inbox.json'))
@@ -65,12 +84,15 @@ export async function startNode(options: NodeOptions): Promise<Node> {
 	const requests: PendingRequest[] = []
 	const notices: Notice[] = []
 
-	const net = new VoleNetManager(
+	// Take the configured port when it is free, any free port when it is not. Reported back, so
+	// whoami tells the truth about where this node is actually listening.
+	const port = (await isFree(options.port)) ? options.port : 0
+	const manager = new VoleNetManager(
 		{
 			enabled: true,
 			instanceName: options.name,
 			role: 'peer',
-			port: options.port,
+			port,
 			keyPath: path.join(options.dir, 'net', 'vole_key'),
 			// A hub is a peer we dial. 'read' rather than 'full': a hub carries our sealed traffic,
 			// it has no business acting on this node.
@@ -119,7 +141,10 @@ export async function startNode(options: NodeOptions): Promise<Node> {
 	bus.on('volenet:pair:request', remember('pair'))
 	bus.on('volenet:relay:request', remember('relay'))
 
-	await net.start(undefined, bus)
+	await manager.start(undefined, bus)
+	// A node's own transport knows what it ended up with; 0 means the OS chose.
+	const bound = manager.getTransport()?.getPort?.() ?? port
+	const settings: NodeOptions = { ...options, port: bound || options.port }
 
 	// Dialling a hub we have never met gets a 401: it has no reason to trust this key yet. The
 	// join flow is what introduces us, and it hands back the hub's own key to pin — the half that
@@ -128,26 +153,26 @@ export async function startNode(options: NodeOptions): Promise<Node> {
 	if (options.hub) {
 		hubStatus = (await alreadyTrusts(options.dir, options.hub))
 			? `joined ${options.hub}`
-			: await join(net, options.hub)
+			: await join(manager, options.hub)
 	}
 
 	return {
-		net,
+		net: manager,
 		inbox,
 		requests,
 		notices,
-		options,
+		options: settings,
 		hubStatus,
 		onMessage: (fn) => {
 			listeners.add(fn)
 			return () => listeners.delete(fn)
 		},
-		stop: () => net.stop(),
+		stop: () => manager.stop(),
 	}
 }
 
-async function join(net: VoleNetManager, hub: string): Promise<string> {
-	const res = await net.initiateJoin(hub)
+async function join(node: VoleNetManager, hub: string): Promise<string> {
+	const res = await node.initiateJoin(hub)
 	if (!res.ok) return `could not join ${hub}: ${res.error}`
 	if (res.pending) return `waiting for approval at ${hub}`
 	return `joined ${res.hubName ?? hub}`
