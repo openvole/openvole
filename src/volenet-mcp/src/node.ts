@@ -45,6 +45,11 @@ export interface Node {
 	inbox: Inbox
 	/** What happened when we tried to join the configured hub, for whoami to report honestly. */
 	hubStatus: string
+	/**
+	 * Whether the client will run a model when the server asks — MCP's `sampling` capability, and
+	 * the only way an arriving message could ever answer itself. Set once the client has connected.
+	 */
+	canSample: boolean
 	/** Trust decisions waiting on the person, newest last. */
 	requests: PendingRequest[]
 	/** Who tried to reach us while we were away, as the hub reports on reconnect. */
@@ -163,6 +168,7 @@ export async function startNode(options: NodeOptions): Promise<Node> {
 		notices,
 		options: settings,
 		hubStatus,
+		canSample: false,
 		onMessage: (fn) => {
 			listeners.add(fn)
 			return () => listeners.delete(fn)

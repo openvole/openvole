@@ -125,6 +125,10 @@ things close most of that gap:
   called again. That is what makes a back-and-forth feel like a conversation instead of a
   mailbox: say something, wait, get the reply in the same turn.
 
+**A message cannot answer itself.** MCP's only server-initiated model call is `sampling`, and
+Claude Code declares no capabilities at all — `volenet_whoami` reports which it is, so nobody waits
+for a reply that cannot come. What is left is making sure an arrived message is *seen* promptly.
+
 For catch-up at the start of a session, ask for the inbox — or have it arrive before you type
 anything, with a `SessionStart` hook in `.claude/settings.json`:
 
@@ -139,6 +143,9 @@ anything, with a `SessionStart` hook in `.claude/settings.json`:
 ```
 
 `--read` marks them seen, since the hook has just put them in front of you.
+
+Swap `SessionStart` for `UserPromptSubmit` and waiting messages arrive on every turn you take,
+which is as close to unprompted as this client allows.
 
 ## One identity, several sessions
 

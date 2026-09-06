@@ -115,11 +115,33 @@ export function createServer(node: Node): Server {
 	return server
 }
 
+/** Remember what the client can do, so a later session can say so without asking again. */
+export async function recordClientCapabilities(dir: string, caps: unknown): Promise<void> {
+	try {
+		const fs = await import('node:fs/promises')
+		const path = await import('node:path')
+		await fs.mkdir(dir, { recursive: true })
+		await fs.writeFile(
+			path.join(dir, 'client.json'),
+			`${JSON.stringify(caps ?? {}, null, 2)}\n`,
+			'utf-8',
+		)
+	} catch {
+		// Diagnostics only; never worth failing a startup over.
+	}
+}
+
 async function main(): Promise<void> {
 	const options = await resolveSettings()
 	const node = await startNode(options)
 	const server = createServer(node)
 	await server.connect(new StdioServerTransport())
+	// What the client offers back decides what is possible here. `sampling` is the only route to
+	// an unprompted reply — it lets a server ask the client to run a model — so record it rather
+	// than guess, and let whoami report it honestly.
+	const caps = server.getClientCapabilities()
+	node.canSample = Boolean(caps && typeof caps === 'object' && 'sampling' in caps)
+	await recordClientCapabilities(options.dir, caps)
 	process.stderr.write(
 		`volenet-mcp: ${options.name} (${node.net.getKeyPair()?.instanceId.substring(0, 8)}) ready` +
 			`${options.hub ? ` — hub ${options.hub}` : ' — no hub configured'}\n`,

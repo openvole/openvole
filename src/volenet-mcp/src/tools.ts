@@ -96,6 +96,12 @@ export const TOOLS: ToolDef[] = [
 			]
 			// The hybrid key string is ~2.5 KB — most of an ML-DSA-65 key — and spending that on
 			// every call would be a real cost to the session for something rarely needed.
+			// Whether a message can ever prompt a reply on its own is the client's decision, not
+			// ours: MCP's only server-initiated model call is `sampling`. Say which it is, so
+			// nobody waits for an answer that cannot come.
+			lines.push(
+				`replies     ${node.canSample ? 'this client can be asked to answer on its own' : 'only when you ask — this client cannot be woken by a message'}`,
+			)
 			if (args.key) lines.push('', `publicKey   ${key?.publicKeyString ?? '-'}`)
 			else
 				lines.push(
