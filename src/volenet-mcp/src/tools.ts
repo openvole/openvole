@@ -497,6 +497,20 @@ export const TOOLS: ToolDef[] = [
 					args.brain ? ['brain'] : undefined,
 				)
 				if (!res.ok) return `Could not ask: ${res.error}`
+				// It already trusts this key, so there is no request and nobody has anything to
+				// accept. Saying "waiting for their operator" would have someone watching for
+				// something that will never arrive.
+				if (res.alreadyTrusted) {
+					return [
+						`${probe.name ?? url} already trusts this session, so there was nothing to ask for —`,
+						'the link is usable now. Call volenet_peers to see it.',
+						args.brain
+							? 'Whether it also allows its brain is a separate grant its operator makes in net.peers; volenet_ask will say plainly if it does not.'
+							: '',
+					]
+						.filter(Boolean)
+						.join(' ')
+				}
 				return [
 					`Trusted ${probe.name ?? url} and asked it to trust this session.`,
 					args.brain

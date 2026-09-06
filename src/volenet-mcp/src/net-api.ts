@@ -95,7 +95,7 @@ export interface NetLike {
 		publicKey: string,
 		note?: string,
 		wants?: string[],
-	): Promise<{ ok: boolean; pending?: boolean; error?: string }>
+	): Promise<{ ok: boolean; pending?: boolean; alreadyTrusted?: boolean; error?: string }>
 	requestRelayConnect(
 		ref: string,
 		note?: string,
