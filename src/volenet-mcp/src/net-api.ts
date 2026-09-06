@@ -54,6 +54,12 @@ export interface AskResult {
 export interface Identity {
 	instanceId: string
 	publicKeyString: string
+	/**
+	 * The port the node actually bound, which is the daemon's business and not the session's.
+	 * A session attached to a daemon has no listener of its own, so reporting its own configured
+	 * port would name one nothing is listening on.
+	 */
+	port?: number
 }
 
 export interface RoomView {
@@ -118,7 +124,13 @@ export function localNet(m: VoleNetManager): NetLike {
 	return {
 		async identity() {
 			const k = m.getKeyPair()
-			return k ? { instanceId: k.instanceId, publicKeyString: k.publicKeyString } : null
+			return k
+				? {
+						instanceId: k.instanceId,
+						publicKeyString: k.publicKeyString,
+						port: m.getTransport()?.getPort?.() ?? undefined,
+					}
+				: null
 		},
 		async instances() {
 			// Whether a direct link is live is the transport's business — an instance record

@@ -86,7 +86,7 @@ export const TOOLS: ToolDef[] = [
 				`instanceId  ${key?.instanceId ?? '(not started)'}`,
 				`hub         ${node.hubStatus}`,
 				`connected   ${online} peer(s) online`,
-				`listening   port ${node.options.port} (reachable only from networks that can dial it)`,
+				`listening   port ${key?.port ?? node.options.port} (reachable only from networks that can dial it)`,
 				`store       ${node.options.dir}`,
 				`node        ${node.where === 'daemon' ? 'a daemon, so this identity stays reachable when no session is open' : 'in this session, so it is only reachable while this session is'}`,
 			]
