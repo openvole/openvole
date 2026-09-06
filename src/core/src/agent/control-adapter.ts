@@ -613,7 +613,16 @@ export function installControlAdapter(engine: VoleEngine, projectRoot: string): 
 				case 'volenet_pair_accept': {
 					const vn = (globalThis as any).__volenet__
 					if (!vn?.isActive()) throw new Error('VoleNet is not active in this agent')
-					result = await vn.acceptPair(params.ref as string)
+					// Accepting may also grant what the request asked for. Absent, it is trust only,
+					// exactly as before — a caller that does not pass a grant changes nothing.
+					const grant =
+						params.trust || params.allowBrain
+							? {
+									...(params.trust ? { trust: params.trust as 'full' | 'tool' | 'read' } : {}),
+									...(params.allowBrain ? { allowBrain: true } : {}),
+								}
+							: undefined
+					result = await vn.acceptPair(params.ref as string, grant)
 					break
 				}
 				case 'volenet_pair_deny': {

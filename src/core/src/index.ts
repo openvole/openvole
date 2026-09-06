@@ -511,11 +511,17 @@ export async function createEngine(
 			if (netConfig?.enabled) {
 				;(globalThis as any).__volenet_taskqueue__ = taskQueue
 				try {
-					const { VoleNetManager, persistPeerTo } = await import('./net/index.js')
+					const { VoleNetManager, persistPeerTo, persistPeerEntryTo } = await import(
+						'./net/index.js'
+					)
 					// The library says *when* a peer was learned; writing it into vole.config.json is
 					// ours, since only we know that file's shape.
 					const voleNet = new VoleNetManager(
-						{ persistPeer: persistPeerTo(projectRoot), ...netConfig },
+						{
+							persistPeer: persistPeerTo(projectRoot),
+							persistPeerEntry: persistPeerEntryTo(projectRoot),
+							...netConfig,
+						},
 						projectRoot,
 					)
 					await voleNet.start(toolRegistry, bus)

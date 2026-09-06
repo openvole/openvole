@@ -182,6 +182,17 @@ export interface VoleNetConfig {
 	 * live-only, which is the right default for a library.
 	 */
 	persistPeer?: (url: string) => Promise<void>
+	/**
+	 * Remember a peer entry that has no url — one named by identity, as an address-less peer must
+	 * be. Separate from `persistPeer` rather than widening it, so a host written against the
+	 * earlier callback keeps working.
+	 */
+	persistPeerEntry?: (entry: {
+		id?: string
+		name?: string
+		trust?: string
+		allowBrain?: boolean
+	}) => Promise<void>
 	peers?: Array<{
 		/**
 		 * Where to reach this peer. Also how the entry is matched to a connected peer, by
@@ -344,6 +355,22 @@ export interface VoleNetConfig {
 	files?: VoleNetFilesConfig
 }
 
+/**
+ * What a peer asks for when it introduces itself, beyond being trusted at all.
+ *
+ * Trust and permission are separate — the keystore says who may connect, `net.peers` says what
+ * they may then do — and that split used to mean the operator accepted a pair request and then,
+ * separately, hand-edited a config file to make the peer useful. A requester can now say what it
+ * is for, so accepting is one decision made with the reason in front of you.
+ */
+export type PairWant = 'brain'
+
+/** What the operator grants when accepting. Absent means trust only, as before. */
+export interface PairGrant {
+	trust?: 'full' | 'tool' | 'read'
+	allowBrain?: boolean
+}
+
 /** A hub-vouched mesh member, learned from a relay hub's roster broadcast. */
 export interface RosterMember {
 	instanceId: string
@@ -428,7 +455,15 @@ export class VoleNetManager {
 	/** Consent-based pairing: inbound requests awaiting the operator (persisted to pair_requests.json). */
 	private pairRequests = new Map<
 		string,
-		{ id: string; name: string; publicKey: string; endpoint?: string; note?: string; ts: number }
+		{
+			id: string
+			name: string
+			publicKey: string
+			endpoint?: string
+			note?: string
+			wants?: PairWant[]
+			ts: number
+		}
 	>()
 	/** Per-IP pair-request timestamps (rate limiting, same shape as publicJoin's). */
 	private pairTimestamps = new Map<string, number[]>()
@@ -2505,11 +2540,12 @@ export class VoleNetManager {
 		ip: string,
 		bus?: EventSink,
 	): Promise<{ status: number; json: unknown }> {
-		const { publicKey, name, note, endpoint } = (body ?? {}) as {
+		const { publicKey, name, note, endpoint, wants } = (body ?? {}) as {
 			publicKey?: string
 			name?: string
 			note?: string
 			endpoint?: string
+			wants?: unknown
 		}
 		if (!publicKey || !parsePublicKey(publicKey)) {
 			return { status: 400, json: { error: 'invalid public key' } }
@@ -2542,6 +2578,11 @@ export class VoleNetManager {
 			publicKey,
 			endpoint: typeof endpoint === 'string' ? endpoint.slice(0, 200) : undefined,
 			note: typeof note === 'string' ? note.slice(0, 200) : undefined,
+			// Only what this node understands: an unknown ask is dropped rather than stored, so a
+			// request cannot smuggle a permission past an operator who never saw it named.
+			wants: Array.isArray(wants)
+				? (wants.filter((w) => w === 'brain') as PairWant[]).slice(0, 4)
+				: undefined,
 			ts: now,
 		})
 		await this.persistPairRequests()
@@ -2566,13 +2607,25 @@ export class VoleNetManager {
 		name: string
 		endpoint?: string
 		note?: string
+		wants?: PairWant[]
 		ts: number
 	}> {
 		return [...this.pairRequests.values()].map(({ publicKey: _pk, ...rest }) => rest)
 	}
 
 	/** Operator consent: trust the requester's pinned key, live-reload, dial back if possible. */
-	async acceptPair(ref: string): Promise<{ ok: boolean; name?: string; error?: string }> {
+	/**
+	 * Accept a pair request, and optionally grant what it asked for in the same act.
+	 *
+	 * Trusting a key and saying what that key may do were two steps in two places — the second a
+	 * hand-edited config file and a restart — which is why a paired peer so often sat there unable
+	 * to do the thing it was paired for. A grant writes a `net.peers` entry naming the peer's
+	 * identity, live, so it applies without a restart, and asks the host to remember it.
+	 */
+	async acceptPair(
+		ref: string,
+		grant?: PairGrant,
+	): Promise<{ ok: boolean; name?: string; granted?: PairGrant; error?: string }> {
 		const req = [...this.pairRequests.values()].find(
 			(r) => r.id === ref || r.name === ref || r.id.startsWith(ref),
 		)
@@ -2589,10 +2642,30 @@ export class VoleNetManager {
 		if (req.endpoint) {
 			await this.addPeerEntry(req.endpoint) // also dials it
 		}
+		// An address-less peer — a phone, an editor session — can only be named by identity, and
+		// without an entry it falls through to whatever publicJoin allows anyone. Write one when
+		// the operator granted something, so accepting is the whole decision.
+		if (grant && (grant.trust || grant.allowBrain)) {
+			const entry = {
+				id: req.id,
+				name: req.name,
+				trust: (grant.trust ?? 'read') as 'full' | 'tool' | 'read',
+				...(grant.allowBrain ? { allowBrain: true } : {}),
+			}
+			this.config.peers = this.config.peers ?? []
+			const at = this.config.peers.findIndex((p) => p.id === req.id)
+			if (at >= 0) this.config.peers[at] = { ...this.config.peers[at], ...entry }
+			else this.config.peers.push(entry)
+			try {
+				await this.config.persistPeerEntry?.(entry)
+			} catch (err) {
+				logger.warn(`Could not persist peer entry: ${err instanceof Error ? err.message : err}`)
+			}
+		}
 		logger.info(
 			`Pair accepted: "${req.name}" (${req.id.substring(0, 8)}) is now trusted${req.endpoint ? ` and saved as a peer (${req.endpoint})` : ' (no endpoint advertised — it must connect to us)'}`,
 		)
-		return { ok: true, name: req.name }
+		return { ok: true, name: req.name, ...(grant ? { granted: grant } : {}) }
 	}
 
 	async denyPair(ref: string): Promise<{ ok: boolean }> {
@@ -2685,6 +2758,7 @@ export class VoleNetManager {
 		url: string,
 		publicKey: string,
 		note?: string,
+		wants?: PairWant[],
 	): Promise<{ ok: boolean; pending?: boolean; alreadyTrusted?: boolean; error?: string }> {
 		if (!this.keyPair) return { ok: false, error: 'VoleNet not started' }
 		const base = url.replace(/\/$/, '')
@@ -2700,6 +2774,7 @@ export class VoleNetManager {
 					publicKey: this.keyPair.publicKeyString,
 					name: this.config.instanceName ?? 'vole',
 					note,
+					...(wants?.length ? { wants } : {}),
 					endpoint: this.transport
 						? buildAdvertisedEndpoint({
 								publicUrl: this.config.publicUrl ?? process.env.VOLE_NET_PUBLIC_URL,

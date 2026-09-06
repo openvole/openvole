@@ -378,6 +378,11 @@ export const TOOLS: ToolDef[] = [
 		inputSchema: obj({
 			url: str('Node URL to pair with directly, e.g. http://10.0.0.5:9700'),
 			confirm: str('The fingerprint returned by a first call with url, confirming who answers'),
+			brain: {
+				type: 'boolean' as const,
+				description:
+					"Also ask for permission to use that agent's brain. The operator sees it as part of the same decision and can grant it while accepting; without it, being trusted allows chat only.",
+			},
 			member: str('Hub member name or id to ask for chat consent'),
 			note: str('A line saying who you are'),
 		}),
@@ -405,10 +410,20 @@ export const TOOLS: ToolDef[] = [
 				if (!probe.fingerprint?.startsWith(confirm)) {
 					return `That fingerprint does not match: it answers with ${probe.fingerprint}. Nothing was trusted.`
 				}
-				const res = await node.net.initiatePair(url, probe.publicKey, note)
-				return res.ok
-					? `Trusted ${probe.name ?? url} and asked it to trust this session. Nothing arrives until their operator accepts.`
-					: `Could not ask: ${res.error}`
+				const res = await node.net.initiatePair(
+					url,
+					probe.publicKey,
+					note,
+					args.brain ? ['brain'] : undefined,
+				)
+				if (!res.ok) return `Could not ask: ${res.error}`
+				return [
+					`Trusted ${probe.name ?? url} and asked it to trust this session.`,
+					args.brain
+						? 'The request also asks to use its brain, so its operator can grant that while accepting — no config editing, no restart.'
+						: 'It asks for trust only. Pass brain:true to also ask for brain access.',
+					'Nothing arrives until their operator accepts.',
+				].join(' ')
 			}
 			if (args.member) {
 				const res = await node.net.requestRelayConnect(String(args.member), note)

@@ -1,5 +1,19 @@
 # Changelog
 
+## v4.21.0 (2026-09-06)
+
+> Ships as `openvole` 4.21.0, `@openvole/volenet` 1.1.0 and `@openvole/volenet-mcp` 0.2.0.
+
+### Added
+
+- **A pair request can say what it is for, and accepting can grant it.** Trust and permission live in different places — the keystore says who may connect, `net.peers` says what they may then do — so accepting a pair request left a peer trusted and unable to do the thing it was paired for, until somebody hand-edited a config file and restarted the agent. There was no CLI for it and no UI: `vole net trust` writes the keystore, `vole net peers` reads it, and neither touches `net.peers`.
+
+  A requester may now include `wants: ['brain']` with its pair request. It is stored, returned by `listPairRequests()`, and shown to the operator before they decide. `acceptPair(ref, grant)` takes an optional `{ trust, allowBrain }` and writes a `net.peers` entry naming the peer's **identity** — the only way to name a peer with no address — into the live config, so it applies without a restart, and hands it to the host to write down via the new `persistPeerEntry` callback (`persistPeerEntryTo()` in core). The `volenet_pair_accept` RPC takes the same fields; passing none is trust only, exactly as before.
+
+  Only asks this node understands are stored: an unrecognised one is dropped rather than kept, so a request cannot smuggle a permission past an operator who never saw it named.
+
+- **`@openvole/volenet-mcp` ships guided flows as MCP prompts** — `setup`, `catch-up`, `pair`, `reach` — which the client surfaces as commands. A tool list says what a session *can* do, not what to do first or what the words mean; in a fresh session, pairing worked only if the model happened to match a sentence to the right tool. The `pair` flow now also asks whether brain access is wanted and sends it with the request, and `volenet_connect` takes `brain: true`.
+
 ## v4.20.0 (2026-09-03)
 
 > Ships as `openvole` 4.20.0, alongside two new packages: `@openvole/volenet` 1.0.0 — the protocol, extracted so anything can be a peer without installing an agent framework — and `@openvole/volenet-mcp` 0.1.0, which gives a Claude Code session its own identity on the mesh. A connection request to someone who is away now waits and arrives when they are back, the way chat already does, and a peer with no address can finally be named in `net.peers`.

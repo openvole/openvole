@@ -15,15 +15,22 @@
  */
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
-import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
+import {
+	CallToolRequestSchema,
+	GetPromptRequestSchema,
+	ListPromptsRequestSchema,
+	ListToolsRequestSchema,
+} from '@modelcontextprotocol/sdk/types.js'
 import { run as runCli } from './cli.js'
 import { type Node, resolveSettings, startNode } from './node.js'
+import { PROMPTS } from './prompts.js'
 import { TOOLS } from './tools.js'
 
 export { Inbox } from './inbox.js'
 export { run as runCli } from './cli.js'
 export { type Settings, defaultDir, defaultName, loadStored, saveStored } from './config.js'
 export { type Node, type NodeOptions, resolveSettings, startNode } from './node.js'
+export { PROMPTS, type PromptDef } from './prompts.js'
 export { TOOLS, type ToolDef } from './tools.js'
 
 /**
@@ -44,7 +51,36 @@ export function unreadFooter(node: Node, toolName: string): string {
 
 /** Wire the tools to an MCP server. Separated so a test can drive it without a transport. */
 export function createServer(node: Node): Server {
-	const server = new Server({ name: 'volenet', version: '0.1.0' }, { capabilities: { tools: {} } })
+	const server = new Server(
+		{ name: 'volenet', version: '0.1.0' },
+		{ capabilities: { tools: {}, prompts: {} } },
+	)
+
+	// Flows, so a fresh session does not have to infer the order of things from a tool list.
+	server.setRequestHandler(ListPromptsRequestSchema, async () => ({
+		prompts: PROMPTS.map((p) => ({
+			name: p.name,
+			description: p.description,
+			...(p.arguments ? { arguments: p.arguments } : {}),
+		})),
+	}))
+
+	server.setRequestHandler(GetPromptRequestSchema, async (request) => {
+		const prompt = PROMPTS.find((p) => p.name === request.params.name)
+		if (!prompt) throw new Error(`No such prompt: ${request.params.name}`)
+		return {
+			description: prompt.description,
+			messages: [
+				{
+					role: 'user' as const,
+					content: {
+						type: 'text' as const,
+						text: prompt.render((request.params.arguments ?? {}) as Record<string, string>),
+					},
+				},
+			],
+		}
+	})
 
 	server.setRequestHandler(ListToolsRequestSchema, async () => ({
 		tools: TOOLS.map((t) => ({
