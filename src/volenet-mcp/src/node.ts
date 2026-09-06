@@ -1,15 +1,17 @@
 /**
- * The VoleNet node this server *is*.
+ * The node this server talks to — usually not in this process.
  *
- * A Claude Code session gets its own identity on the mesh rather than borrowing an agent's: its
- * own keypair, its own name, its own consent decisions. That is the whole point — "my agent" and
- * "your agent" have to be different principals before anything between them means much.
+ * A Claude Code session gets an identity on the mesh rather than borrowing an agent's: its own
+ * keypair, its own consent decisions. But an identity that only exists while an editor is open is
+ * offline most of the time, and two open editors would run two nodes on one identity and fight over
+ * the hub socket. So the node lives in a daemon — one per identity, started on demand, outliving
+ * every session — and sessions attach to it.
  *
- * The node lives only while the editor session does, which VoleNet already handles: a sender holds
- * what it could not deliver and flushes when we reappear, and a hub hands us notices about who
- * tried while we were gone. So an intermittent peer is a supported peer, not a degraded one.
+ * Reading does not go through the daemon. Messages are an append-only file, so a session reads them
+ * directly and keeps its own cursor; only *acting* needs the node. That keeps the protocol small
+ * and means a session can still show you your history if the daemon is somehow gone.
  */
-import * as net from 'node:net'
+import * as fsSync from 'node:fs'
 import * as path from 'node:path'
 import {
 	VoleNetManager,
@@ -18,7 +20,9 @@ import {
 	parsePublicKey,
 } from '@openvole/volenet'
 import { type Settings, resolveSettings } from './config.js'
+import { connect, remoteNet, serve, spawnDaemon } from './daemon.js'
 import { Inbox, type Message } from './inbox.js'
+import { type NetLike, localNet } from './net-api.js'
 
 /** What a node needs to start. Resolved from stored settings, env and defaults. */
 export type NodeOptions = Settings
@@ -41,56 +45,69 @@ export interface Notice {
 }
 
 export interface Node {
-	net: VoleNetManager
+	net: NetLike
 	inbox: Inbox
-	/** What happened when we tried to join the configured hub, for whoami to report honestly. */
+	/** Trust decisions waiting on the person, newest last. */
+	requests: PendingRequest[]
+	/** Who tried to reach us while we were away, as the hub reports on reconnect. */
+	notices: Notice[]
+	options: NodeOptions
+	/** What happened when the node last tried to join the configured hub. */
 	hubStatus: string
 	/**
 	 * Whether the client will run a model when the server asks — MCP's `sampling` capability, and
 	 * the only way an arriving message could ever answer itself. Set once the client has connected.
 	 */
 	canSample: boolean
-	/** Trust decisions waiting on the person, newest last. */
-	requests: PendingRequest[]
-	/** Who tried to reach us while we were away, as the hub reports on reconnect. */
-	notices: Notice[]
-	options: NodeOptions
-	/**
-	 * Be told when a message lands. MCP cannot push, so a session that wants to *wait* for a reply
-	 * — rather than poll for one — needs somewhere to hang a promise. Returns an unsubscribe.
-	 */
+	/** Where this node is running, which decides whether it is there when nothing is open. */
+	where: 'daemon' | 'in-process'
+	/** Be told when a message lands, so a session can wait for a reply rather than poll for one. */
 	onMessage: (fn: (m: Message) => void) => () => void
 	stop: () => Promise<void>
 }
 
 /**
- * Whether anything is already listening on a port.
+ * Attach to this identity's daemon, starting one if none is running.
  *
- * A node serves the VoleNet endpoints so peers can dial *in*, which for a session behind NAT
- * essentially never happens — it dials out, to a hub or to an agent. So a taken port is not worth
- * failing over: two editor sessions open at once would otherwise mean the second one crashes, and
- * the thing it crashed over is a listener nobody was going to use.
+ * Falls back to a node in this process when a daemon cannot be had — a sandbox that forbids
+ * spawning, say. Everything still works; it is simply only present while this session is.
  */
-async function isFree(port: number): Promise<boolean> {
-	return new Promise((resolve) => {
-		const probe = net
-			.createServer()
-			.once('error', () => resolve(false))
-			.once('listening', () => probe.close(() => resolve(true)))
-			.listen(port, '0.0.0.0')
-	})
-}
-
 export async function startNode(options: NodeOptions): Promise<Node> {
-	const bus = createEventBus()
 	const inbox = new Inbox(options.dir, options.session)
 	await inbox.load()
 
+	if (process.env.VOLENET_MCP_NO_DAEMON !== '1') {
+		const conn = (await connect(options.dir)) ?? (await spawnDaemon(options.dir))
+		if (conn) {
+			return {
+				net: remoteNet(conn),
+				inbox,
+				requests: [],
+				notices: [],
+				options,
+				hubStatus: options.hub ? `joined ${options.hub}` : 'no hub configured',
+				canSample: false,
+				where: 'daemon',
+				onMessage: watchLog(options.dir, inbox),
+				stop: async () => {
+					// The daemon is shared and stays; only this connection to it goes.
+					conn.destroy()
+				},
+			}
+		}
+	}
+
+	const local = await startLocal(options, inbox)
+	return { ...local, where: 'in-process' }
+}
+
+/** A node in this process — what the daemon itself runs, and the fallback when it cannot. */
+export async function startLocal(options: NodeOptions, inbox: Inbox): Promise<Omit<Node, 'where'>> {
+	const bus = createEventBus()
 	const requests: PendingRequest[] = []
 	const notices: Notice[] = []
+	const listeners = new Set<(m: Message) => void>()
 
-	// Take the configured port when it is free, any free port when it is not. Reported back, so
-	// whoami tells the truth about where this node is actually listening.
 	const port = (await isFree(options.port)) ? options.port : 0
 	const manager = new VoleNetManager(
 		{
@@ -106,7 +123,6 @@ export async function startNode(options: NodeOptions): Promise<Node> {
 		options.dir,
 	)
 
-	const listeners = new Set<(m: Message) => void>()
 	bus.on('volenet:chat', (d) => {
 		const m = d as {
 			from: string
@@ -147,13 +163,11 @@ export async function startNode(options: NodeOptions): Promise<Node> {
 	bus.on('volenet:relay:request', remember('relay'))
 
 	await manager.start(undefined, bus)
-	// A node's own transport knows what it ended up with; 0 means the OS chose.
 	const bound = manager.getTransport()?.getPort?.() ?? port
 	const settings: NodeOptions = { ...options, port: bound || options.port }
 
 	// Dialling a hub we have never met gets a 401: it has no reason to trust this key yet. The
-	// join flow is what introduces us, and it hands back the hub's own key to pin — the half that
-	// matters, since from then on only that key may sign hub traffic to us.
+	// join flow is the introduction, and it hands back the hub's own key to pin.
 	let hubStatus = 'no hub configured'
 	if (options.hub) {
 		hubStatus = (await alreadyTrusts(options.dir, options.hub))
@@ -162,7 +176,7 @@ export async function startNode(options: NodeOptions): Promise<Node> {
 	}
 
 	return {
-		net: manager,
+		net: localNet(manager),
 		inbox,
 		requests,
 		notices,
@@ -174,6 +188,55 @@ export async function startNode(options: NodeOptions): Promise<Node> {
 			return () => listeners.delete(fn)
 		},
 		stop: () => manager.stop(),
+	}
+}
+
+/** Run as the daemon: a node in this process, served over the socket, until stopped. */
+export async function runDaemon(options: NodeOptions): Promise<void> {
+	const inbox = new Inbox(options.dir, 'daemon')
+	await inbox.load()
+	const node = await startLocal(options, inbox)
+	await serve(options.dir, node.net)
+	// Nothing else to do: the node is running and the socket is answering.
+	await new Promise(() => undefined)
+}
+
+/**
+ * Notice messages the daemon appended.
+ *
+ * The daemon receives them, so a session cannot be told directly — but the log is a file, and a
+ * file can be watched. Cheap, and it works no matter which process did the writing.
+ */
+function watchLog(dir: string, inbox: Inbox): (fn: (m: Message) => void) => () => void {
+	return (fn) => {
+		const file = path.join(dir, 'messages.jsonl')
+		const seen = new Set(inbox.history('', 0).map((m) => m.id))
+		let closed = false
+		const check = async () => {
+			if (closed) return
+			const before = new Set(inbox.unread().map((m) => m.id))
+			await inbox.refresh()
+			for (const m of inbox.unread()) {
+				if (!before.has(m.id) && !seen.has(m.id)) {
+					seen.add(m.id)
+					fn(m)
+				}
+			}
+		}
+		let watcher: fsSync.FSWatcher | undefined
+		try {
+			watcher = fsSync.watch(path.dirname(file), (_e, name) => {
+				if (name === 'messages.jsonl') void check()
+			})
+		} catch {
+			// no watcher available; the poll below still gets there
+		}
+		const timer = setInterval(() => void check(), 1000)
+		return () => {
+			closed = true
+			clearInterval(timer)
+			watcher?.close()
+		}
 	}
 }
 
@@ -200,4 +263,22 @@ export async function alreadyTrusts(dir: string, hub: string): Promise<boolean> 
 	} catch {
 		return false
 	}
+}
+
+/**
+ * Whether anything is already listening on a port.
+ *
+ * A node serves the VoleNet endpoints so peers can dial *in*, which for a session behind NAT
+ * essentially never happens — it dials out, to a hub or an agent. So a taken port is not worth
+ * failing over.
+ */
+async function isFree(port: number): Promise<boolean> {
+	const netmod = await import('node:net')
+	return new Promise((resolve) => {
+		const probe = netmod
+			.createServer()
+			.once('error', () => resolve(false))
+			.once('listening', () => probe.close(() => resolve(true)))
+			.listen(port, '0.0.0.0')
+	})
 }

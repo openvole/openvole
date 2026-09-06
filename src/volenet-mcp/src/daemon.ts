@@ -1,0 +1,177 @@
+/**
+ * One node per machine, alive between sessions.
+ *
+ * A node that lives and dies with an editor session is *offline* whenever nothing is open: senders
+ * hold what they cannot deliver, hubs record that somebody tried, and nothing arrives until you
+ * reopen. That is a mailbox, not a channel. It also means two sessions run two nodes on one
+ * identity, and a hub binds one socket per identity — so the second connection leaves the first
+ * deaf.
+ *
+ * Both go away with a single long-lived process that owns the identity, the connections and the
+ * writing of arrivals. Sessions attach to it over a unix socket and ask it to act. They do *not*
+ * ask it what has arrived: the message log is a file, so reading stays local and needs no protocol.
+ *
+ * The socket is per identity directory, so a second daemon cannot start on the same identity, and
+ * the first session to want one starts it.
+ */
+import { spawn } from 'node:child_process'
+import * as fs from 'node:fs/promises'
+import * as net from 'node:net'
+import * as path from 'node:path'
+import { NET_METHODS, type NetLike } from './net-api.js'
+
+export const socketPath = (dir: string) => path.join(dir, 'daemon.sock')
+
+interface Request {
+	id: number
+	method: string
+	args: unknown[]
+}
+
+interface Response {
+	id: number
+	ok: boolean
+	result?: unknown
+	error?: string
+}
+
+/** Serve a node over a unix socket until the process is stopped. */
+export async function serve(dir: string, node: NetLike): Promise<net.Server> {
+	const sock = socketPath(dir)
+	await fs.mkdir(dir, { recursive: true })
+	// A socket file outlives the process that made it. If nothing answers, it is stale.
+	await fs.rm(sock, { force: true })
+
+	const server = net.createServer((conn) => {
+		let buffer = ''
+		conn.setEncoding('utf-8')
+		conn.on('data', (chunk) => {
+			buffer += chunk
+			for (let nl = buffer.indexOf('\n'); nl >= 0; nl = buffer.indexOf('\n')) {
+				const line = buffer.slice(0, nl)
+				buffer = buffer.slice(nl + 1)
+				if (line.trim()) void handle(line, conn, node)
+			}
+		})
+		// A session going away is ordinary; it must never take the daemon with it.
+		conn.on('error', () => undefined)
+	})
+	server.on('error', () => undefined)
+	await new Promise<void>((done) => server.listen(sock, done))
+	return server
+}
+
+async function handle(line: string, conn: net.Socket, node: NetLike): Promise<void> {
+	let req: Request
+	try {
+		req = JSON.parse(line) as Request
+	} catch {
+		return
+	}
+	const reply = (r: Omit<Response, 'id'>) => {
+		try {
+			conn.write(`${JSON.stringify({ id: req.id, ...r })}\n`)
+		} catch {
+			// the session went away mid-call
+		}
+	}
+	if (!(NET_METHODS as readonly string[]).includes(req.method)) {
+		reply({ ok: false, error: `unknown method: ${req.method}` })
+		return
+	}
+	try {
+		const fn = node[req.method as keyof NetLike] as (...a: unknown[]) => Promise<unknown>
+		reply({ ok: true, result: await fn(...(req.args ?? [])) })
+	} catch (err) {
+		reply({ ok: false, error: err instanceof Error ? err.message : String(err) })
+	}
+}
+
+/** Talk to a daemon over its socket, as if the node were here. */
+export function remoteNet(conn: net.Socket): NetLike {
+	let next = 1
+	const pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>()
+	let buffer = ''
+	conn.setEncoding('utf-8')
+	conn.on('data', (chunk) => {
+		buffer += chunk
+		for (let nl = buffer.indexOf('\n'); nl >= 0; nl = buffer.indexOf('\n')) {
+			const line = buffer.slice(0, nl)
+			buffer = buffer.slice(nl + 1)
+			if (!line.trim()) continue
+			try {
+				const res = JSON.parse(line) as Response
+				const waiter = pending.get(res.id)
+				if (!waiter) continue
+				pending.delete(res.id)
+				if (res.ok) waiter.resolve(res.result)
+				else waiter.reject(new Error(res.error ?? 'daemon error'))
+			} catch {
+				// not ours
+			}
+		}
+	})
+	const fail = (why: string) => {
+		for (const [, w] of pending) w.reject(new Error(why))
+		pending.clear()
+	}
+	conn.on('close', () => fail('the volenet daemon closed the connection'))
+	conn.on('error', (e) => fail(e.message))
+
+	const call = (method: string, ...args: unknown[]) =>
+		new Promise<unknown>((resolve, reject) => {
+			const id = next++
+			pending.set(id, { resolve, reject })
+			conn.write(`${JSON.stringify({ id, method, args })}\n`)
+		})
+
+	return Object.fromEntries(
+		NET_METHODS.map((m) => [m, (...args: unknown[]) => call(m, ...args)]),
+	) as unknown as NetLike
+}
+
+/** Connect to a daemon already listening, or null when none is. */
+export async function connect(dir: string): Promise<net.Socket | null> {
+	return new Promise((resolve) => {
+		const conn = net.createConnection(socketPath(dir))
+		const give = (ok: boolean) => {
+			conn.removeAllListeners('connect')
+			conn.removeAllListeners('error')
+			if (ok) resolve(conn)
+			else {
+				conn.destroy()
+				resolve(null)
+			}
+		}
+		conn.once('connect', () => give(true))
+		conn.once('error', () => give(false))
+	})
+}
+
+/**
+ * Start a daemon for this identity and wait for it to answer.
+ *
+ * Detached and with its streams released, so it outlives the session that happened to start it —
+ * which is the entire point: being reachable is not supposed to depend on an editor being open.
+ */
+export async function spawnDaemon(
+	dir: string,
+	env: NodeJS.ProcessEnv = {},
+): Promise<net.Socket | null> {
+	const entry = process.argv[1]
+	if (!entry) return null
+	const child = spawn(process.execPath, [entry, 'daemon'], {
+		detached: true,
+		stdio: 'ignore',
+		env: { ...process.env, ...env, VOLENET_MCP_DIR: dir },
+	})
+	child.unref()
+
+	// Poll briefly rather than guess a fixed delay: it is listening when it answers.
+	for (let i = 0; i < 40; i++) {
+		const conn = await connect(dir)
+		if (conn) return conn
+		await new Promise((r) => setTimeout(r, 100))
+	}
+	return null
+}

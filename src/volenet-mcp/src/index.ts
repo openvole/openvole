@@ -142,9 +142,10 @@ async function main(): Promise<void> {
 	const caps = server.getClientCapabilities()
 	node.canSample = Boolean(caps && typeof caps === 'object' && 'sampling' in caps)
 	await recordClientCapabilities(options.dir, caps)
+	const me = await node.net.identity().catch(() => null)
 	process.stderr.write(
-		`volenet-mcp: ${options.name} (${node.net.getKeyPair()?.instanceId.substring(0, 8)}) ready` +
-			`${options.hub ? ` — hub ${options.hub}` : ' — no hub configured'}\n`,
+		`volenet-mcp: ${options.name} (${me?.instanceId.substring(0, 8) ?? '?'}) ready — node ${node.where}` +
+			`${options.hub ? `, hub ${options.hub}` : ', no hub configured'}\n`,
 	)
 
 	let stopping = false

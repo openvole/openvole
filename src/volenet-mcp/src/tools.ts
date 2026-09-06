@@ -38,20 +38,15 @@ interface Peer {
 	viaHub?: string
 }
 
-function peers(node: Node): Peer[] {
-	// Whether a direct peer is live is the transport's business — an instance record persists
-	// after the socket does, so `lastSeen` alone would report a dead link as online.
-	const live = new Set(
-		(node.net.getTransport()?.getPeers() ?? []).filter((p) => p.connected).map((p) => p.peerId),
-	)
-	const out: Peer[] = node.net.getInstances().map((i) => ({
+async function peers(node: Node): Promise<Peer[]> {
+	const out: Peer[] = (await node.net.instances()).map((i) => ({
 		id: i.id,
 		name: i.name,
 		route: 'direct' as const,
-		connected: live.has(i.id),
+		connected: i.connected,
 	}))
 	const direct = new Set(out.map((p) => p.id))
-	for (const m of node.net.getRelayMembers()) {
+	for (const m of await node.net.relayMembers()) {
 		if (direct.has(m.id)) continue
 		out.push({
 			id: m.id,
@@ -65,8 +60,8 @@ function peers(node: Node): Peer[] {
 	return out
 }
 
-function resolve(node: Node, ref: string): Peer | undefined {
-	const all = peers(node)
+async function resolve(node: Node, ref: string): Promise<Peer | undefined> {
+	const all = await peers(node)
 	return (
 		all.find((p) => p.id === ref) ??
 		all.find((p) => p.name === ref) ??
@@ -84,8 +79,8 @@ export const TOOLS: ToolDef[] = [
 			key: { type: 'boolean' as const, description: 'Include the full public key string' },
 		}),
 		async run(node, args) {
-			const key = node.net.getKeyPair()
-			const online = peers(node).filter((p) => p.connected).length
+			const key = await node.net.identity()
+			const online = (await peers(node)).filter((p) => p.connected).length
 			const lines = [
 				`name        ${node.options.name}`,
 				`instanceId  ${key?.instanceId ?? '(not started)'}`,
@@ -93,6 +88,7 @@ export const TOOLS: ToolDef[] = [
 				`connected   ${online} peer(s) online`,
 				`listening   port ${node.options.port} (reachable only from networks that can dial it)`,
 				`store       ${node.options.dir}`,
+				`node        ${node.where === 'daemon' ? 'a daemon, so this identity stays reachable when no session is open' : 'in this session, so it is only reachable while this session is'}`,
 			]
 			// The hybrid key string is ~2.5 KB — most of an ML-DSA-65 key — and spending that on
 			// every call would be a real cost to the session for something rarely needed.
@@ -122,7 +118,7 @@ export const TOOLS: ToolDef[] = [
 			'Everyone this session can reach: agents and people, whether the link is direct or through a hub, and whether they are online right now.',
 		inputSchema: obj({}),
 		async run(node) {
-			const all = peers(node)
+			const all = await peers(node)
 			if (all.length === 0) {
 				return 'No peers. Join a hub (VOLENET_MCP_HUB) or pair with a node directly (volenet_pair).'
 			}
@@ -183,7 +179,7 @@ export const TOOLS: ToolDef[] = [
 			const to = String(args.to ?? '')
 			const text = String(args.text ?? '')
 			if (!text.trim()) return 'Nothing to send.'
-			const peer = resolve(node, to)
+			const peer = await resolve(node, to)
 			const res = await node.net.sendChat(peer?.id ?? to, text)
 			if (!res.ok) return `Not sent: ${res.error ?? 'unknown error'}`
 			await node.inbox.add({
@@ -208,7 +204,7 @@ export const TOOLS: ToolDef[] = [
 			limit: num('Messages (default 50)'),
 		}),
 		async run(node, args) {
-			const peer = resolve(node, String(args.peer ?? ''))
+			const peer = await resolve(node, String(args.peer ?? ''))
 			const id = peer?.id ?? String(args.peer ?? '')
 			const msgs = node.inbox.history(id, Number(args.limit ?? 50))
 			if (msgs.length === 0) return `Nothing recorded with ${peer?.name ?? id}.`
@@ -230,22 +226,21 @@ export const TOOLS: ToolDef[] = [
 			['to', 'question'],
 		),
 		async run(node, args) {
-			const peer = resolve(node, String(args.to ?? ''))
+			const peer = await resolve(node, String(args.to ?? ''))
 			if (!peer) return `No peer found: "${args.to}". Use volenet_peers.`
 			if (peer.route !== 'direct') {
 				return `${peer.name} is only reachable through a hub, and a hub will not relay a question to an agent's brain — it carries chat and consent only. Use volenet_send, or pair directly with volenet_pair.`
 			}
-			const mgr = node.net.getRemoteTaskManager()
-			if (!mgr) return 'Remote task manager not available.'
-			const res = await mgr.delegateTask(
+			const res = await node.net.askBrain(
 				peer.id,
-				{ taskId: '', input: String(args.question ?? ''), fromName: node.options.name },
+				String(args.question ?? ''),
+				node.options.name,
 				Number(args.timeout_ms ?? 120_000),
 			)
 			if (res.status === 'completed') return `${peer.name} says:\n\n${res.result}`
 			const why = res.error ?? res.status
 			if (typeof why === 'string' && why.includes('allowBrain')) {
-				return `${peer.name} refused: ${why}\n\nIts operator can allow this session by adding { "id": "${node.net.getKeyPair()?.instanceId}", "trust": "read", "allowBrain": true } to net.peers and restarting.`
+				return `${peer.name} refused: ${why}\n\nIts operator can allow this session by adding { "id": "${(await node.net.identity())?.instanceId}", "trust": "read", "allowBrain": true } to net.peers and restarting.`
 			}
 			return `${peer.name} did not answer: ${why}`
 		},
@@ -277,7 +272,7 @@ export const TOOLS: ToolDef[] = [
 					? `${accept ? 'Accepted' : 'Denied'} ${req.fromName}.`
 					: `Failed: ${'error' in ok ? ok.error : 'unknown'}`
 			}
-			const pairs = node.net.listPairRequests()
+			const pairs = await node.net.listPairRequests()
 			for (const p of pairs) {
 				if (!node.requests.some((r) => r.from === p.id)) {
 					node.requests.push({ kind: 'pair', from: p.id, fromName: p.name, at: Date.now() })
@@ -302,7 +297,7 @@ export const TOOLS: ToolDef[] = [
 		}),
 		async run(node, args) {
 			const limit = Math.min(Math.max(Number(args.timeout_ms ?? 60_000), 1_000), 300_000)
-			const want = args.from ? resolve(node, String(args.from)) : undefined
+			const want = args.from ? await resolve(node, String(args.from)) : undefined
 			const wanted = (m: { peerId: string }) => !args.from || m.peerId === (want?.id ?? args.from)
 
 			// Anything already unread counts as arrived: waiting for the next one would skip it.
@@ -343,7 +338,7 @@ export const TOOLS: ToolDef[] = [
 				const hub = node.options.hub
 				if (!hub) return 'Not on a hub.'
 				// Forget it and drop the socket, so neither this session nor the next dials it.
-				node.net.forgetPeer(hub)
+				await node.net.forgetPeer(hub)
 				node.options.hub = undefined
 				node.hubStatus = 'no hub configured'
 				await saveStored(node.options.dir, { hub: undefined })
@@ -365,7 +360,7 @@ export const TOOLS: ToolDef[] = [
 				await saveStored(node.options.dir, { hub: url })
 				return `Joined ${url} again — it was already trusted, so no introduction was needed.`
 			}
-			const res = await node.net.initiateJoin(url)
+			const res = await node.net.joinHub(url)
 			if (!res.ok) return `Could not join ${url}: ${res.error}`
 			node.options.hub = url
 			node.hubStatus = res.pending

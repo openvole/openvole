@@ -64,11 +64,15 @@ beforeAll(async () => {
 	)
 	await agent.start()
 
+	// In-process: these exercise the tools against a real mesh, not the daemon that normally
+	// holds the node. The daemon has its own test.
+	process.env.VOLENET_MCP_NO_DAEMON = '1'
 	session = await startNode({
 		name: 'claude-test',
 		hub: `http://127.0.0.1:${AGENT}`,
 		dir: sessionDir,
 		port: 19994,
+		session: 'test',
 	})
 	sessionRoot = sessionDir
 	await until(() => agent.getInstances().some((i) => i.id === keySession.instanceId))
@@ -83,7 +87,7 @@ describe('a Claude Code session on the mesh', () => {
 	it('has an identity of its own, not the agent’s', async () => {
 		const who = await call('volenet_whoami')
 		expect(who).toContain('claude-test')
-		expect(who).toContain(session.net.getKeyPair()!.instanceId)
+		expect(who).toContain((await session.net.identity())!.instanceId)
 		expect(who).not.toContain(agentId)
 
 		// The hybrid key is kilobytes of ML-DSA, so it is asked for, not volunteered.
@@ -92,7 +96,18 @@ describe('a Claude Code session on the mesh', () => {
 	})
 
 	it('sees the agent, and says so in words a model can act on', async () => {
-		await until(() => session.net.getInstances().length > 0)
+		// `until` takes a sync predicate, so do the async read outside it.
+		let seen = 0
+		const poll = setInterval(() => {
+			void session.net.instances().then((i) => {
+				seen = i.length
+			})
+		}, 100)
+		try {
+			await until(() => seen > 0)
+		} finally {
+			clearInterval(poll)
+		}
 		const list = await call('volenet_peers')
 		expect(list).toContain('agent-b')
 		expect(list).toContain('direct')
@@ -102,7 +117,7 @@ describe('a Claude Code session on the mesh', () => {
 		const out = await call('volenet_send', { to: 'agent-b', text: 'from the editor' })
 		expect(out).toContain('Sent to agent-b')
 
-		const me = session.net.getKeyPair()!.instanceId
+		const me = (await session.net.identity())!.instanceId
 		await until(async () =>
 			(await agent.getChatHistory(me)).some((e) => e.text === 'from the editor'),
 		)
@@ -111,7 +126,7 @@ describe('a Claude Code session on the mesh', () => {
 	}, 30000)
 
 	it('receives what the agent sends, and shows it once', async () => {
-		const me = session.net.getKeyPair()!.instanceId
+		const me = (await session.net.identity())!.instanceId
 		await agent.sendChat(me, 'and back again')
 		await until(() => session.inbox.unread().length > 0)
 
@@ -156,7 +171,7 @@ describe('a Claude Code session on the mesh', () => {
 	}, 30000)
 
 	it('waits for a reply instead of making the session poll for one', async () => {
-		const me = session.net.getKeyPair()!.instanceId
+		const me = (await session.net.identity())!.instanceId
 		// Nothing has arrived yet, so this really does block until the message lands.
 		const waiting = call('volenet_wait', { from: 'agent-b', timeout_ms: 15000 })
 		await new Promise((r) => setTimeout(r, 300))
@@ -173,7 +188,7 @@ describe('a Claude Code session on the mesh', () => {
 	}, 30000)
 
 	it('tells the session what is unread, on the result of any other tool', async () => {
-		const me = session.net.getKeyPair()!.instanceId
+		const me = (await session.net.identity())!.instanceId
 		await agent.sendChat(me, 'ambient')
 		await until(() => session.inbox.unread().length > 0)
 
@@ -193,11 +208,16 @@ describe('a Claude Code session on the mesh', () => {
 		// listener exists so peers can dial in, which for a session behind NAT never happens — not
 		// worth failing over.
 		const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'volenet-mcp-second-'))
-		const second = await startNode({ name: 'second', dir, port: session.options.port })
+		const second = await startNode({
+			name: 'second',
+			dir,
+			port: session.options.port,
+			session: 'second',
+		})
 		try {
 			expect(second.options.port).not.toBe(session.options.port)
 			expect(second.options.port).toBeGreaterThan(0)
-			expect(second.net.getKeyPair()?.instanceId).toBeTruthy()
+			expect((await second.net.identity())?.instanceId).toBeTruthy()
 		} finally {
 			await second.stop()
 		}

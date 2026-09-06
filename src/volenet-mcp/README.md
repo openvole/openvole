@@ -147,6 +147,25 @@ anything, with a `SessionStart` hook in `.claude/settings.json`:
 Swap `SessionStart` for `UserPromptSubmit` and waiting messages arrive on every turn you take,
 which is as close to unprompted as this client allows.
 
+## The node runs in a daemon
+
+An identity that exists only while an editor is open is offline most of the time: senders hold what
+they cannot deliver, hubs record that somebody tried, and nothing arrives until you come back. So
+the node lives in a small daemon — one per identity, started the first time a session wants it,
+outliving every session. You are reachable whether or not anything is open.
+
+It also settles what two open editors would otherwise do to each other: two nodes on one identity
+means a hub binds one socket and the other goes deaf. One node, many sessions attached, no race.
+
+```bash
+volenet-mcp daemon    # run it in the foreground; normally it is started for you
+```
+
+Reading does not go through it. Messages are an append-only file, so a session reads them directly
+and keeps its own cursor — the protocol covers acting, not looking, and your history is still there
+if the daemon is gone. `VOLENET_MCP_NO_DAEMON=1` keeps the node in the session, which is the
+fallback where spawning is not allowed.
+
 ## One identity, several sessions
 
 The identity is per machine — one keypair in `~/.openvole/volenet-mcp/`, shared by every session,

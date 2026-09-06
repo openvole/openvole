@@ -20,6 +20,7 @@ const USAGE = `volenet-mcp — VoleNet as an MCP server
 
   volenet-mcp install [--local]    register with Claude Code (default: every project)
   volenet-mcp whoami               this machine's identity on the mesh
+  volenet-mcp daemon               run the node in the foreground (normally started for you)
   volenet-mcp hub [url|--leave]    which hub to use; takes effect on the next session
   volenet-mcp inbox [--read] [--quiet]
                                    messages waiting. --read marks them seen, --quiet says
@@ -42,6 +43,15 @@ export async function run(argv: string[], out = process.stdout): Promise<number>
 	}
 
 	if (command === 'install') return install(rest, out)
+
+	if (command === 'daemon') {
+		// The node itself: one per identity, outliving every session. Sessions start this for
+		// themselves, so running it by hand is for looking at what it does.
+		const { runDaemon } = await import('./node.js')
+		const { resolveSettings } = await import('./config.js')
+		await runDaemon(await resolveSettings())
+		return 0
+	}
 
 	if (command === 'whoami') {
 		const stored = await loadStored(dir)
