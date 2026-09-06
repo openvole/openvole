@@ -1,5 +1,29 @@
 # Changelog
 
+## `@openvole/volenet-mcp` 0.3.0 (2026-09-06)
+
+> The MCP server alone. `openvole` stays at 4.21.0 and `@openvole/volenet` at 1.1.1.
+
+### Changed
+
+- **One identity per project directory, not per machine.** Pairing is per identity, so a shared one made every session the same participant: the peer you paired with could not tell them apart, and each read the others' conversations. Two projects open at once are two correspondents and now look like it — separate keys, separate pairings, separate history. Several sessions in the *same* directory remain one participant, which is right. The name a peer sees follows the project (`claude-<project>`) rather than the machine, which also keeps a laptop's hostname off other people's rosters. `VOLENET_MCP_DIR` still overrides, which is how you deliberately share one identity.
+
+  `volenet-mcp adopt` claims an identity left at the old shared location for the current directory — keys, peers and history intact, so nothing needs re-pairing. Deliberate rather than automatic: only one project can have it, and which one is not a thing to guess.
+
+- **The default port is 0.** A session dials out, so a fixed number only made every project after the first queue for one none of them needed. Set it when a peer has to dial you.
+
+### Added
+
+- **`volenet-mcp wait` — a session can be reached unprompted after all.** MCP gives a server no way to wake a client, and this one advertises no `sampling`, so that route is closed. But a process that *exits* does wake the session that started it: `wait` blocks on the message log and exits when something lands, so run in the background it turns an arriving message into an actual interruption. One arrival per wait, so it is re-armed after each, and it only helps while a session is open.
+
+### Fixed
+
+- **A paired peer stayed trusted and unreachable after a restart.** Trust and address live in different places — the keystore says whose signature to accept, `net.peers` says where to find them — and the server never supplied `persistPeer`, so the address pairing learned was live-only. Nothing dialled it on the next start and nothing connected. Learned peers are now recorded beside the identity and dialled on start.
+
+- **The hook and the waiter used different read cursors.** A leftover from before the identity moved into the project directory: one marked messages read under a name derived from the working directory while the other watched a fixed one, so a waiter fired immediately on everything. There is one key now, decided in one place, and a cursor written under the old naming is carried over so nothing replays. A reader deliberately separated with `VOLENET_MCP_SESSION` stays separate.
+
+- **Timestamps in the CLI were UTC**, which reads as wrong next to the clock on the same wall. They are local now.
+
 ## `@openvole/volenet` 1.1.1 and `@openvole/volenet-mcp` 0.2.1 (2026-09-06)
 
 > Two package patches. `openvole` stays at 4.21.0 — it did not change.
