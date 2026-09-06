@@ -21,7 +21,9 @@ const USAGE = `volenet-mcp — VoleNet as an MCP server
   volenet-mcp install [--local]    register with Claude Code (default: every project)
   volenet-mcp whoami               this machine's identity on the mesh
   volenet-mcp hub [url|--leave]    which hub to use; takes effect on the next session
-  volenet-mcp inbox [--read]       messages waiting, for catching up or a SessionStart hook
+  volenet-mcp inbox [--read] [--quiet]
+                                   messages waiting. --read marks them seen, --quiet says
+                                   nothing when there are none (for hooks)
 
 With no command it runs as the MCP server itself, over stdio, which is how Claude Code starts it.
 Anything needing a live node — peers, pairing, asking an agent's brain — is a tool you ask for in
@@ -94,7 +96,9 @@ export async function run(argv: string[], out = process.stdout): Promise<number>
 		await inbox.load()
 		const unread = inbox.unread()
 		if (unread.length === 0) {
-			out.write('No new messages.\n')
+			// A hook runs on every turn. Saying "nothing" every time is noise in the context it
+			// feeds, so --quiet says nothing at all when there is nothing to say.
+			if (!rest.includes('--quiet')) out.write('No new messages.\n')
 			return 0
 		}
 		out.write(`${unread.length} new VoleNet message${unread.length === 1 ? '' : 's'}:\n\n`)

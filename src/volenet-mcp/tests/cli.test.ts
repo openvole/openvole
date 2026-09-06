@@ -86,6 +86,13 @@ describe('volenet-mcp CLI', () => {
 		expect((await call('inbox')).text).toContain('No new messages')
 	})
 
+	it('says nothing at all when quiet and there is nothing', async () => {
+		// This runs on every turn from a hook; "No new messages" each time is noise in the very
+		// context it exists to feed.
+		expect((await call('inbox', '--quiet')).text).toBe('')
+		expect((await call('inbox')).text).toContain('No new messages')
+	})
+
 	it('refuses an unknown command', async () => {
 		const { code, text } = await call('frobnicate')
 		expect(code).toBe(1)
