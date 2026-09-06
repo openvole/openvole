@@ -194,13 +194,13 @@ describe('a Claude Code session on the mesh', () => {
 
 		// Appended to every tool's result, because MCP cannot push and an arrived message would
 		// otherwise sit unseen until somebody thought to look.
-		expect(unreadFooter(session, 'volenet_peers')).toContain('1 unread message from agent-b')
+		expect(await unreadFooter(session, 'volenet_peers')).toContain('1 unread message from agent-b')
 		// The two that just showed them do not then claim they are still waiting.
-		expect(unreadFooter(session, 'volenet_inbox')).toBe('')
-		expect(unreadFooter(session, 'volenet_wait')).toBe('')
+		expect(await unreadFooter(session, 'volenet_inbox')).toBe('')
+		expect(await unreadFooter(session, 'volenet_wait')).toBe('')
 
 		await call('volenet_inbox')
-		expect(unreadFooter(session, 'volenet_peers')).toBe('')
+		expect(await unreadFooter(session, 'volenet_peers')).toBe('')
 	}, 30000)
 
 	it('takes another port rather than crashing when one is already in use', async () => {

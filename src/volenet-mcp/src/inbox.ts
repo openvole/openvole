@@ -61,17 +61,33 @@ export class Inbox {
 	async load(): Promise<void> {
 		await this.adoptLegacy()
 		this.messages = await readLog(this.log)
-		try {
-			const raw = JSON.parse(await fs.readFile(this.cursor, 'utf-8')) as Record<string, number>
-			this.readAt = new Map(Object.entries(raw ?? {}))
-		} catch {
-			this.readAt = new Map()
-		}
+		this.readAt = new Map()
+		await this.readCursor()
 	}
 
-	/** Re-read what other sessions have appended since we loaded. */
+	/**
+	 * Re-read what has changed on disk since we loaded — both the messages another session
+	 * appended, and the cursor another *process* moved.
+	 *
+	 * The cursor matters as much as the messages: a long-lived server holds one in memory while a
+	 * hook, running as its own process for the same session, marks things read behind it. Without
+	 * this the server goes on reporting messages as unread that the person has already been shown.
+	 */
 	async refresh(): Promise<void> {
 		this.messages = await readLog(this.log)
+		await this.readCursor()
+	}
+
+	/** Take the later of what we hold and what is on disk: a cursor only ever moves forward. */
+	private async readCursor(): Promise<void> {
+		try {
+			const raw = JSON.parse(await fs.readFile(this.cursor, 'utf-8')) as Record<string, number>
+			for (const [peer, at] of Object.entries(raw ?? {})) {
+				if (typeof at === 'number' && at > (this.readAt.get(peer) ?? 0)) this.readAt.set(peer, at)
+			}
+		} catch {
+			// no cursor yet
+		}
 	}
 
 	/** Record a message. Returns false when this id was already recorded. */

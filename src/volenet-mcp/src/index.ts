@@ -41,8 +41,12 @@ export { TOOLS, type ToolDef } from './tools.js'
  * ambient awareness in place of the notification the protocol cannot send. The tools that just
  * showed you the messages are excluded, since they leave nothing unread.
  */
-export function unreadFooter(node: Node, toolName: string): string {
+export async function unreadFooter(node: Node, toolName: string): Promise<string> {
 	if (toolName === 'volenet_inbox' || toolName === 'volenet_wait') return ''
+	// Read from disk, not memory: the daemon appends and a hook advances the cursor, both as
+	// separate processes. A footer built from what this process last loaded would report messages
+	// as unread that the person has already been shown.
+	await node.inbox.refresh().catch(() => undefined)
 	const unread = node.inbox.unread()
 	if (unread.length === 0) return ''
 	const who = [...new Set(unread.map((m) => m.peerName))].join(', ')
@@ -100,7 +104,9 @@ export function createServer(node: Node): Server {
 		}
 		try {
 			const text = await tool.run(node, (request.params.arguments ?? {}) as Record<string, unknown>)
-			return { content: [{ type: 'text' as const, text: text + unreadFooter(node, tool.name) }] }
+			return {
+				content: [{ type: 'text' as const, text: text + (await unreadFooter(node, tool.name)) }],
+			}
 		} catch (err) {
 			// A failed tool is a result, not a crash: the session should see why and carry on.
 			return {

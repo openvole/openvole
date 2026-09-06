@@ -162,3 +162,40 @@ describe('sessionKey', () => {
 		expect(sessionKey('/a/work')).toMatch(/^work-[0-9a-f]{8}$/)
 	})
 })
+
+describe('a cursor moved by another process', () => {
+	it('is picked up, because a hook marks read in a process of its own', async () => {
+		const d = await dir()
+		const server = new Inbox(d, 'shared')
+		await server.load()
+		await server.add(msg({ id: 'm1', ts: 1000 }))
+		expect(server.unread()).toHaveLength(1)
+
+		// What the hook does: same session key, its own process, marks them seen.
+		const hook = new Inbox(d, 'shared')
+		await hook.load()
+		await hook.markRead()
+
+		// The long-lived server must notice, or it reports as unread what has been shown already.
+		await server.refresh()
+		expect(server.unread()).toHaveLength(0)
+	})
+
+	it('never moves a cursor backwards', async () => {
+		const d = await dir()
+		const a = new Inbox(d, 'shared')
+		await a.load()
+		await a.add(msg({ id: 'm1', ts: 1000 }))
+		await a.add(msg({ id: 'm2', ts: 2000 }))
+		await a.markRead() // a is at 2000
+
+		const b = new Inbox(d, 'shared')
+		await b.load()
+		await b.add(msg({ id: 'm3', ts: 3000 }))
+		await b.markRead() // b writes 3000
+
+		// a re-reading must take the later of the two, not fall back to what it held.
+		await a.refresh()
+		expect(a.unread()).toHaveLength(0)
+	})
+})
