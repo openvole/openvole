@@ -2,7 +2,7 @@
 
 ## v4.20.0 (2026-09-03)
 
-> Ships as `openvole` 4.20.0. A connection request to someone who is away now waits and arrives when they are back, the way chat already does, and a peer with no address can finally be named in `net.peers`.
+> Ships as `openvole` 4.20.0, alongside two new packages: `@openvole/volenet` 1.0.0 — the protocol, extracted so anything can be a peer without installing an agent framework — and `@openvole/volenet-mcp` 0.1.0, which gives a Claude Code session its own identity on the mesh. A connection request to someone who is away now waits and arrives when they are back, the way chat already does, and a peer with no address can finally be named in `net.peers`.
 
 ### Added
 
