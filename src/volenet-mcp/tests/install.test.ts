@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { SERVER_NAME, addArgs, install, launchCommand } from '../src/install.js'
+import { SERVER_NAME, addArgs, install, installHooks, launchCommand } from '../src/install.js'
 
 /** A stdout that can be read back, so the installer's output is an assertion rather than a guess. */
 const capture = () => {
@@ -99,5 +99,46 @@ describe('install', () => {
 		}
 		expect(text()).toContain('not on PATH')
 		expect(text()).toContain(`claude mcp add ${SERVER_NAME}`)
+	})
+})
+
+describe('installing makes a session listen', () => {
+	it('writes the hooks that turn arrival into something the session hears', async () => {
+		const fs = await import('node:fs')
+		const os = await import('node:os')
+		const path = await import('node:path')
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'volenet-hooks-'))
+		const prev = process.env.CLAUDE_CONFIG_DIR
+		process.env.CLAUDE_CONFIG_DIR = dir
+		try {
+			// Something already in the file must survive untouched.
+			fs.writeFileSync(
+				path.join(dir, 'settings.json'),
+				JSON.stringify({
+					theme: 'dark',
+					hooks: { PostToolUse: [{ hooks: [{ type: 'command', command: 'other-tool' }] }] },
+				}),
+			)
+			const out = capture()
+			const added = installHooks(['volenet-mcp'], out.sink as NodeJS.WriteStream)
+			expect(added).toEqual(['SessionStart', 'UserPromptSubmit', 'PostToolUse'])
+
+			const s = JSON.parse(fs.readFileSync(path.join(dir, 'settings.json'), 'utf-8'))
+			expect(s.theme).toBe('dark')
+			// Somebody else's hook on the same event is not ours to remove.
+			expect(JSON.stringify(s.hooks.PostToolUse)).toContain('other-tool')
+			expect(JSON.stringify(s.hooks.SessionStart)).toContain('volenet-mcp session-start')
+			expect(fs.existsSync(path.join(dir, 'settings.json.bak-volenet'))).toBe(true)
+
+			// Running it twice must not stack duplicates of ours.
+			installHooks(['volenet-mcp'], out.sink as NodeJS.WriteStream)
+			const again = JSON.parse(fs.readFileSync(path.join(dir, 'settings.json'), 'utf-8'))
+			expect(
+				again.hooks.PostToolUse.filter((e: unknown) => JSON.stringify(e).includes('volenet-mcp')),
+			).toHaveLength(1)
+		} finally {
+			if (prev === undefined) delete process.env.CLAUDE_CONFIG_DIR
+			else process.env.CLAUDE_CONFIG_DIR = prev
+		}
 	})
 })

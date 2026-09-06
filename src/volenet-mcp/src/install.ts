@@ -11,6 +11,8 @@
  * one. It never inherits stdin: an installer that can block on a prompt is not a one-shot command.
  */
 import { spawnSync } from 'node:child_process'
+import * as fs from 'node:fs'
+import * as os from 'node:os'
 import * as path from 'node:path'
 
 export const SERVER_NAME = 'volenet'
@@ -34,6 +36,63 @@ export function launchCommand(entry = process.argv[1]): string[] {
 /** The `claude mcp add` arguments, as a pure value so a test can check them without running one. */
 export function addArgs(scope: 'user' | 'local', command: string[]): string[] {
 	return ['mcp', 'add', SERVER_NAME, '-s', scope, '--', ...command]
+}
+
+/**
+ * The hooks that make a session hear anything.
+ *
+ * Without these, installing the server gives a session tools it will only reach for when asked: a
+ * message arrives and nothing says so. These are what turn it into something you are actually
+ * *on* — told what you missed when a session opens, told about arrivals while you work, and asked
+ * to start the one thing that can reach a session sitting idle.
+ *
+ * `SessionStart` asks rather than acts, because nothing outside a session can wake one, and the
+ * thing that can — a background task the client is tracking — only the session can start.
+ */
+const HOOKS: Record<string, string> = {
+	SessionStart: 'session-start',
+	UserPromptSubmit: 'inbox --read --quiet',
+	PostToolUse: 'inbox --read --quiet',
+}
+
+/** Where Claude Code keeps user settings, honouring CLAUDE_CONFIG_DIR when it is set. */
+function settingsPath(): string {
+	const dir = process.env.CLAUDE_CONFIG_DIR?.trim() || path.join(os.homedir(), '.claude')
+	return path.join(dir, 'settings.json')
+}
+
+/**
+ * Add the hooks, leaving everything else in the file as it was.
+ *
+ * Backed up first, and idempotent: an entry this installer wrote before is replaced rather than
+ * duplicated, and hooks belonging to anything else are never touched.
+ */
+export function installHooks(command: string[], out: { write: (s: string) => unknown }): string[] {
+	const file = settingsPath()
+	let settings: Record<string, unknown> = {}
+	try {
+		settings = JSON.parse(fs.readFileSync(file, 'utf-8')) as Record<string, unknown>
+	} catch {
+		// no settings yet, or unreadable — a fresh object is the right starting point
+	}
+	if (fs.existsSync(file)) fs.copyFileSync(file, `${file}.bak-volenet`)
+
+	const hooks = (settings.hooks ?? {}) as Record<string, Array<Record<string, unknown>>>
+	const added: string[] = []
+	for (const [event, args] of Object.entries(HOOKS)) {
+		const line = `${command.join(' ')} ${args}`
+		const kept = (hooks[event] ?? []).filter((e) => !JSON.stringify(e).includes('volenet-mcp'))
+		kept.push({ hooks: [{ type: 'command', command: line }] })
+		hooks[event] = kept
+		added.push(event)
+	}
+	settings.hooks = hooks
+	fs.mkdirSync(path.dirname(file), { recursive: true })
+	fs.writeFileSync(file, `${JSON.stringify(settings, null, 2)}\n`, 'utf-8')
+	out.write(
+		`Hooks added to ${file} (${added.join(', ')}); the previous file is kept as .bak-volenet.\n`,
+	)
+	return added
 }
 
 const NEXT_STEPS =
@@ -90,7 +149,17 @@ export function install(
 		.find((l) => l.trimStart().startsWith(`${SERVER_NAME}:`))
 	if (existing) {
 		if (existing.includes(command.join(' '))) {
-			out.write(`${SERVER_NAME} is already registered, unchanged.\n${NEXT_STEPS}`)
+			out.write(`${SERVER_NAME} is already registered, unchanged.\n`)
+			// Still ensure the hooks: a registration from before they existed has none, and this
+			// is the command someone runs when the thing is not behaving as advertised.
+			if (!argv.includes('--no-hooks')) {
+				try {
+					installHooks(command, out as NodeJS.WriteStream)
+				} catch {
+					// reported below by NEXT_STEPS; never worth failing an install over
+				}
+			}
+			out.write(NEXT_STEPS)
 			return 0
 		}
 		out.write(`Replacing the existing ${SERVER_NAME} registration:\n  was: ${existing.trim()}\n`)
@@ -108,7 +177,20 @@ export function install(
 		return added.status ?? 1
 	}
 	out.write(
-		`Registered ${SERVER_NAME} (${scope} scope${scope === 'user' ? ' — available in every project' : ', this project only'}).\n${NEXT_STEPS}`,
+		`Registered ${SERVER_NAME} (${scope} scope${scope === 'user' ? ' — available in every project' : ', this project only'}).\n`,
 	)
+	// Hooks are what make a session hear anything, so they are part of installing rather than a
+	// separate thing to remember. --no-hooks for anyone who manages their own.
+	if (!argv.includes('--no-hooks')) {
+		try {
+			installHooks(command, out as NodeJS.WriteStream)
+		} catch (err) {
+			out.write(
+				`Could not add the hooks (${err instanceof Error ? err.message : String(err)}).\n` +
+					'Everything still works; you will hear about messages when you next use a tool.\n',
+			)
+		}
+	}
+	out.write(NEXT_STEPS)
 	return 0
 }

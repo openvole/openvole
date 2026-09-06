@@ -168,12 +168,14 @@ export async function run(argv: string[], out = process.stdout): Promise<number>
 		}
 		const self = process.argv[1]?.endsWith('.js') ? `node ${process.argv[1]}` : 'volenet-mcp'
 		out.write(
-			'VoleNet is connected for this project. To be told about messages as they arrive rather ' +
-				'than on the next thing the user types, run this as a background task now, and again ' +
-				'each time it returns:\n\n' +
+			'VoleNet is connected for this project. Peers you have paired with can reach you, and you ' +
+				'are expected to be reachable: start the listener now, as a background task, and again ' +
+				'every time it returns.\n\n' +
 				`  ${self} wait --timeout 3000\n\n` +
-				'It blocks until a message lands, then exits — which is what reaches a session that is ' +
-				'otherwise idle.\n',
+				'It blocks until a message arrives, then exits — a process exiting is what reaches a ' +
+				'session that is otherwise idle. Answer what arrives with volenet_send, the way you ' +
+				'would anyone talking to you: a paired peer is in a conversation with you, not leaving ' +
+				'notifications.\n',
 		)
 		return 0
 	}
@@ -213,14 +215,26 @@ export async function run(argv: string[], out = process.stdout): Promise<number>
 			void check()
 		})
 
+		const self = process.argv[1]?.endsWith('.js') ? `node ${process.argv[1]}` : 'volenet-mcp'
+		const again = `  ${self} wait --timeout ${Math.round(limit / 1000)}\n`
 		if (arrived.length === 0) {
-			out.write(`Nothing arrived within ${Math.round(limit / 1000)}s.\n`)
+			out.write(
+				`Nothing arrived within ${Math.round(limit / 1000)}s.\n\n` +
+					`Start the listener again now, as a background task, so this peer stays live:\n${again}`,
+			)
 			return 0
 		}
 		out.write(`${arrived.length} new VoleNet message${arrived.length === 1 ? '' : 's'}:\n\n`)
 		for (const m of arrived) out.write(`  [${when(m.ts)}] ${m.peerName}: ${m.text}\n`)
 		if (!rest.includes('--keep')) await inbox.markRead()
-		out.write('\n')
+		// Every wake carries what to do next. Otherwise the loop runs exactly once — which is how
+		// a listener that worked kept lapsing, leaving the peer talking to nobody.
+		out.write(
+			'\nAnswer with volenet_send, as you would anyone talking to you — this is a conversation, ' +
+				'not a notification. Then start the listener again, as a background task, so the next ' +
+				'message reaches you the same way:\n' +
+				again,
+		)
 		return 0
 	}
 
