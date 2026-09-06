@@ -125,6 +125,34 @@ describe('Inbox', () => {
 	})
 })
 
+describe('upgrading from the single-cursor format', () => {
+	it('carries the messages over, and does not carry the old read state', async () => {
+		const d = await dir()
+		// What an earlier version wrote: messages and one read state for every session.
+		await fs.writeFile(
+			path.join(d, 'inbox.json'),
+			JSON.stringify({
+				messages: [msg({ id: 'old', ts: 1000, text: 'said before the upgrade' })],
+				readAt: { p1: 9999 },
+			}),
+		)
+
+		const box = new Inbox(d, 'a')
+		await box.load()
+		expect(box.history('p1').map((m) => m.text)).toEqual(['said before the upgrade'])
+		// The old cursor covered every session at once, so honouring it would mark this seen for
+		// sessions that never saw it. Unread is the safe direction.
+		expect(box.unread()).toHaveLength(1)
+
+		// The old file is kept, renamed, rather than deleted.
+		await expect(fs.access(path.join(d, 'inbox.json.migrated'))).resolves.toBeUndefined()
+		// And a second load does not import it twice.
+		const again = new Inbox(d, 'b')
+		await again.load()
+		expect(again.history('p1')).toHaveLength(1)
+	})
+})
+
 describe('sessionKey', () => {
 	it('is stable for a directory and different between them', () => {
 		expect(sessionKey('/home/u/project-one')).toBe(sessionKey('/home/u/project-one'))

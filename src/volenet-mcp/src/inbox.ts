@@ -59,6 +59,7 @@ export class Inbox {
 	}
 
 	async load(): Promise<void> {
+		await this.adoptLegacy()
 		this.messages = await readLog(this.log)
 		try {
 			const raw = JSON.parse(await fs.readFile(this.cursor, 'utf-8')) as Record<string, number>
@@ -142,6 +143,37 @@ export class Inbox {
 		const tmp = `${this.cursor}.tmp`
 		await fs.writeFile(tmp, JSON.stringify(Object.fromEntries(this.readAt), null, 2), 'utf-8')
 		await fs.rename(tmp, this.cursor)
+	}
+
+	/**
+	 * Carry over messages written before the log existed.
+	 *
+	 * Earlier versions kept one `inbox.json` holding both the messages and a single read state. The
+	 * messages are still someone's; dropping them on upgrade would lose real conversations. The old
+	 * read state is deliberately *not* carried over — it was one cursor for every session, so honouring
+	 * it would mark messages seen for sessions that never saw them. Unread is the safe direction.
+	 */
+	private async adoptLegacy(): Promise<void> {
+		const legacy = path.join(this.dir, 'inbox.json')
+		try {
+			await fs.access(this.log)
+			return // the log exists; nothing to carry over
+		} catch {
+			// no log yet
+		}
+		let raw: { messages?: Message[] }
+		try {
+			raw = JSON.parse(await fs.readFile(legacy, 'utf-8')) as { messages?: Message[] }
+		} catch {
+			return
+		}
+		const messages = (raw.messages ?? []).filter(
+			(m) => m && typeof m.peerId === 'string' && typeof m.text === 'string',
+		)
+		if (messages.length === 0) return
+		await fs.mkdir(this.dir, { recursive: true })
+		await fs.writeFile(this.log, messages.map((m) => `${JSON.stringify(m)}\n`).join(''), 'utf-8')
+		await fs.rename(legacy, `${legacy}.migrated`)
 	}
 }
 
