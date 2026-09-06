@@ -11,12 +11,24 @@
  * one. It never inherits stdin: an installer that can block on a prompt is not a one-shot command.
  */
 import { spawnSync } from 'node:child_process'
+import * as path from 'node:path'
 
 export const SERVER_NAME = 'volenet'
+const PACKAGE = '@openvole/volenet-mcp'
 
-/** How this server should be launched: the published binary, or the local build when run from it. */
+/**
+ * How this server should be launched, from wherever `install` was itself run.
+ *
+ * Not simply "is this a .js file": run through `npx`, the entry *is* a .js file, but one living
+ * in a transient cache that npm is free to evict — registering that path would work until it
+ * suddenly did not. What distinguishes the cases is `node_modules`: an installed copy is always
+ * under one and should be launched by package name, while a build in a working tree is not and
+ * has to be launched by path, since there is nothing published to resolve.
+ */
 export function launchCommand(entry = process.argv[1]): string[] {
-	return entry?.endsWith('.js') ? ['node', entry] : ['npx', '-y', '@openvole/volenet-mcp']
+	const installed =
+		!entry || !entry.endsWith('.js') || entry.includes(`${path.sep}node_modules${path.sep}`)
+	return installed ? ['npx', '-y', PACKAGE] : ['node', entry]
 }
 
 /** The `claude mcp add` arguments, as a pure value so a test can check them without running one. */
