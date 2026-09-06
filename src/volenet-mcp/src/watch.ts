@@ -19,6 +19,14 @@ export interface WatchOptions {
 	/** Mark what was handed over as read. Off for a caller that only wants to peek. */
 	markRead?: boolean
 	/**
+	 * Skip a tick entirely — no delivery, no marking — while this returns true.
+	 *
+	 * For a watcher that must stand aside for another process rather than race it: returning
+	 * normally would mark the message read, and there is no way to decline a delivery once the
+	 * handler has been called.
+	 */
+	pause?: () => boolean
+	/**
 	 * Called once a delivery is finished *and* the cursor has moved.
 	 *
 	 * The difference from `onArrive` matters to anyone about to exit: marking read is a file write,
@@ -59,6 +67,7 @@ export function watchInbox(
 		try {
 			do {
 				again = false
+				if (options.pause?.()) break
 				await inbox.refresh().catch(() => undefined)
 				const unread = inbox.unread()
 				if (unread.length === 0) break
@@ -121,4 +130,76 @@ export function waitForMessages(
 		})
 		const cap = setTimeout(() => finish([]), timeoutMs)
 	})
+}
+
+/**
+ * Which process is delivering messages for this identity.
+ *
+ * Two things can carry a message into a session — a channel push from the server, and a monitor
+ * printing a line — and they read one cursor, so whichever notices first marks the message read
+ * and the other finds nothing. That is fine when both work. It is not fine for the channel, whose
+ * delivery cannot be confirmed: a client that never registered the server as a channel drops the
+ * notification silently and returns no error, so a push that marked a message read has thrown it
+ * away. That happened, and a message was lost.
+ *
+ * So delivery is claimed. The monitor takes the lock because a line it prints demonstrably reaches
+ * the session; the channel stands aside while the lock is held, and takes over when it is not.
+ */
+const LOCK = 'listener.json'
+
+/** How often the holder says it is still there, and how long a lock outlives its last beat. */
+const LOCK_REFRESH_MS = 10_000
+const LOCK_STALE_MS = 30_000
+
+/** Claim delivery for this process. Returns a function that gives it up. */
+export function holdListenerLock(dir: string): () => void {
+	const file = path.join(dir, LOCK)
+	const write = () =>
+		fsSync.writeFileSync(file, JSON.stringify({ pid: process.pid, at: Date.now() }), 'utf-8')
+	try {
+		fsSync.mkdirSync(dir, { recursive: true })
+		write()
+	} catch {
+		// Unwritable store: better to deliver twice than to refuse to listen at all.
+	}
+	// Refreshed so a lock left behind by a killed process goes stale rather than silencing the
+	// channel forever.
+	const beat = setInterval(() => {
+		try {
+			write()
+		} catch {
+			// as above
+		}
+	}, LOCK_REFRESH_MS)
+	beat.unref?.()
+	return () => {
+		clearInterval(beat)
+		try {
+			fsSync.unlinkSync(file)
+		} catch {
+			// already gone
+		}
+	}
+}
+
+/** Whether something else is delivering right now. */
+export function listenerHeld(dir: string): boolean {
+	try {
+		const raw = JSON.parse(fsSync.readFileSync(path.join(dir, LOCK), 'utf-8')) as {
+			pid?: number
+			at?: number
+		}
+		if (typeof raw.at !== 'number' || Date.now() - raw.at > LOCK_STALE_MS) return false
+		// A pid that is gone means the holder died between beats.
+		if (typeof raw.pid === 'number') {
+			try {
+				process.kill(raw.pid, 0)
+			} catch {
+				return false
+			}
+		}
+		return true
+	} catch {
+		return false
+	}
 }

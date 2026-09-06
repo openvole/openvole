@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { Inbox, type Message } from '../src/inbox.js'
 import { createServer, startChannel } from '../src/index.js'
 import type { Node } from '../src/node.js'
-import { waitForMessages, watchInbox } from '../src/watch.js'
+import { holdListenerLock, listenerHeld, waitForMessages, watchInbox } from '../src/watch.js'
 
 /**
  * The channel is the only thing here that reaches a session nobody is typing in.
@@ -148,6 +148,69 @@ describe('pushing arrivals into a session', () => {
 		await new Promise((r) => setTimeout(r, 1200))
 		stop()
 		expect(sent.map((s) => s.content)).toEqual(['do not lose me'])
+	})
+})
+
+describe('standing aside for a monitor', () => {
+	it('does not push or mark read while a monitor holds the lock', async () => {
+		// The bug this exists for: both watch one cursor, the channel won the race, the client had
+		// never registered it so the push went nowhere, and the message was marked read and lost.
+		const inbox = new Inbox(dir, 'session')
+		await inbox.load()
+		const release = holdListenerLock(dir)
+		const { server, sent } = recorder()
+		const stop = startChannel(server, fakeNode(inbox))
+
+		await inbox.add(message({ text: 'must survive' }))
+		await settle()
+		stop()
+		release()
+
+		expect(sent).toHaveLength(0)
+		await inbox.refresh()
+		// Still there for the monitor to deliver.
+		expect(inbox.unread().map((m) => m.text)).toEqual(['must survive'])
+	})
+
+	it('takes delivery back once the lock is released', async () => {
+		const inbox = new Inbox(dir, 'session')
+		await inbox.load()
+		const release = holdListenerLock(dir)
+		const { server, sent } = recorder()
+		const stop = startChannel(server, fakeNode(inbox))
+
+		await inbox.add(message({ text: 'later' }))
+		await settle()
+		expect(sent).toHaveLength(0)
+
+		release()
+		await new Promise((r) => setTimeout(r, 1200))
+		stop()
+		expect(sent.map((s) => s.content)).toEqual(['later'])
+	})
+
+	it('ignores a lock whose holder is gone', async () => {
+		// A killed monitor must not silence the channel for ever.
+		await fs.writeFile(
+			path.join(dir, 'listener.json'),
+			JSON.stringify({ pid: 999999, at: Date.now() }),
+		)
+		expect(listenerHeld(dir)).toBe(false)
+	})
+
+	it('ignores a lock nobody has refreshed', async () => {
+		await fs.writeFile(
+			path.join(dir, 'listener.json'),
+			JSON.stringify({ pid: process.pid, at: Date.now() - 60_000 }),
+		)
+		expect(listenerHeld(dir)).toBe(false)
+	})
+
+	it('honours a lock that is current', async () => {
+		const release = holdListenerLock(dir)
+		expect(listenerHeld(dir)).toBe(true)
+		release()
+		expect(listenerHeld(dir)).toBe(false)
 	})
 })
 

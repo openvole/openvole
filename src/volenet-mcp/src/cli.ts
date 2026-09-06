@@ -16,7 +16,7 @@ import { loadKeyPair } from '@openvole/volenet'
 import { baseDir, cursorKey, defaultDir, defaultName, loadStored, saveStored } from './config.js'
 import { Inbox } from './inbox.js'
 import { install } from './install.js'
-import { waitForMessages, watchInbox } from './watch.js'
+import { holdListenerLock, waitForMessages, watchInbox } from './watch.js'
 
 const USAGE = `volenet-mcp — VoleNet as an MCP server
 
@@ -205,6 +205,16 @@ export async function run(argv: string[], out = process.stdout): Promise<number>
 		// monitor won.
 		const inbox = new Inbox(dir, cursorKey())
 		await inbox.load()
+		// Claim delivery, so the server's channel watcher stands aside instead of racing us for
+		// the cursor and silently discarding a message the client never registered it to receive.
+		const release = holdListenerLock(dir)
+		for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) {
+			process.on(signal, () => {
+				release()
+				process.exit(0)
+			})
+		}
+		process.on('exit', release)
 		watchInbox(inbox, dir, (messages) => {
 			for (const m of messages) {
 				// One line per message: a newline is what ends a notification, so the text is

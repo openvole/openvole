@@ -25,7 +25,7 @@ import { run as runCli } from './cli.js'
 import { type Node, resolveSettings, startNode } from './node.js'
 import { PROMPTS } from './prompts.js'
 import { TOOLS } from './tools.js'
-import { watchInbox } from './watch.js'
+import { listenerHeld, watchInbox } from './watch.js'
 
 export { Inbox } from './inbox.js'
 export { run as runCli } from './cli.js'
@@ -174,22 +174,34 @@ export function createServer(node: Node): Server {
  * Returns a function that stops watching.
  */
 export function startChannel(server: Server, node: Node): () => void {
-	return watchInbox(node.inbox, node.options.dir, async (messages) => {
-		for (const m of messages) {
-			// Only inbound: our own sent messages are in the same log, and pushing those back would
-			// have the session answering itself.
-			if (m.dir !== 'in') continue
-			await server.notification({
-				method: 'notifications/claude/channel',
-				params: {
-					content: m.text,
-					// Attribute keys have to be identifiers — anything with a hyphen is silently
-					// dropped by the client — so these are underscored.
-					meta: { peer: m.peerName, peer_id: m.peerId },
-				},
-			})
-		}
-	})
+	return watchInbox(
+		node.inbox,
+		node.options.dir,
+		async (messages) => {
+			for (const m of messages) {
+				// Only inbound: our own sent messages are in the same log, and pushing those back would
+				// have the session answering itself.
+				if (m.dir !== 'in') continue
+				await server.notification({
+					method: 'notifications/claude/channel',
+					params: {
+						content: m.text,
+						// Attribute keys have to be identifiers — anything with a hyphen is silently
+						// dropped by the client — so these are underscored.
+						meta: { peer: m.peerName, peer_id: m.peerId },
+					},
+				})
+			}
+		},
+		{
+			// Stand aside while a monitor is delivering. Both watch one cursor, and a push this
+			// process cannot confirm must never be the thing that marks a message read: a client
+			// that did not register us as a channel drops the notification without a word, and the
+			// message is gone. Checked per tick rather than once, because a monitor comes and goes
+			// with the session while this server outlives it.
+			pause: () => listenerHeld(node.options.dir),
+		},
+	)
 }
 
 /** Remember what the client can do, so a later session can say so without asking again. */
