@@ -67,6 +67,19 @@ function settingsPath(): string {
  * Backed up first, and idempotent: an entry this installer wrote before is replaced rather than
  * duplicated, and hooks belonging to anything else are never touched.
  */
+/**
+ * What the hooks should run, which is not what the server should.
+ *
+ * The server is spawned once per session, so `npx` resolving the package each time costs nothing.
+ * A hook is spawned after *every tool call* — and `npx` takes about 2.3 seconds against 0.13 for a
+ * binary already on PATH. Eighteen times over, on every tool, is not a tax worth paying for
+ * tidiness: a resolvable binary wins, and npx is the fallback.
+ */
+export function hookCommand(command: string[]): string[] {
+	const onPath = spawnSync('which', ['volenet-mcp'], { stdio: ['ignore', 'pipe', 'ignore'] })
+	return onPath.status === 0 ? ['volenet-mcp'] : command
+}
+
 export function installHooks(command: string[], out: { write: (s: string) => unknown }): string[] {
 	const file = settingsPath()
 	let settings: Record<string, unknown> = {}
@@ -78,9 +91,10 @@ export function installHooks(command: string[], out: { write: (s: string) => unk
 	if (fs.existsSync(file)) fs.copyFileSync(file, `${file}.bak-volenet`)
 
 	const hooks = (settings.hooks ?? {}) as Record<string, Array<Record<string, unknown>>>
+	const runner = hookCommand(command)
 	const added: string[] = []
 	for (const [event, args] of Object.entries(HOOKS)) {
-		const line = `${command.join(' ')} ${args}`
+		const line = `${runner.join(' ')} ${args}`
 		const kept = (hooks[event] ?? []).filter((e) => !JSON.stringify(e).includes('volenet-mcp'))
 		kept.push({ hooks: [{ type: 'command', command: line }] })
 		hooks[event] = kept
@@ -90,7 +104,12 @@ export function installHooks(command: string[], out: { write: (s: string) => unk
 	fs.mkdirSync(path.dirname(file), { recursive: true })
 	fs.writeFileSync(file, `${JSON.stringify(settings, null, 2)}\n`, 'utf-8')
 	out.write(
-		`Hooks added to ${file} (${added.join(', ')}); the previous file is kept as .bak-volenet.\n`,
+		`Hooks added to ${file} (${added.join(', ')}), running \`${runner.join(' ')}\`; ` +
+			'the previous file is kept as .bak-volenet.\n' +
+			(runner[0] === 'volenet-mcp'
+				? ''
+				: 'Tip: `npm i -g @openvole/volenet-mcp` makes these hooks about eighteen times faster, ' +
+					'which matters because one of them runs after every tool call.\n'),
 	)
 	return added
 }
