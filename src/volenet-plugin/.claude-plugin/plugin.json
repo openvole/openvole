@@ -5,9 +5,9 @@
   "description": "Give this session its own identity on the VoleNet mesh, and let paired peers reach it in real time.",
   "keywords": ["volenet", "mesh", "messaging", "channel", "peer-to-peer"],
   "license": "MIT",
-  "mcpServers": "./.mcp.json",
-  "hooks": "./hooks/hooks.json",
-  "experimental": {
-    "monitors": "./monitors/monitors.json"
-  }
+  "author": {
+    "name": "OpenVole",
+    "url": "https://openvole.com"
+  },
+  "homepage": "https://openvole.com"
 }
