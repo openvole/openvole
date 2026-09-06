@@ -97,7 +97,15 @@ export const TOOLS: ToolDef[] = [
 			// ours: MCP's only server-initiated model call is `sampling`. Say which it is, so
 			// nobody waits for an answer that cannot come.
 			lines.push(
-				`replies     ${node.canSample ? 'this client can be asked to answer on its own' : 'only when you ask — this client cannot be woken by a message'}`,
+				// A channel is what actually reaches an idle session here, and whether the client
+				// registered ours is not something it tells us — so say what is on offer rather
+				// than claim a certainty we do not have. `sampling` is a separate route and no
+				// client of ours has offered it yet.
+				`replies     ${
+					node.canSample
+						? 'this client can be asked to answer on its own'
+						: 'a message arrives on its own where this server is loaded as a channel; otherwise only when you ask'
+				}`,
 			)
 			if (args.key) lines.push('', `publicKey   ${key?.publicKeyString ?? '-'}`)
 			else
