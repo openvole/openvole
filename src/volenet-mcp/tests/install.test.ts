@@ -46,6 +46,21 @@ describe('install', () => {
 		expect(args.join(' ')).not.toMatch(/VOLENET_MCP|-e /)
 	})
 
+	it('defaults to user scope, because the identity it installs is per machine', () => {
+		const { sink, text } = capture()
+		const path = process.env.PATH
+		process.env.PATH = '/nonexistent'
+		try {
+			install([], sink as NodeJS.WriteStream)
+			expect(text()).toContain('-s user')
+			const local = capture()
+			install(['--local'], local.sink as NodeJS.WriteStream)
+			expect(local.text()).toContain('-s local')
+		} finally {
+			process.env.PATH = path
+		}
+	})
+
 	it('prints the line to paste when the CLI is missing, rather than guessing at its config', () => {
 		const { sink, text } = capture()
 		const path = process.env.PATH

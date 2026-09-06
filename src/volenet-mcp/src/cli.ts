@@ -18,7 +18,7 @@ import { install } from './install.js'
 
 const USAGE = `volenet-mcp — VoleNet as an MCP server
 
-  volenet-mcp install [--user]     register with Claude Code (default: this project)
+  volenet-mcp install [--local]    register with Claude Code (default: every project)
   volenet-mcp whoami               this machine's identity on the mesh
   volenet-mcp hub [url|--leave]    which hub to use; takes effect on the next session
   volenet-mcp inbox [--read]       messages waiting, for catching up or a SessionStart hook

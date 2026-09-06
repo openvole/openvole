@@ -32,8 +32,10 @@ your behalf, not commands you type. Ask for them in your own words.
 > *"pair with the agent at http://10.0.0.5:9700"* → `volenet_connect`, which reports the
 > fingerprint first and pairs once you confirm it
 
-Add `--user` to register it in every project rather than the current one. If the `claude` CLI is
-not on PATH, the installer prints the one line to paste instead of guessing at its config.
+It registers for **every project**, because the identity it installs is per machine — one keypair
+in your home directory, shared by every session. Add `--local` to limit it to the current project.
+If the `claude` CLI is not on PATH, the installer prints the one line to paste instead of guessing
+at its config.
 
 ### Settings
 

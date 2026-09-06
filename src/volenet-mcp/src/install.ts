@@ -44,7 +44,11 @@ const NEXT_STEPS =
 	'Nothing else needs configuring.\n'
 
 export function install(argv: string[], out = process.stdout): number {
-	const scope = argv.includes('--user') ? 'user' : 'local'
+	// User scope by default, because the identity is: one keypair per machine, in the home
+	// directory, shared by every session. Registering per project meant installing once and then
+	// finding no tools in the next directory you opened — the identity was global, the
+	// registration was not. `--local` is there for anyone who wants it in one project only.
+	const scope = argv.includes('--local') ? 'local' : 'user'
 	const command = launchCommand()
 	const paste = `claude mcp add ${SERVER_NAME} -s ${scope} -- ${command.join(' ')}`
 
@@ -76,6 +80,8 @@ export function install(argv: string[], out = process.stdout): number {
 		)
 		return added.status ?? 1
 	}
-	out.write(`Registered ${SERVER_NAME} (${scope} scope).\n${NEXT_STEPS}`)
+	out.write(
+		`Registered ${SERVER_NAME} (${scope} scope${scope === 'user' ? ' — available in every project' : ', this project only'}).\n${NEXT_STEPS}`,
+	)
 	return 0
 }
