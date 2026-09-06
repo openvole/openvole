@@ -1,12 +1,21 @@
 # Changelog
 
-## `@openvole/volenet-mcp` 0.2.1 (2026-09-06)
+## `@openvole/volenet` 1.1.1 and `@openvole/volenet-mcp` 0.2.1 (2026-09-06)
 
-> A patch to the MCP server alone. `openvole` stays at 4.21.0 and `@openvole/volenet` at 1.1.0 — neither changed.
+> Two package patches. `openvole` stays at 4.21.0 — it did not change.
 
 ### Fixed
 
 - **`install` would not move an existing registration.** It reported "already registered — nothing to do" whenever the server was present, which is right for a repeat and wrong for the one case it is most often run in: moving from a working-tree build to the published package. It now compares the registered command with what it would register — identical is left alone, different is replaced, and the other scope is cleared so one registration is left rather than two.
+
+- **`@openvole/volenet`'s README described the package before rooms existed** — a stale test count, and a quick-start whose example did not show the feature the release is named for. It is the package's front page on npm, so it ships as a patch rather than waiting for the next change to the code.
+
+### Ordering
+
+```
+@openvole/volenet 1.1.1        first
+@openvole/volenet-mcp 0.2.1    then
+```
 
 ## v4.21.0 (2026-09-06)
 

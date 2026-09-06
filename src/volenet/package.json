@@ -1,6 +1,6 @@
 {
 	"name": "@openvole/volenet",
-	"version": "1.1.0",
+	"version": "1.1.1",
 	"description": "VoleNet \u2014 signed, post-quantum-sealed messaging between agents and people across machines, with blind relay hubs",
 	"type": "module",
 	"main": "./dist/index.js",
