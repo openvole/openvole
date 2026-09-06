@@ -3,6 +3,7 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import { VoleNetManager, generateKeyPair } from '@openvole/volenet'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { loadStored } from '../src/config.js'
 import { type Node, startNode } from '../src/node.js'
 import { TOOLS } from '../src/tools.js'
 
@@ -19,6 +20,7 @@ const AGENT = 19993
 let session: Node
 let agent: VoleNetManager
 let agentId: string
+let sessionRoot: string
 
 const call = (name: string, args: Record<string, unknown> = {}) => {
 	const tool = TOOLS.find((t) => t.name === name)
@@ -67,6 +69,7 @@ beforeAll(async () => {
 		dir: sessionDir,
 		port: 19994,
 	})
+	sessionRoot = sessionDir
 	await until(() => agent.getInstances().some((i) => i.id === keySession.instanceId))
 }, 40000)
 
@@ -136,6 +139,19 @@ describe('a Claude Code session on the mesh', () => {
 		})
 		expect(wrong).toContain('does not match')
 		expect(wrong).toContain('Nothing was trusted')
+	}, 30000)
+
+	it('remembers a hub choice, so the next session starts where this one left off', async () => {
+		const before = await call('volenet_hub')
+		expect(before).toContain(`http://127.0.0.1:${AGENT}`)
+
+		expect(await call('volenet_hub', { leave: true })).toContain('Left')
+		expect(await loadStored(sessionRoot)).toEqual({})
+		expect(await call('volenet_hub')).toContain('Not on a hub')
+
+		const rejoined = await call('volenet_hub', { url: `http://127.0.0.1:${AGENT}` })
+		expect(rejoined).toContain('Joined')
+		expect((await loadStored(sessionRoot)).hub).toBe(`http://127.0.0.1:${AGENT}`)
 	}, 30000)
 
 	it('answers honestly for a peer it cannot find', async () => {

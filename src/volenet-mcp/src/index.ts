@@ -16,11 +16,13 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
-import { type Node, optionsFromEnv, startNode } from './node.js'
+import { install } from './install.js'
+import { type Node, resolveSettings, startNode } from './node.js'
 import { TOOLS } from './tools.js'
 
 export { Inbox } from './inbox.js'
-export { type Node, type NodeOptions, optionsFromEnv, startNode } from './node.js'
+export { type Settings, defaultDir, defaultName, loadStored, saveStored } from './config.js'
+export { type Node, type NodeOptions, resolveSettings, startNode } from './node.js'
 export { TOOLS, type ToolDef } from './tools.js'
 
 /** Wire the tools to an MCP server. Separated so a test can drive it without a transport. */
@@ -61,7 +63,7 @@ export function createServer(node: Node): Server {
 }
 
 async function main(): Promise<void> {
-	const options = optionsFromEnv()
+	const options = await resolveSettings()
 	const node = await startNode(options)
 	const server = createServer(node)
 	await server.connect(new StdioServerTransport())
@@ -85,6 +87,9 @@ async function main(): Promise<void> {
 
 // Only when run as the binary, so importing this module in a test starts nothing.
 if (process.argv[1]?.includes('volenet-mcp') || process.env.VOLENET_MCP_RUN === '1') {
+	if (process.argv[2] === 'install') {
+		process.exit(install(process.argv.slice(3)))
+	}
 	main().catch((err) => {
 		process.stderr.write(`volenet-mcp: ${err instanceof Error ? err.message : String(err)}\n`)
 		process.exit(1)

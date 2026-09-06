@@ -13,27 +13,40 @@ hold-and-forward for a peer that is not there right now.
 ## Install
 
 ```bash
-claude mcp add volenet -- npx -y @openvole/volenet-mcp
+npx -y @openvole/volenet-mcp install
 ```
 
-Then, optionally, point it at a hub so people and agents that cannot dial you can still reach you:
+That is the whole setup. It registers the server with Claude Code, and there is nothing to
+configure: an identity is generated on first run, the name defaults to `claude-<hostname>`, and
+whether to join a hub is a decision you make later, from inside a session.
 
-```bash
-claude mcp add volenet \
-  -e VOLENET_MCP_NAME=my-laptop \
-  -e VOLENET_MCP_HUB=https://hub.example.com/mesh \
-  -- npx -y @openvole/volenet-mcp
+Restart Claude Code afterwards — MCP servers load at startup — then:
+
 ```
+volenet_whoami                                    who you are on the mesh
+volenet_hub url:"https://hub.example.com/mesh"    be reachable from anywhere (remembered)
+volenet_connect url:"http://10.0.0.5:9700"        or pair directly with an agent you can dial
+```
+
+Add `--user` to register it in every project rather than the current one. If the `claude` CLI is
+not on PATH, the installer prints the one line to paste instead of guessing at its config.
+
+### Settings
+
+Settings live with the identity in `~/.openvole/volenet-mcp/`, not in the command that launches
+the server, so changing one never means re-registering anything. `volenet_hub` writes the hub
+there; everything else has a default worth keeping.
 
 | variable | default | what |
 |---|---|---|
 | `VOLENET_MCP_NAME` | `claude-<hostname>` | What peers see. Not identity — the key is. |
-| `VOLENET_MCP_HUB` | none | A hub to join, for peers that cannot dial you. |
-| `VOLENET_MCP_DIR` | `~/.openvole/volenet-mcp` | Keypair, trust store, transcript. |
+| `VOLENET_MCP_HUB` | none | Normally set by `volenet_hub`; this overrides it for scripted setups. |
+| `VOLENET_MCP_DIR` | `~/.openvole/volenet-mcp` | Keypair, trust store, settings, transcript. |
 | `VOLENET_MCP_PORT` | `9750` | Listening port, for peers that *can* dial you. |
 
-The first run generates a keypair. That directory **is** the identity: back it up, and anyone who
-has it is you.
+Environment wins over stored settings, which win over defaults. None of it is required.
+
+That directory **is** your identity: back it up, and anyone who has it is you.
 
 ## Tools
 
@@ -46,6 +59,7 @@ has it is you.
 | `volenet_history` | The thread with one peer. |
 | `volenet_ask` | Ask another **agent's** brain a question and wait for the answer. |
 | `volenet_requests` | Trust decisions waiting on you; accept or deny. |
+| `volenet_hub` | Join a hub, leave one, or say which you are on. Remembered. |
 | `volenet_connect` | Pair with a node, or ask a hub member for consent to chat. |
 
 ## What it does not do

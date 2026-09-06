@@ -2637,6 +2637,27 @@ export class VoleNetManager {
 		}
 	}
 
+	/** Treat a URL as a configured peer and dial it now. The inverse of {@link forgetPeer}. */
+	async addPeer(url: string): Promise<void> {
+		await this.addPeerEntry(url.replace(/\/$/, ''))
+	}
+
+	/**
+	 * Stop treating a URL as a configured peer.
+	 *
+	 * The reconnect loop re-dials everything in `config.peers` every 15 seconds, so dropping the
+	 * socket alone would have it back within a tick. Both halves belong together: forget the entry
+	 * and close the connection. Trust is untouched — this says "do not dial", not "do not trust".
+	 */
+	forgetPeer(url: string): boolean {
+		const base = url.replace(/\/$/, '')
+		const before = this.config.peers?.length ?? 0
+		this.config.peers = (this.config.peers ?? []).filter((p) => p.url?.replace(/\/$/, '') !== base)
+		const peer = this.discovery?.getInstances().find((i) => i.endpoint.replace(/\/$/, '') === base)
+		if (peer) this.transport?.removePeer(peer.id)
+		return (this.config.peers.length ?? 0) < before || !!peer
+	}
+
 	/** Record a peer URL in the live config, ask the host to remember it, then dial it. */
 	private async addPeerEntry(url: string): Promise<void> {
 		const base = url.replace(/\/$/, '')

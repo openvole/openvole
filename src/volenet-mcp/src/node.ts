@@ -9,7 +9,6 @@
  * what it could not deliver and flushes when we reappear, and a hub hands us notices about who
  * tried while we were gone. So an intermittent peer is a supported peer, not a degraded one.
  */
-import * as os from 'node:os'
 import * as path from 'node:path'
 import {
 	VoleNetManager,
@@ -17,18 +16,13 @@ import {
 	loadAuthorizedVoles,
 	parsePublicKey,
 } from '@openvole/volenet'
+import { type Settings, resolveSettings } from './config.js'
 import { Inbox } from './inbox.js'
 
-export interface NodeOptions {
-	/** What others see us as. Not identity — the key is. */
-	name: string
-	/** A hub to join, so we are reachable by people and agents that cannot dial us. */
-	hub?: string
-	/** Where the keypair, trust store and transcript live. */
-	dir: string
-	/** The port the node listens on, for peers that *can* dial us (same LAN, mostly). */
-	port: number
-}
+/** What a node needs to start. Resolved from stored settings, env and defaults. */
+export type NodeOptions = Settings
+
+export { resolveSettings }
 
 export interface PendingRequest {
 	kind: 'pair' | 'relay'
@@ -56,19 +50,6 @@ export interface Node {
 	notices: Notice[]
 	options: NodeOptions
 	stop: () => Promise<void>
-}
-
-export function defaultDir(): string {
-	return process.env.VOLENET_MCP_DIR?.trim() || path.join(os.homedir(), '.openvole', 'volenet-mcp')
-}
-
-export function optionsFromEnv(): NodeOptions {
-	return {
-		name: process.env.VOLENET_MCP_NAME?.trim() || `claude-${os.hostname().split('.')[0]}`,
-		hub: process.env.VOLENET_MCP_HUB?.trim() || undefined,
-		dir: defaultDir(),
-		port: Number(process.env.VOLENET_MCP_PORT ?? 9750) || 9750,
-	}
 }
 
 export async function startNode(options: NodeOptions): Promise<Node> {
@@ -162,7 +143,7 @@ async function join(net: VoleNetManager, hub: string): Promise<string> {
  * Whether the hub at this URL is already trusted, so a restart does not re-join every time.
  * It asks who the hub says it is, then looks that id up in what we already trust.
  */
-async function alreadyTrusts(dir: string, hub: string): Promise<boolean> {
+export async function alreadyTrusts(dir: string, hub: string): Promise<boolean> {
 	try {
 		const r = await fetch(`${hub.replace(/\/$/, '')}/volenet/info`, {
 			signal: AbortSignal.timeout(8000),

@@ -7,7 +7,8 @@
  * verbs cover it: who am I, who is out there, what did I miss, say something, read a thread, ask
  * an agent to think, and the two halves of deciding whom to trust.
  */
-import type { Node } from './node.js'
+import { saveStored } from './config.js'
+import { type Node, alreadyTrusts } from './node.js'
 
 export interface ToolDef {
 	name: string
@@ -283,6 +284,53 @@ export const TOOLS: ToolDef[] = [
 						`  ${r.kind === 'pair' ? 'wants to be trusted' : 'wants to chat    '}  ${r.fromName}  ${r.from.substring(0, 8)}${r.note ? `  — "${r.note}"` : ''}`,
 				)
 				.join('\n')
+		},
+	},
+	{
+		name: 'volenet_hub',
+		description:
+			'Join a hub, leave one, or report which hub this session is on. A hub makes you reachable by people and agents that cannot dial your machine — it carries sealed traffic it cannot read, and stores no message. Called with no arguments it just reports. The choice is remembered, so the next session starts where this one left off.',
+		inputSchema: obj({
+			url: str('Hub URL to join, e.g. https://hub.example.com/mesh'),
+			leave: { type: 'boolean' as const, description: 'Leave the current hub' },
+		}),
+		async run(node, args) {
+			if (args.leave) {
+				const hub = node.options.hub
+				if (!hub) return 'Not on a hub.'
+				// Forget it and drop the socket, so neither this session nor the next dials it.
+				node.net.forgetPeer(hub)
+				node.options.hub = undefined
+				node.hubStatus = 'no hub configured'
+				await saveStored(node.options.dir, { hub: undefined })
+				return `Left ${hub}. Your identity and everyone you have paired with directly are untouched.`
+			}
+			if (!args.url) {
+				return node.options.hub
+					? `${node.hubStatus}\n\nCall with leave:true to come off it, or url to move to another.`
+					: 'Not on a hub. Give a url to join one — or stay off it and pair directly with volenet_connect.'
+			}
+			const url = String(args.url).replace(/\/$/, '')
+			// Already trusted — a hub we have joined before, or paired with — so there is nothing to
+			// introduce. Joining again would need its public join still open, which is not a thing
+			// coming back should depend on.
+			if (await alreadyTrusts(node.options.dir, url)) {
+				await node.net.addPeer(url)
+				node.options.hub = url
+				node.hubStatus = `joined ${url}`
+				await saveStored(node.options.dir, { hub: url })
+				return `Joined ${url} again — it was already trusted, so no introduction was needed.`
+			}
+			const res = await node.net.initiateJoin(url)
+			if (!res.ok) return `Could not join ${url}: ${res.error}`
+			node.options.hub = url
+			node.hubStatus = res.pending
+				? `waiting for approval at ${url}`
+				: `joined ${res.hubName ?? url}`
+			await saveStored(node.options.dir, { hub: url })
+			return res.pending
+				? `Asked to join ${url}. Its operator has to approve before you appear in the roster.`
+				: `Joined ${res.hubName ?? url}. Remembered, so the next session starts here. Call volenet_peers to see who is around.`
 		},
 	},
 	{
