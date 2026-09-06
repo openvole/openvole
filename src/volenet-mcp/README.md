@@ -32,6 +32,10 @@ your behalf, not commands you type. Ask for them in your own words.
 > *"pair with the agent at http://10.0.0.5:9700"* → `volenet_connect`, which reports the
 > fingerprint first and pairs once you confirm it
 
+Running it again is safe, and is how you move an existing registration: an identical one is left
+alone, and one pointing somewhere else — a working-tree build, say, when you have since installed
+the published package — is replaced rather than reported as already done.
+
 It registers for **every project**, because the identity it installs is per machine — one keypair
 in your home directory, shared by every session. Add `--local` to limit it to the current project.
 If the `claude` CLI is not on PATH, the installer prints the one line to paste instead of guessing

@@ -43,7 +43,28 @@ const NEXT_STEPS =
 	'  volenet_connect url:"..."  or pair directly with an agent you can dial\n\n' +
 	'Nothing else needs configuring.\n'
 
-export function install(argv: string[], out = process.stdout): number {
+/** One run of the `claude` CLI. Injectable so a test can check what would be done, not do it. */
+export interface ClaudeRun {
+	stdout?: string
+	stderr?: string
+	status?: number | null
+	error?: Error
+}
+export type ClaudeExec = (args: string[]) => ClaudeRun
+
+/** Never inherits stdin: an installer that can block on a prompt is not a one-shot command. */
+const spawnClaude: ClaudeExec = (args) =>
+	spawnSync('claude', args, {
+		stdio: ['ignore', 'pipe', 'pipe'],
+		encoding: 'utf-8',
+		timeout: 30_000,
+	})
+
+export function install(
+	argv: string[],
+	out = process.stdout,
+	exec: ClaudeExec = spawnClaude,
+): number {
 	// User scope by default, because the identity is: one keypair per machine, in the home
 	// directory, shared by every session. Registering per project meant installing once and then
 	// finding no tools in the next directory you opened — the identity was global, the
@@ -52,13 +73,7 @@ export function install(argv: string[], out = process.stdout): number {
 	const command = launchCommand()
 	const paste = `claude mcp add ${SERVER_NAME} -s ${scope} -- ${command.join(' ')}`
 
-	// Never inherit stdin: if the CLI asks something, this would hang instead of installing.
-	const run = (args: string[]) =>
-		spawnSync('claude', args, {
-			stdio: ['ignore', 'pipe', 'pipe'],
-			encoding: 'utf-8',
-			timeout: 30_000,
-		})
+	const run = exec
 
 	const listed = run(['mcp', 'list'])
 	if (listed.error) {
@@ -67,9 +82,21 @@ export function install(argv: string[], out = process.stdout): number {
 		)
 		return 1
 	}
-	if (listed.stdout?.includes(`${SERVER_NAME}:`)) {
-		out.write(`${SERVER_NAME} is already registered — nothing to do.\n${NEXT_STEPS}`)
-		return 0
+	// Already there — but registered to *what*? Someone moving from a working-tree build to the
+	// published package runs exactly this command, and reporting "nothing to do" would leave them
+	// pointed at a path that may not survive. Same command: leave it. Different: replace it.
+	const existing = listed.stdout
+		?.split('\n')
+		.find((l) => l.trimStart().startsWith(`${SERVER_NAME}:`))
+	if (existing) {
+		if (existing.includes(command.join(' '))) {
+			out.write(`${SERVER_NAME} is already registered, unchanged.\n${NEXT_STEPS}`)
+			return 0
+		}
+		out.write(`Replacing the existing ${SERVER_NAME} registration:\n  was: ${existing.trim()}\n`)
+		run(['mcp', 'remove', SERVER_NAME, '-s', scope])
+		// The old one may have been in the other scope; clear that too so one is left, not two.
+		run(['mcp', 'remove', SERVER_NAME, '-s', scope === 'user' ? 'local' : 'user'])
 	}
 
 	const added = run(addArgs(scope, command))

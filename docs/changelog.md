@@ -1,5 +1,13 @@
 # Changelog
 
+## `@openvole/volenet-mcp` 0.2.1 (2026-09-06)
+
+> A patch to the MCP server alone. `openvole` stays at 4.21.0 and `@openvole/volenet` at 1.1.0 — neither changed.
+
+### Fixed
+
+- **`install` would not move an existing registration.** It reported "already registered — nothing to do" whenever the server was present, which is right for a repeat and wrong for the one case it is most often run in: moving from a working-tree build to the published package. It now compares the registered command with what it would register — identical is left alone, different is replaced, and the other scope is cleared so one registration is left rather than two.
+
 ## v4.21.0 (2026-09-06)
 
 > Ships as `openvole` 4.21.0, `@openvole/volenet` 1.1.0 and `@openvole/volenet-mcp` 0.2.0.

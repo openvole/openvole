@@ -61,6 +61,33 @@ describe('install', () => {
 		}
 	})
 
+	it('replaces a registration that points somewhere else', () => {
+		// Moving from a working-tree build to the published package runs exactly this command;
+		// "already registered" would leave the old path in place.
+		const calls: string[][] = []
+		const out = capture()
+		const fake = (args: string[]) => {
+			calls.push(args)
+			return args[1] === 'list'
+				? { stdout: '  volenet: node /somewhere/dist/index.js - ✔ Connected\n', status: 0 }
+				: { stdout: '', status: 0 }
+		}
+		install([], out.sink as NodeJS.WriteStream, fake as never)
+		expect(out.text()).toContain('Replacing')
+		expect(calls.some((c) => c[1] === 'remove')).toBe(true)
+		expect(calls.some((c) => c[1] === 'add')).toBe(true)
+	})
+
+	it('leaves an identical registration alone', () => {
+		const out = capture()
+		const fake = () => ({
+			stdout: '  volenet: npx -y @openvole/volenet-mcp - ✔ Connected\n',
+			status: 0,
+		})
+		install([], out.sink as NodeJS.WriteStream, fake as never)
+		expect(out.text()).toContain('unchanged')
+	})
+
 	it('prints the line to paste when the CLI is missing, rather than guessing at its config', () => {
 		const { sink, text } = capture()
 		const path = process.env.PATH
