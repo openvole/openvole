@@ -12,6 +12,8 @@
 
   Only asks this node understands are stored: an unrecognised one is dropped rather than kept, so a request cannot smuggle a permission past an operator who never saw it named.
 
+- **An arriving message raises a desktop notification.** Nothing can wake a session — Claude Code advertises no `sampling` — so the remaining move is telling the *person*, which is what a chat client does anyway. The daemon is the only thing always running, so it is the only thing that can: `osascript` on macOS, `notify-send` on Linux, a balloon tip on Windows. `VOLENET_MCP_NOTIFY=off` silences it, or name a command to run instead. Best effort throughout — no notifier, headless box or locked-down desktop is worth failing a delivery over.
+
 - **The node now runs in a daemon, so an identity is reachable when nothing is open.** A node that lived and died with an editor session was offline most of the time — senders held what they could not deliver, hubs recorded that somebody tried, and nothing arrived until a session reopened. That is a mailbox, not a channel. One daemon per identity now owns the keypair, the connections and the writing of arrivals; sessions attach over a unix socket and it outlives them all. It also settles the collision between two open sessions, which previously ran two nodes on one identity while a hub binds one socket per identity, leaving the first deaf.
 
   Reading stays local: messages are an append-only file, so the socket protocol covers acting, not looking, and a session can still show history if the daemon is gone. `volenet-mcp daemon` runs it in the foreground; `VOLENET_MCP_NO_DAEMON=1` keeps the node in the session for sandboxes that forbid spawning. `volenet_whoami` says which it is.

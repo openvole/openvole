@@ -23,6 +23,7 @@ import { type Settings, resolveSettings } from './config.js'
 import { connect, remoteNet, serve, spawnDaemon } from './daemon.js'
 import { Inbox, type Message } from './inbox.js'
 import { type NetLike, localNet } from './net-api.js'
+import { type Notifier, notifier, preview } from './notify.js'
 
 /** What a node needs to start. Resolved from stored settings, env and defaults. */
 export type NodeOptions = Settings
@@ -102,7 +103,12 @@ export async function startNode(options: NodeOptions): Promise<Node> {
 }
 
 /** A node in this process — what the daemon itself runs, and the fallback when it cannot. */
-export async function startLocal(options: NodeOptions, inbox: Inbox): Promise<Omit<Node, 'where'>> {
+export async function startLocal(
+	options: NodeOptions,
+	inbox: Inbox,
+	/** Told when a message lands. Only the daemon passes one — it is the thing always running. */
+	notify?: Notifier,
+): Promise<Omit<Node, 'where'>> {
 	const bus = createEventBus()
 	const requests: PendingRequest[] = []
 	const notices: Notice[] = []
@@ -141,7 +147,10 @@ export async function startLocal(options: NodeOptions, inbox: Inbox): Promise<Om
 		}
 		// Only a message we had not already recorded wakes a waiter, so a replay cannot.
 		void inbox.add(message).then((added) => {
-			if (added) for (const fn of listeners) fn(message)
+			if (!added) return
+			for (const fn of listeners) fn(message)
+			// Nothing can wake a session, so tell the person instead. Reading it is their move.
+			notify?.(`${message.peerName} on VoleNet`, preview(message.text))
 		})
 	})
 
@@ -195,7 +204,7 @@ export async function startLocal(options: NodeOptions, inbox: Inbox): Promise<Om
 export async function runDaemon(options: NodeOptions): Promise<void> {
 	const inbox = new Inbox(options.dir, 'daemon')
 	await inbox.load()
-	const node = await startLocal(options, inbox)
+	const node = await startLocal(options, inbox, notifier())
 	await serve(options.dir, node.net)
 	// Nothing else to do: the node is running and the socket is answering.
 	await new Promise(() => undefined)

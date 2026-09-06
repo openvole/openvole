@@ -125,6 +125,11 @@ things close most of that gap:
   called again. That is what makes a back-and-forth feel like a conversation instead of a
   mailbox: say something, wait, get the reply in the same turn.
 
+**The daemon notifies you when something arrives** — a desktop notification, which is the thing a
+chat client actually does. It is the only part of the machinery that is always running, so it is
+the only part that can. `VOLENET_MCP_NOTIFY=off` silences it; set it to a command name instead and
+that command is run with the title and body as its two arguments.
+
 **A message cannot answer itself.** MCP's only server-initiated model call is `sampling`, and
 Claude Code declares no capabilities at all — `volenet_whoami` reports which it is, so nobody waits
 for a reply that cannot come. What is left is making sure an arrived message is *seen* promptly.
