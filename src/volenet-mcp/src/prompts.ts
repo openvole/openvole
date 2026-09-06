@@ -26,6 +26,36 @@ export interface PromptDef {
 
 export const PROMPTS: PromptDef[] = [
 	{
+		name: 'whoami',
+		description:
+			'This session\u2019s identity on the VoleNet mesh, and whether it can reach anything.',
+		render: () => `Report this session's VoleNet identity.
+
+Call \`volenet_whoami\`. Give back the name, the instance id and where it is listening, and say in
+one line whether it is actually reachable — a hub joined, or peers paired — rather than leaving an
+empty roster to be read as a failure.
+
+The instance id is what someone else needs to grant this session anything: an agent's operator names
+it in \`net.peers\`. Offer it if they look like they need it. The public key is several kilobytes of
+post-quantum key material, so ask for it with \`key: true\` only when a peer actually wants it.
+
+If nothing is connected, say so and offer \`setup\`.`,
+	},
+	{
+		name: 'peers',
+		description: 'Who this session can reach right now, and by which route.',
+		render: () => `List who this session can reach on VoleNet.
+
+Call \`volenet_peers\`. For each one say whether it is online, and whether the link is direct or
+through a hub — the difference matters: a hub carries chat and consent, a direct link is the only
+route that can ask an agent's brain.
+
+Flag anything that needs an action rather than only listing state: a hub member with no consent yet
+cannot be messaged until one side asks (\`volenet_connect\`), and someone offline will receive what
+is sent whenever they return. If the list is empty, say why — no hub, no pairings — and offer
+\`setup\`.`,
+	},
+	{
 		name: 'setup',
 		description: 'Get this session onto the VoleNet mesh — join a hub, or pair with an agent.',
 		render: () => `Get this session onto the VoleNet mesh.

@@ -9,7 +9,19 @@ import { TOOLS } from '../src/tools.js'
  */
 describe('prompts', () => {
 	it('offers a flow for each thing a new session has to do', () => {
-		expect(PROMPTS.map((p) => p.name).sort()).toEqual(['catch-up', 'pair', 'reach', 'setup'])
+		expect(PROMPTS.map((p) => p.name).sort()).toEqual([
+			'catch-up',
+			'pair',
+			'peers',
+			'reach',
+			'setup',
+			'whoami',
+		])
+		// Every tool a person is likely to reach for by name has a command, since a tool is
+		// something asked for in a sentence and a command is something you can find in a list.
+		for (const expected of ['whoami', 'peers']) {
+			expect(PROMPTS.map((p) => p.name)).toContain(expected)
+		}
 		for (const p of PROMPTS) expect(p.description.length).toBeGreaterThan(20)
 	})
 

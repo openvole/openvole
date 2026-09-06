@@ -54,6 +54,20 @@ Environment wins over stored settings, which win over defaults. None of it is re
 
 That directory **is** your identity: back it up, and anyone who has it is you.
 
+## Slash commands
+
+The server ships its flows as MCP prompts, so the client surfaces them as commands — you pick one
+rather than hoping a sentence matches the right tool.
+
+| command | what it does |
+|---|---|
+| `whoami` | this session's identity, and whether it can reach anything |
+| `peers` | who is reachable, and by which route |
+| `setup` | get onto the mesh — join a hub, or pair with an agent |
+| `pair` | pair with an agent, fingerprint checked, asking for brain access if wanted |
+| `catch-up` | read what arrived while away and say what needs answering |
+| `reach` | message a peer and wait for the reply |
+
 ## Commands
 
 Alongside the tools, a few things are useful before a session exists, or without one. These touch
