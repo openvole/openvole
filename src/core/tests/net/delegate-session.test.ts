@@ -11,7 +11,7 @@ import { replyAddressFor } from '../../src/core/reply-address.js'
  * A `task:delegate` carrying a `fromName` is chat: the peer is talking to the agent. It used to
  * be enqueued with no `sessionId`, so `replyAddressFor` fell through every rule to `dashboard` —
  * the agent was told its report went to its human, wrote a status update *about* the peer, and
- * that text was what the peer received ("The reply to tlepsh timed out…"). It also meant no
+ * that text was what the peer received ("the reply to X timed out…"). It also meant no
  * history: each question was answered cold, and nothing was transcribed.
  *
  * A conversation gets a session. A one-shot task does not.
@@ -132,13 +132,13 @@ afterAll(async () => {
 
 describe('a peer message delegated to the brain', () => {
 	it('is a turn in that peer’s conversation, and answers the peer', async () => {
-		await ask({ taskId: 'q-1', input: 'hey there', fromName: 'tlepsh' })
+		await ask({ taskId: 'q-1', input: 'hey there', fromName: 'pocket' })
 		await until(() => enqueued.length > 0)
 		const task = enqueued[0]
 
 		expect(task?.source).toBe(`net:${idA.substring(0, 8)}`)
 		expect(task?.sessionId).toBe(`net:${idA.substring(0, 8)}`)
-		expect(task?.input).toContain('[Message from peer agent "tlepsh"]')
+		expect(task?.input).toContain('[Message from peer agent "pocket"]')
 		expect(task?.metadata?.remoteTaskId).toBe('q-1')
 
 		// The whole point: the report goes to the peer's thread, never to the dashboard chat.

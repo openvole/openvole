@@ -290,7 +290,7 @@ export const TOOLS: ToolDef[] = [
 		description:
 			'Reach out to someone new: pair directly with a node at a URL, or ask a hub member for consent to chat. Pairing is two calls — the first reports the fingerprint of whoever answers, the second confirms it — because trusting a URL blind is trusting whoever holds it. Neither side trusts you until they accept.',
 		inputSchema: obj({
-			url: str('Node URL to pair with directly, e.g. http://192.168.1.41:9700'),
+			url: str('Node URL to pair with directly, e.g. http://10.0.0.5:9700'),
 			confirm: str('The fingerprint returned by a first call with url, confirming who answers'),
 			member: str('Hub member name or id to ask for chat consent'),
 			note: str('A line saying who you are'),

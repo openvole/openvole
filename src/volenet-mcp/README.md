@@ -20,8 +20,8 @@ Then, optionally, point it at a hub so people and agents that cannot dial you ca
 
 ```bash
 claude mcp add volenet \
-  -e VOLENET_MCP_NAME=kursat-laptop \
-  -e VOLENET_MCP_HUB=https://club.openvole.com/mesh \
+  -e VOLENET_MCP_NAME=my-laptop \
+  -e VOLENET_MCP_HUB=https://hub.example.com/mesh \
   -- npx -y @openvole/volenet-mcp
 ```
 
