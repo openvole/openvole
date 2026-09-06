@@ -20,13 +20,17 @@ That is the whole setup. It registers the server with Claude Code, and there is 
 configure: an identity is generated on first run, the name defaults to `claude-<hostname>`, and
 whether to join a hub is a decision you make later, from inside a session.
 
-Restart Claude Code afterwards — MCP servers load at startup — then:
+Restart Claude Code afterwards — MCP servers load at startup.
 
-```
-volenet_whoami                                    who you are on the mesh
-volenet_hub url:"https://hub.example.com/mesh"    be reachable from anywhere (remembered)
-volenet_connect url:"http://10.0.0.5:9700"        or pair directly with an agent you can dial
-```
+Everything after that happens **in conversation, not in a shell**: these are tools Claude calls on
+your behalf, not commands you type. Ask for them in your own words.
+
+> *"who am I on the mesh?"* → `volenet_whoami`
+>
+> *"join the hub at https://hub.example.com/mesh"* → `volenet_hub`, and it is remembered
+>
+> *"pair with the agent at http://10.0.0.5:9700"* → `volenet_connect`, which reports the
+> fingerprint first and pairs once you confirm it
 
 Add `--user` to register it in every project rather than the current one. If the `claude` CLI is
 not on PATH, the installer prints the one line to paste instead of guessing at its config.
