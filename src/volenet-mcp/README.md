@@ -52,6 +52,23 @@ Environment wins over stored settings, which win over defaults. None of it is re
 
 That directory **is** your identity: back it up, and anyone who has it is you.
 
+## Commands
+
+Alongside the tools, a few things are useful before a session exists, or without one. These touch
+files only — no node is started, no port is bound — so they are safe to run while the server is up,
+and safe in a hook that fires on every session.
+
+```bash
+volenet-mcp install [--user]    register with Claude Code
+volenet-mcp whoami              this machine's identity on the mesh
+volenet-mcp hub <url>           set the hub; joined on the next session start
+volenet-mcp hub --leave         come off it
+volenet-mcp inbox [--read]      what is waiting
+```
+
+Anything needing a live node — the roster, pairing, asking an agent's brain — is a tool rather
+than a command, because it needs a running node and a conversation to happen in.
+
 ## Tools
 
 | tool | what it does |
@@ -92,8 +109,20 @@ things close most of that gap:
   called again. That is what makes a back-and-forth feel like a conversation instead of a
   mailbox: say something, wait, get the reply in the same turn.
 
-For catch-up at the start of a session, ask for the inbox — or run the check from a Claude Code
-`SessionStart` hook, so it lands in context before you type anything.
+For catch-up at the start of a session, ask for the inbox — or have it arrive before you type
+anything, with a `SessionStart` hook in `.claude/settings.json`:
+
+```json
+{
+  "hooks": {
+    "SessionStart": [
+      { "hooks": [{ "type": "command", "command": "npx -y @openvole/volenet-mcp inbox --read" }] }
+    ]
+  }
+}
+```
+
+`--read` marks them seen, since the hook has just put them in front of you.
 
 ## Session lifetime
 

@@ -16,11 +16,12 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
-import { install } from './install.js'
+import { run as runCli } from './cli.js'
 import { type Node, resolveSettings, startNode } from './node.js'
 import { TOOLS } from './tools.js'
 
 export { Inbox } from './inbox.js'
+export { run as runCli } from './cli.js'
 export { type Settings, defaultDir, defaultName, loadStored, saveStored } from './config.js'
 export { type Node, type NodeOptions, resolveSettings, startNode } from './node.js'
 export { TOOLS, type ToolDef } from './tools.js'
@@ -103,11 +104,21 @@ async function main(): Promise<void> {
 
 // Only when run as the binary, so importing this module in a test starts nothing.
 if (process.argv[1]?.includes('volenet-mcp') || process.env.VOLENET_MCP_RUN === '1') {
-	if (process.argv[2] === 'install') {
-		process.exit(install(process.argv.slice(3)))
+	// A bare invocation is the MCP server over stdio, which is how a client starts it — but a
+	// person who runs it in a terminal means the opposite, and would otherwise get a process that
+	// looks hung, or a port conflict from a server they did not know they had started. A client
+	// attaches a pipe, never a TTY, so that is the honest way to tell them apart.
+	if (process.argv[2] || process.stdin.isTTY) {
+		runCli(process.argv.slice(2))
+			.then((code) => process.exit(code))
+			.catch((err) => {
+				process.stderr.write(`volenet-mcp: ${err instanceof Error ? err.message : String(err)}\n`)
+				process.exit(1)
+			})
+	} else {
+		main().catch((err) => {
+			process.stderr.write(`volenet-mcp: ${err instanceof Error ? err.message : String(err)}\n`)
+			process.exit(1)
+		})
 	}
-	main().catch((err) => {
-		process.stderr.write(`volenet-mcp: ${err instanceof Error ? err.message : String(err)}\n`)
-		process.exit(1)
-	})
 }
