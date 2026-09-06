@@ -140,6 +140,21 @@ anything, with a `SessionStart` hook in `.claude/settings.json`:
 
 `--read` marks them seen, since the hook has just put them in front of you.
 
+## One identity, several sessions
+
+The identity is per machine — one keypair in `~/.openvole/volenet-mcp/`, shared by every session,
+because pairing once is the whole point of having one. Being *caught up* is not shared: messages
+are an append-only log, and each session keeps its own read cursor, keyed by the directory it was
+started in.
+
+So a session opening its inbox does not mark those messages seen for the others; a session
+reopened in the same project is the same reader and does not replay what it has already been
+shown; and two projects open at once are two readers of one log. Appending rather than rewriting
+is what makes that safe without a lock or a daemon.
+
+`VOLENET_MCP_SESSION` names the reader explicitly, if you want two sessions in one directory kept
+apart.
+
 ## Session lifetime
 
 The node lives as long as the editor session. That is a supported shape, not a degraded one: a

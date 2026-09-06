@@ -9,6 +9,7 @@
  *
  * Environment still wins where it is set, for scripted setups and CI. Nothing is required.
  */
+import * as crypto from 'node:crypto'
 import * as fs from 'node:fs/promises'
 import * as os from 'node:os'
 import * as path from 'node:path'
@@ -24,6 +25,29 @@ export interface Settings {
 	hub?: string
 	dir: string
 	port: number
+	/** Which read state in the shared inbox is this session's. See {@link sessionKey}. */
+	session: string
+}
+
+/**
+ * Which reader of the shared inbox this session is.
+ *
+ * The identity is per machine, deliberately: pairing once is the point of having one. Being
+ * *caught up* is not — several editor sessions run at once, and one opening its inbox must not
+ * mark the messages seen for the others.
+ *
+ * Keyed by the directory the client started the server in, so it is stable across a restart (the
+ * same project reopened is the same reader, and does not replay what it has already seen) and
+ * distinct between projects open at the same time. The hash disambiguates two projects that share
+ * a basename; the basename is kept in front so the file is recognisable.
+ */
+export function sessionKey(cwd = process.cwd()): string {
+	const hash = crypto.createHash('sha256').update(cwd).digest('hex').slice(0, 8)
+	const base = (cwd.split('/').filter(Boolean).pop() ?? 'session')
+		.toLowerCase()
+		.replace(/[^a-z0-9._-]+/g, '-')
+		.slice(0, 40)
+	return `${base}-${hash}`
 }
 
 export function defaultDir(): string {
@@ -66,5 +90,6 @@ export async function resolveSettings(): Promise<Settings> {
 		hub: process.env.VOLENET_MCP_HUB?.trim() || stored.hub || undefined,
 		dir,
 		port: (Number.isFinite(envPort) && envPort > 0 ? envPort : stored.port) || 9750,
+		session: process.env.VOLENET_MCP_SESSION?.trim() || sessionKey(),
 	}
 }

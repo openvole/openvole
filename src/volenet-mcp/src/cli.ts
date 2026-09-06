@@ -12,7 +12,7 @@ import * as path from 'node:path'
  * is a tool, because it needs a live node and a conversation to happen in.
  */
 import { loadKeyPair } from '@openvole/volenet'
-import { defaultDir, defaultName, loadStored, saveStored } from './config.js'
+import { defaultDir, defaultName, loadStored, saveStored, sessionKey } from './config.js'
 import { Inbox } from './inbox.js'
 import { install } from './install.js'
 
@@ -88,7 +88,9 @@ export async function run(argv: string[], out = process.stdout): Promise<number>
 	}
 
 	if (command === 'inbox') {
-		const inbox = new Inbox(path.join(dir, 'inbox.json'))
+		// The same reader the session in this directory uses, so a hook and its session agree
+		// about what has been seen.
+		const inbox = new Inbox(dir, process.env.VOLENET_MCP_SESSION?.trim() || sessionKey())
 		await inbox.load()
 		const unread = inbox.unread()
 		if (unread.length === 0) {

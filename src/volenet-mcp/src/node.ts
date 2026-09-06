@@ -78,7 +78,7 @@ async function isFree(port: number): Promise<boolean> {
 
 export async function startNode(options: NodeOptions): Promise<Node> {
 	const bus = createEventBus()
-	const inbox = new Inbox(path.join(options.dir, 'inbox.json'))
+	const inbox = new Inbox(options.dir, options.session)
 	await inbox.load()
 
 	const requests: PendingRequest[] = []

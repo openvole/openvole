@@ -12,6 +12,8 @@
 
   Only asks this node understands are stored: an unrecognised one is dropped rather than kept, so a request cannot smuggle a permission past an operator who never saw it named.
 
+- **Sessions no longer take each other's messages.** The identity is per machine and shared by every editor session, which is right — pairing once is why an identity exists. Being caught up was shared too, which is not: one session opening its inbox marked the messages seen, and the next session never heard about them. Messages are now an append-only log with a read cursor per session, keyed by the directory the client started the server in — stable across a restart, distinct between projects open at once. Appending rather than rewriting also means two sessions cannot lose each other's writes, with no lock and no daemon.
+
 - **Two sessions at once no longer means the second one dies.** A node serves the VoleNet endpoints so peers can dial *in*, on port 9750 by default — which for a session behind NAT essentially never happens, since it dials out to a hub or an agent. But two editor sessions meant two nodes, and the second failed to bind and exited. It now takes the configured port when free and any free port when not, and reports what it actually bound. `VoleNetTransport.getPort()` returns the bound port, which differs from the configured one whenever a host passes 0.
 
 - **`install` now registers for every project by default.** It defaulted to the current project, while the identity it installs is per machine — one keypair in the home directory, shared by every session. Installing once and then finding no tools in the next directory you opened was the result. `--local` limits it to one project.

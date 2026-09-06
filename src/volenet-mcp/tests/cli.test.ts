@@ -3,7 +3,7 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { run } from '../src/cli.js'
-import { loadStored } from '../src/config.js'
+import { loadStored, sessionKey } from '../src/config.js'
 import { Inbox } from '../src/inbox.js'
 
 /**
@@ -65,7 +65,8 @@ describe('volenet-mcp CLI', () => {
 	})
 
 	it('reads the inbox, and only marks it read when asked', async () => {
-		const inbox = new Inbox(path.join(dir, 'inbox.json'))
+		// The same reader the CLI uses for this directory, so a hook and its session agree.
+		const inbox = new Inbox(dir, sessionKey())
 		await inbox.load()
 		await inbox.add({
 			peerId: 'p1',
