@@ -56,8 +56,9 @@ export interface Node {
 	/** What happened when the node last tried to join the configured hub. */
 	hubStatus: string
 	/**
-	 * Whether the client will run a model when the server asks — MCP's `sampling` capability, and
-	 * the only way an arriving message could ever answer itself. Set once the client has connected.
+	 * Whether the client will run a model when the server asks — MCP's `sampling` capability. Set
+	 * once the client has connected. Claude Code does not offer it; a channel notification is what
+	 * gets an arriving message in front of the model there.
 	 */
 	canSample: boolean
 	/** Where this node is running, which decides whether it is there when nothing is open. */

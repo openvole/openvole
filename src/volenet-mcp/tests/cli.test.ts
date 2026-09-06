@@ -93,6 +93,86 @@ describe('volenet-mcp CLI', () => {
 		expect((await call('inbox')).text).toContain('No new messages')
 	})
 
+	it('hands over what arrived while nothing was open, and asks for a listener', async () => {
+		const inbox = new Inbox(dir, sessionKey())
+		await inbox.load()
+		await inbox.add({
+			peerId: 'p1',
+			peerName: 'agent-b',
+			dir: 'in',
+			text: 'are you there',
+			ts: Date.now(),
+			id: 'm1',
+		})
+
+		const { text } = await call('session-start')
+		expect(text).toContain('agent-b: are you there')
+		expect(text).toContain('wait --timeout')
+	})
+
+	it('under --catch-up it reports and stops, because something else is listening', async () => {
+		// The plugin form. A channel push or a monitor is already carrying messages in, so asking
+		// the session to arm a background waiter would only produce a second listener.
+		const inbox = new Inbox(dir, sessionKey())
+		await inbox.load()
+		await inbox.add({
+			peerId: 'p1',
+			peerName: 'agent-b',
+			dir: 'in',
+			text: 'are you there',
+			ts: Date.now(),
+			id: 'm1',
+		})
+
+		const { text } = await call('session-start', '--catch-up')
+		expect(text).toContain('agent-b: are you there')
+		expect(text).toContain('volenet_send')
+		expect(text).not.toContain('wait --timeout')
+		expect(text).not.toContain('background task')
+	})
+
+	it('says nothing under --catch-up when nothing was missed', async () => {
+		expect((await call('session-start', '--catch-up')).text).toBe('')
+	})
+
+	it('lists listen as the monitor form and wait as the fallback', async () => {
+		const { text } = await call()
+		expect(text).toContain('volenet-mcp listen')
+		expect(text).toContain('for a monitor')
+	})
+
+	it('listen delivers the backlog too, so a race with the hook cannot lose it', async () => {
+		// Which of the SessionStart hook and the monitor starts first is the client's business, and
+		// they share one read cursor. If listen skipped what was already there, every race it won
+		// would silently discard the night's messages.
+		const inbox = new Inbox(dir, sessionKey())
+		await inbox.load()
+		await inbox.add({
+			peerId: 'p1',
+			peerName: 'agent-b',
+			dir: 'in',
+			text: 'arrived\novernight',
+			ts: Date.now(),
+			id: 'm1',
+		})
+		await inbox.add({
+			peerId: 'p2',
+			peerName: 'agent-b',
+			dir: 'out',
+			text: 'my own reply',
+			ts: Date.now(),
+			id: 'm2',
+		})
+
+		// It never returns by design, so let it run and read what it wrote.
+		const { sink, text } = capture()
+		void run(['listen'], sink as NodeJS.WriteStream)
+		await new Promise((r) => setTimeout(r, 400))
+
+		// One line per message — a newline is what ends a notification — and nothing we sent.
+		expect(text()).toBe('agent-b: arrived overnight\n')
+	})
+
 	it('refuses an unknown command', async () => {
 		const { code, text } = await call('frobnicate')
 		expect(code).toBe(1)

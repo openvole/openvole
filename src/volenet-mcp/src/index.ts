@@ -25,6 +25,7 @@ import { run as runCli } from './cli.js'
 import { type Node, resolveSettings, startNode } from './node.js'
 import { PROMPTS } from './prompts.js'
 import { TOOLS } from './tools.js'
+import { watchInbox } from './watch.js'
 
 export { Inbox } from './inbox.js'
 export { run as runCli } from './cli.js'
@@ -41,6 +42,7 @@ export {
 } from './config.js'
 export { type Node, type NodeOptions, resolveSettings, startNode } from './node.js'
 export { PROMPTS, type PromptDef } from './prompts.js'
+export { watchInbox, waitForMessages } from './watch.js'
 export { TOOLS, type ToolDef } from './tools.js'
 
 /**
@@ -63,11 +65,37 @@ export async function unreadFooter(node: Node, toolName: string): Promise<string
 	return `\n\n— ${unread.length} unread message${unread.length === 1 ? '' : 's'} from ${who}. Read them with volenet_inbox.`
 }
 
+/**
+ * What the session is told about this channel when the server connects.
+ *
+ * Worth being explicit that a peer is a person or an agent mid-conversation rather than an alert,
+ * because the default reading of a pushed event is "notification", and answering a notification is
+ * not a thing anyone does.
+ */
+const CHANNEL_INSTRUCTIONS =
+	'VoleNet messages arrive as <channel source="volenet" peer="..." peer_id="...">text</channel>. ' +
+	'A peer is a person or an agent who has paired with this identity and is talking to you — ' +
+	'not an alert. Reply the way you would to anyone addressing you directly: call volenet_send ' +
+	'with `to` set to the peer attribute from the tag. If a message needs work first, do the work, ' +
+	'then answer. Never leave one unanswered.'
+
 /** Wire the tools to an MCP server. Separated so a test can drive it without a transport. */
 export function createServer(node: Node): Server {
 	const server = new Server(
 		{ name: 'volenet', version: '0.1.0' },
-		{ capabilities: { tools: {}, prompts: {} } },
+		{
+			capabilities: {
+				tools: {},
+				prompts: {},
+				// Declaring this is what makes the server a channel: the client registers a listener
+				// for `notifications/claude/channel`, and an arriving message lands in the session
+				// without anything having asked for it. This is the whole point — a paired peer
+				// reaching an agent that is not waiting to be polled. A client that knows nothing
+				// about channels ignores the key, so it costs nothing to declare it always.
+				experimental: { 'claude/channel': {} },
+			},
+			instructions: CHANNEL_INSTRUCTIONS,
+		},
 	)
 
 	// Flows, so a fresh session does not have to infer the order of things from a tool list.
@@ -131,6 +159,39 @@ export function createServer(node: Node): Server {
 	return server
 }
 
+/**
+ * Push each arriving message into the session as a channel event.
+ *
+ * This is the thing every other approach was standing in for. A hook can only speak when the
+ * session is already doing something, and a background task can only speak by *exiting* — both
+ * are ways of getting a word in at a moment somebody else chose. A channel notification arrives
+ * when the message does.
+ *
+ * Marking read is left to `watchInbox`, and happens only after the notification is written to the
+ * transport: a push that throws leaves the message unread, so the next tick tries again rather
+ * than dropping it.
+ *
+ * Returns a function that stops watching.
+ */
+export function startChannel(server: Server, node: Node): () => void {
+	return watchInbox(node.inbox, node.options.dir, async (messages) => {
+		for (const m of messages) {
+			// Only inbound: our own sent messages are in the same log, and pushing those back would
+			// have the session answering itself.
+			if (m.dir !== 'in') continue
+			await server.notification({
+				method: 'notifications/claude/channel',
+				params: {
+					content: m.text,
+					// Attribute keys have to be identifiers — anything with a hyphen is silently
+					// dropped by the client — so these are underscored.
+					meta: { peer: m.peerName, peer_id: m.peerId },
+				},
+			})
+		}
+	})
+}
+
 /** Remember what the client can do, so a later session can say so without asking again. */
 export async function recordClientCapabilities(dir: string, caps: unknown): Promise<void> {
 	try {
@@ -152,6 +213,8 @@ async function main(): Promise<void> {
 	const node = await startNode(options)
 	const server = createServer(node)
 	await server.connect(new StdioServerTransport())
+	// After connect, so the first push has a transport to go out on.
+	const stopChannel = startChannel(server, node)
 	// What the client offers back decides what is possible here. `sampling` is the only route to
 	// an unprompted reply — it lets a server ask the client to run a model — so record it rather
 	// than guess, and let whoami report it honestly.
@@ -168,6 +231,7 @@ async function main(): Promise<void> {
 	const shutdown = async () => {
 		if (stopping) return
 		stopping = true
+		stopChannel()
 		await node.stop().catch(() => undefined)
 		process.exit(0)
 	}

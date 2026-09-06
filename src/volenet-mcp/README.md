@@ -12,11 +12,20 @@ hold-and-forward for a peer that is not there right now.
 
 ## Install
 
+As a Claude Code plugin, which is the form that can reach you unprompted:
+
+```
+/plugin marketplace add openvole/openvole
+/plugin install volenet@openvole
+```
+
+Or as a bare MCP server, without the listening:
+
 ```bash
 npx -y @openvole/volenet-mcp install
 ```
 
-That is the whole setup. It registers the server with Claude Code, and there is nothing to
+Either way that is the whole setup. It registers the server with Claude Code, and there is nothing to
 configure: an identity is generated on first run for whichever project you are in, named after it,
 and whether to join a hub is a decision you make later, from inside a session.
 
@@ -89,6 +98,7 @@ volenet-mcp hub <url>           set the hub; joined on the next session start
 volenet-mcp hub --leave         come off it
 volenet-mcp inbox [--read]      what is waiting
 volenet-mcp session-start       what a session should know and do on opening (for a hook)
+volenet-mcp listen              print each message as it arrives, forever (for a monitor)
 volenet-mcp wait [--timeout s]  block until a message arrives, then print it and exit
 ```
 
@@ -124,57 +134,71 @@ than a command, because it needs a running node and a conversation to happen in.
   ciphertext at rest would be retroactively readable if a key ever leaked. An undelivered message
   waits on the sender; the hub keeps a notice — who tried, how often, when — and nothing else.
 
-## Being told, when nothing can tell you
+## Being reached
 
-MCP is pull-only: a server cannot wake its client or push into a conversation. A message that
-arrives is written to the inbox immediately and is never lost, but nothing announces it. Two
-things close most of that gap:
+A paired peer is in a conversation with you, not leaving notifications. So the message has to
+arrive **while you are working**, without anyone asking for it — the way Telegram does.
 
-- **Every tool result says what is unread** — `— 2 unread messages from X` — so any use of any
-  tool surfaces it, without being asked.
-- **`volenet_wait` blocks until something arrives**, rather than returning nothing and being
-  called again. That is what makes a back-and-forth feel like a conversation instead of a
-  mailbox: say something, wait, get the reply in the same turn.
+The plugin is how. Install it and a session is reachable from the moment it opens:
 
-**The daemon notifies you when something arrives** — a desktop notification, which is the thing a
-chat client actually does. It is the only part of the machinery that is always running, so it is
-the only part that can. `VOLENET_MCP_NOTIFY=off` silences it; set it to a command name instead and
-that command is run with the title and body as its two arguments.
-
-**A message cannot answer itself.** MCP's only server-initiated model call is `sampling`, and
-Claude Code declares no capabilities at all — `volenet_whoami` reports which it is, so nobody waits
-for a reply that cannot come. What is left is making sure an arrived message is *seen* promptly.
-
-The listener is armed by the session, not by anything here — see `session-start` below.
-
-**A session can be reached unprompted**, though not by this server. MCP gives a server no way to
-wake a client — but a process that *exits* does. `volenet-mcp wait` blocks on the message log and
-exits when something lands, so running it in the background makes an arriving message wake the
-session that started it. One arrival per wait, so re-arm after each; and it only helps while a
-session is open.
-
-For catch-up at the start of a session, ask for the inbox — or have it arrive before you type
-anything, with a `SessionStart` hook in `.claude/settings.json`:
-
-```json
-{
-  "hooks": {
-    "SessionStart": [
-      { "hooks": [{ "type": "command", "command": "volenet-mcp session-start" }] }
-    ]
-  }
-}
+```
+/plugin marketplace add openvole/openvole
+/plugin install volenet@openvole
 ```
 
-`session-start` hands over what arrived while nothing was open, and asks the session to arm a
-listener. It has to *ask*: nothing outside a session can wake one, and the thing that does — a
-background task the client is tracking — can only be started by the session itself. So the hook
-puts the instruction in front of it and lets it decide.
+Two mechanisms, either of which is enough on its own:
 
-`--read` marks them seen, since the hook has just put them in front of you.
+- **A channel.** The server declares the `claude/channel` capability, and an arriving message is
+  pushed straight into the running session as `<channel source="volenet" peer="..." >text</channel>`.
+  Nothing polls, nothing exits, nothing is asked to check. Reply with `volenet_send`, passing the
+  `peer` from the tag. Channels are a research preview and a custom one is not yet on the approved
+  allowlist, so until it is:
 
-Swap `SessionStart` for `UserPromptSubmit` and waiting messages arrive on every turn you take;
-add `PostToolUse` and they arrive within a tool call while the session is working.
+  ```bash
+  claude --dangerously-load-development-channels plugin:volenet@openvole
+  ```
+
+- **A monitor.** The plugin declares a background process the client starts itself at session
+  start, `volenet-mcp listen`, which prints one line per arriving message; each line reaches the
+  session as a notification. No flag needed.
+
+Both share the one read cursor, so exactly one of them delivers each message, and the `SessionStart`
+hook that hands over the backlog cannot double up with either.
+
+### Without the plugin
+
+The rest still works, with more seams:
+
+- **Every tool result says what is unread** — `— 2 unread messages from X` — so any use of any
+  tool surfaces it.
+- **`volenet_wait` blocks until something arrives**, which is what makes a back-and-forth feel
+  like a conversation instead of a mailbox: say something, wait, get the reply in the same turn.
+- **`volenet-mcp wait` in a background task.** A server cannot wake a client, but a background
+  process that *exits* does. It blocks on the message log and exits when something lands. One
+  arrival per wait, so it has to be re-armed after each.
+- **A `SessionStart` hook** hands over what arrived while nothing was open:
+
+  ```json
+  {
+    "hooks": {
+      "SessionStart": [
+        { "hooks": [{ "type": "command", "command": "volenet-mcp session-start" }] }
+      ]
+    }
+  }
+  ```
+
+  Without the plugin it also *asks* the session to arm a `wait`, because nothing outside a session
+  can start a task the client tracks. With the plugin, `session-start --catch-up` skips the asking:
+  something is already listening.
+
+**The daemon notifies you when something arrives** — a desktop notification, which is the thing a
+chat client actually does. It is the only part of the machinery always running, so it is the only
+part that can. `VOLENET_MCP_NOTIFY=off` silences it; set it to a command name instead and that
+command is run with the title and body as its two arguments.
+
+**None of it covers a machine with nothing open.** The daemon still receives and stores, so nothing
+is lost, but there is no session for a message to reach. That is a real limit, not a gap to close.
 
 ## The node runs in a daemon
 
