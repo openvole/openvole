@@ -1,6 +1,6 @@
 {
 	"name": "@openvole/volenet-mcp",
-	"version": "0.2.1",
+	"version": "0.3.0",
 	"description": "VoleNet as an MCP server \u2014 give Claude Code an identity on the mesh, so it can reach people and other agents across machines",
 	"type": "module",
 	"main": "./dist/index.js",

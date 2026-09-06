@@ -1,4 +1,3 @@
-import * as path from 'node:path'
 /**
  * The command line, for the things you want before a session exists — or without one.
  *
@@ -11,8 +10,10 @@ import * as path from 'node:path'
  * been written. Anything that genuinely needs the network — the roster, pairing, asking a brain —
  * is a tool, because it needs a live node and a conversation to happen in.
  */
+import * as fs from 'node:fs/promises'
+import * as path from 'node:path'
 import { loadKeyPair } from '@openvole/volenet'
-import { defaultDir, defaultName, loadStored, saveStored, sessionKey } from './config.js'
+import { baseDir, defaultDir, defaultName, loadStored, saveStored, sessionKey } from './config.js'
 import { Inbox } from './inbox.js'
 import { install } from './install.js'
 
@@ -22,6 +23,7 @@ const USAGE = `volenet-mcp — VoleNet as an MCP server
   volenet-mcp whoami               this machine's identity on the mesh
   volenet-mcp daemon               run the node in the foreground (normally started for you)
   volenet-mcp hub [url|--leave]    which hub to use; takes effect on the next session
+  volenet-mcp adopt                take over an identity left at the old shared location
   volenet-mcp inbox [--read] [--quiet]
                                    messages waiting. --read marks them seen, --quiet says
                                    nothing when there are none (for hooks)
@@ -53,9 +55,46 @@ export async function run(argv: string[], out = process.stdout): Promise<number>
 		return 0
 	}
 
+	if (command === 'adopt') {
+		// Identities used to live in one directory shared by every project. Moving to one per
+		// project would strand that one — including whatever it had already paired with — so this
+		// claims it for the current directory. Deliberate rather than automatic: only one project
+		// can have it, and which one is not something to guess.
+		const legacy = baseDir()
+		const from = path.join(legacy, 'net', 'vole_key')
+		try {
+			await fs.access(from)
+		} catch {
+			out.write(`Nothing to adopt: no identity at ${legacy}.\n`)
+			return 0
+		}
+		try {
+			await fs.access(path.join(dir, 'net', 'vole_key'))
+			out.write(
+				`This directory already has an identity at ${dir}.\nAdopting would overwrite it, so nothing was moved.\n`,
+			)
+			return 1
+		} catch {
+			// nothing here yet, which is what we want
+		}
+		await fs.mkdir(dir, { recursive: true })
+		for (const name of ['net', 'messages.jsonl', 'config.json', 'cursors']) {
+			try {
+				await fs.rename(path.join(legacy, name), path.join(dir, name))
+			} catch {
+				// not every one exists
+			}
+		}
+		out.write(
+			`Adopted the identity at ${legacy} for this directory.\nIt keeps its keys, its peers and its history, so nothing needs re-pairing.\n`,
+		)
+		return 0
+	}
+
 	if (command === 'whoami') {
 		const stored = await loadStored(dir)
 		const keys = await loadKeyPair(path.join(dir, 'net')).catch(() => null)
+		void sessionKey // the directory is the identity now; the key names its folder
 		if (!keys) {
 			out.write(
 				`No identity yet at ${dir}.\nOne is generated the first time the server runs — start a session, or ask for volenet_whoami.\n`,

@@ -19,7 +19,7 @@ import {
 	loadAuthorizedVoles,
 	parsePublicKey,
 } from '@openvole/volenet'
-import { type Settings, resolveSettings } from './config.js'
+import { type Settings, loadStored, rememberPeer, resolveSettings } from './config.js'
 import { connect, remoteNet, serve, spawnDaemon } from './daemon.js'
 import { Inbox, type Message } from './inbox.js'
 import { type NetLike, localNet } from './net-api.js'
@@ -115,6 +115,13 @@ export async function startLocal(
 	const listeners = new Set<(m: Message) => void>()
 
 	const port = (await isFree(options.port)) ? options.port : 0
+	// Everything this identity has been told to dial: the hub, and every node it has paired with.
+	// Pairing records the address here so a restart reconnects instead of quietly going dark.
+	const stored = await loadStored(options.dir)
+	const dial = [
+		...(options.hub ? [options.hub] : []),
+		...(stored.peers ?? []).filter((u) => u !== options.hub),
+	]
 	const manager = new VoleNetManager(
 		{
 			enabled: true,
@@ -122,9 +129,11 @@ export async function startLocal(
 			role: 'peer',
 			port,
 			keyPath: path.join(options.dir, 'net', 'vole_key'),
-			// A hub is a peer we dial. 'read' rather than 'full': a hub carries our sealed traffic,
-			// it has no business acting on this node.
-			peers: options.hub ? [{ url: options.hub, trust: 'read' }] : [],
+			// 'read' rather than 'full': these carry our traffic and answer our questions, they
+			// have no business acting on this node.
+			peers: dial.map((url) => ({ url, trust: 'read' as const })),
+			// Pairing learns an address at runtime; without this it is forgotten on exit.
+			persistPeer: (url) => rememberPeer(options.dir, url),
 		},
 		options.dir,
 	)

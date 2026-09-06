@@ -1,13 +1,16 @@
 /**
- * Settings that survive a restart, so nothing has to be configured at install time.
+ * Where this session's identity lives, and what it is called.
  *
- * The first version of this took its name, hub and port from environment variables, which meant
- * the install line carried three flags a new user could not yet know the values of — and changing
- * one meant re-registering the server. Settings belong to the node, not to the command that
- * launches it: they live in its data directory, next to the identity they describe, and are
- * changed from inside a session with `volenet_hub`.
+ * **One identity per project directory**, not per machine. Pairing is per identity, so a shared
+ * identity makes every session the same participant: the peer you paired with cannot tell them
+ * apart, and they all read one another's conversations. Two sessions open on two projects are two
+ * different correspondents and should look like it.
  *
- * Environment still wins where it is set, for scripted setups and CI. Nothing is required.
+ * Several sessions in the *same* directory are the same participant, which is right — same
+ * project, same conversation, same history.
+ *
+ * Settings live beside the identity rather than in the command that launches the server, so
+ * changing one never means re-registering anything. Environment still wins where it is set.
  */
 import * as crypto from 'node:crypto'
 import * as fs from 'node:fs/promises'
@@ -18,6 +21,23 @@ export interface StoredConfig {
 	name?: string
 	hub?: string
 	port?: number
+	/**
+	 * Nodes to dial on start, learned by pairing.
+	 *
+	 * Trust and address are different things and are kept in different places: the keystore says
+	 * whose signature to accept, and this says where to find them. Without it a paired peer stayed
+	 * trusted and unreachable after a restart — nothing dialled it, so nothing connected.
+	 */
+	peers?: string[]
+}
+
+/** Add a peer URL to what this identity dials, keeping the list unique and bounded. */
+export async function rememberPeer(dir: string, url: string): Promise<void> {
+	const clean = url.replace(/\/$/, '')
+	const stored = await loadStored(dir)
+	const peers = stored.peers ?? []
+	if (peers.includes(clean)) return
+	await saveStored(dir, { peers: [...peers, clean].slice(-32) })
 }
 
 export interface Settings {
@@ -25,21 +45,18 @@ export interface Settings {
 	hub?: string
 	dir: string
 	port: number
-	/** Which read state in the shared inbox is this session's. See {@link sessionKey}. */
+	/** Which read state in this directory's inbox is ours. See {@link sessionKey}. */
 	session: string
 }
 
+/** Where every identity on this machine is kept, one directory each. */
+export function baseDir(): string {
+	return path.join(os.homedir(), '.openvole', 'volenet-mcp')
+}
+
 /**
- * Which reader of the shared inbox this session is.
- *
- * The identity is per machine, deliberately: pairing once is the point of having one. Being
- * *caught up* is not — several editor sessions run at once, and one opening its inbox must not
- * mark the messages seen for the others.
- *
- * Keyed by the directory the client started the server in, so it is stable across a restart (the
- * same project reopened is the same reader, and does not replay what it has already seen) and
- * distinct between projects open at the same time. The hash disambiguates two projects that share
- * a basename; the basename is kept in front so the file is recognisable.
+ * A stable, recognisable name for a directory: its basename, plus a hash so two projects that
+ * share one do not share an identity.
  */
 export function sessionKey(cwd = process.cwd()): string {
 	const hash = crypto.createHash('sha256').update(cwd).digest('hex').slice(0, 8)
@@ -50,13 +67,27 @@ export function sessionKey(cwd = process.cwd()): string {
 	return `${base}-${hash}`
 }
 
-export function defaultDir(): string {
-	return process.env.VOLENET_MCP_DIR?.trim() || path.join(os.homedir(), '.openvole', 'volenet-mcp')
+/**
+ * This project's identity directory.
+ *
+ * `VOLENET_MCP_DIR` overrides it outright, which is how you deliberately share one identity
+ * between projects — the exception, not the default.
+ */
+export function defaultDir(cwd = process.cwd()): string {
+	const override = process.env.VOLENET_MCP_DIR?.trim()
+	return override || path.join(baseDir(), sessionKey(cwd))
 }
 
-/** A name that says what this is without needing to be chosen. Identity is the key, not this. */
-export function defaultName(): string {
-	return `claude-${os.hostname().split('.')[0].toLowerCase()}`
+/**
+ * What peers see. The project's name, not the machine's — it says something useful to whoever is
+ * on the other end, and it keeps a laptop's hostname off other people's rosters.
+ */
+export function defaultName(cwd = process.cwd()): string {
+	const base = (cwd.split('/').filter(Boolean).pop() ?? 'session')
+		.toLowerCase()
+		.replace(/[^a-z0-9._-]+/g, '-')
+		.slice(0, 40)
+	return `claude-${base}`
 }
 
 const file = (dir: string) => path.join(dir, 'config.json')
@@ -89,7 +120,11 @@ export async function resolveSettings(): Promise<Settings> {
 		name: process.env.VOLENET_MCP_NAME?.trim() || stored.name || defaultName(),
 		hub: process.env.VOLENET_MCP_HUB?.trim() || stored.hub || undefined,
 		dir,
-		port: (Number.isFinite(envPort) && envPort > 0 ? envPort : stored.port) || 9750,
-		session: process.env.VOLENET_MCP_SESSION?.trim() || sessionKey(),
+		// 0 by default: a session dials out, and several projects open at once would otherwise
+		// queue for one number. A peer that can dial you wants a fixed one — set it then.
+		port: (Number.isFinite(envPort) && envPort > 0 ? envPort : stored.port) || 0,
+		// One directory, one identity, one conversation: sessions in it share a read state, which
+		// is what makes them the same participant rather than rivals for the same messages.
+		session: process.env.VOLENET_MCP_SESSION?.trim() || 'session',
 	}
 }

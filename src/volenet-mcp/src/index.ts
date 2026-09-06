@@ -28,7 +28,17 @@ import { TOOLS } from './tools.js'
 
 export { Inbox } from './inbox.js'
 export { run as runCli } from './cli.js'
-export { type Settings, defaultDir, defaultName, loadStored, saveStored } from './config.js'
+export {
+	type Settings,
+	type StoredConfig,
+	baseDir,
+	defaultDir,
+	defaultName,
+	loadStored,
+	rememberPeer,
+	saveStored,
+	sessionKey,
+} from './config.js'
 export { type Node, type NodeOptions, resolveSettings, startNode } from './node.js'
 export { PROMPTS, type PromptDef } from './prompts.js'
 export { TOOLS, type ToolDef } from './tools.js'
