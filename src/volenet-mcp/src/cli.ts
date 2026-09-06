@@ -1,3 +1,4 @@
+import * as fsSync from 'node:fs'
 /**
  * The command line, for the things you want before a session exists — or without one.
  *
@@ -13,8 +14,8 @@
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 import { loadKeyPair } from '@openvole/volenet'
-import { baseDir, defaultDir, defaultName, loadStored, saveStored, sessionKey } from './config.js'
-import { Inbox } from './inbox.js'
+import { baseDir, cursorKey, defaultDir, defaultName, loadStored, saveStored } from './config.js'
+import { Inbox, type Message } from './inbox.js'
 import { install } from './install.js'
 
 const USAGE = `volenet-mcp — VoleNet as an MCP server
@@ -24,6 +25,7 @@ const USAGE = `volenet-mcp — VoleNet as an MCP server
   volenet-mcp daemon               run the node in the foreground (normally started for you)
   volenet-mcp hub [url|--leave]    which hub to use; takes effect on the next session
   volenet-mcp adopt                take over an identity left at the old shared location
+  volenet-mcp wait [--timeout <s>]  block until a message arrives, then print it and exit
   volenet-mcp inbox [--read] [--quiet]
                                    messages waiting. --read marks them seen, --quiet says
                                    nothing when there are none (for hooks)
@@ -33,7 +35,14 @@ Anything needing a live node — peers, pairing, asking an agent's brain — is 
 a session, not a command here.
 `
 
-const when = (ts: number) => new Date(ts).toISOString().replace('T', ' ').slice(0, 16)
+/** Local time, because this is read next to a clock on the same wall. */
+const when = (ts: number) =>
+	new Date(ts).toLocaleString(undefined, {
+		month: 'short',
+		day: 'numeric',
+		hour: '2-digit',
+		minute: '2-digit',
+	})
 
 export async function run(argv: string[], out = process.stdout): Promise<number> {
 	const [command, ...rest] = argv
@@ -94,7 +103,6 @@ export async function run(argv: string[], out = process.stdout): Promise<number>
 	if (command === 'whoami') {
 		const stored = await loadStored(dir)
 		const keys = await loadKeyPair(path.join(dir, 'net')).catch(() => null)
-		void sessionKey // the directory is the identity now; the key names its folder
 		if (!keys) {
 			out.write(
 				`No identity yet at ${dir}.\nOne is generated the first time the server runs — start a session, or ask for volenet_whoami.\n`,
@@ -138,10 +146,56 @@ export async function run(argv: string[], out = process.stdout): Promise<number>
 		return 0
 	}
 
+	if (command === 'wait') {
+		// Blocks until something lands. A client that cannot be woken by a server can still be
+		// woken by a process that *exits* — this is the thing to run in the background so a
+		// session finds out about a message without being prompted first.
+		const inbox = new Inbox(dir, cursorKey())
+		await inbox.load()
+		const seconds = Number(rest[rest.indexOf('--timeout') + 1])
+		const limit = Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : 3600_000
+		const log = path.join(dir, 'messages.jsonl')
+
+		const arrived = await new Promise<Message[]>((resolve) => {
+			const done = (v: Message[]) => {
+				clearInterval(timer)
+				clearTimeout(cap)
+				watcher?.close()
+				resolve(v)
+			}
+			const check = async () => {
+				await inbox.refresh().catch(() => undefined)
+				const unread = inbox.unread()
+				if (unread.length > 0) done(unread)
+			}
+			let watcher: import('node:fs').FSWatcher | undefined
+			try {
+				watcher = fsSync.watch(path.dirname(log), (_e, name) => {
+					if (name === 'messages.jsonl') void check()
+				})
+			} catch {
+				// no watcher here; the poll below still gets there
+			}
+			const timer = setInterval(() => void check(), 1000)
+			const cap = setTimeout(() => done([]), limit)
+			void check()
+		})
+
+		if (arrived.length === 0) {
+			out.write(`Nothing arrived within ${Math.round(limit / 1000)}s.\n`)
+			return 0
+		}
+		out.write(`${arrived.length} new VoleNet message${arrived.length === 1 ? '' : 's'}:\n\n`)
+		for (const m of arrived) out.write(`  [${when(m.ts)}] ${m.peerName}: ${m.text}\n`)
+		if (!rest.includes('--keep')) await inbox.markRead()
+		out.write('\n')
+		return 0
+	}
+
 	if (command === 'inbox') {
 		// The same reader the session in this directory uses, so a hook and its session agree
 		// about what has been seen.
-		const inbox = new Inbox(dir, process.env.VOLENET_MCP_SESSION?.trim() || sessionKey())
+		const inbox = new Inbox(dir, cursorKey())
 		await inbox.load()
 		const unread = inbox.unread()
 		if (unread.length === 0) {

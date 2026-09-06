@@ -82,11 +82,37 @@ export class Inbox {
 	private async readCursor(): Promise<void> {
 		try {
 			const raw = JSON.parse(await fs.readFile(this.cursor, 'utf-8')) as Record<string, number>
-			for (const [peer, at] of Object.entries(raw ?? {})) {
-				if (typeof at === 'number' && at > (this.readAt.get(peer) ?? 0)) this.readAt.set(peer, at)
+			this.merge(raw)
+			return
+		} catch {
+			// no cursor under this name — see below
+		}
+		// No cursor under this name. Cursors used to be keyed per working directory, before the
+		// identity itself moved into one — so a reader that was called `project-a1b2c3d4` is this
+		// same reader under its old name, and its read state should carry over rather than replay
+		// the conversation. Only that shape is adopted: a name someone chose with
+		// VOLENET_MCP_SESSION is a deliberately separate reader and must stay separate.
+		const legacy = /^[a-z0-9._-]+-[0-9a-f]{8}\.json$/
+		try {
+			const dir = path.dirname(this.cursor)
+			for (const name of await fs.readdir(dir)) {
+				if (!legacy.test(name)) continue
+				try {
+					this.merge(JSON.parse(await fs.readFile(path.join(dir, name), 'utf-8')))
+				} catch {
+					// skip anything unreadable
+				}
 			}
 		} catch {
-			// no cursor yet
+			// no cursors at all yet
+		}
+	}
+
+	/** Cursors only move forward, so take the later of what we hold and what was read. */
+	private merge(raw: unknown): void {
+		if (!raw || typeof raw !== 'object') return
+		for (const [peer, at] of Object.entries(raw as Record<string, number>)) {
+			if (typeof at === 'number' && at > (this.readAt.get(peer) ?? 0)) this.readAt.set(peer, at)
 		}
 	}
 

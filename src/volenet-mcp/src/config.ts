@@ -49,6 +49,18 @@ export interface Settings {
 	session: string
 }
 
+/**
+ * Which read state in this directory's inbox to use.
+ *
+ * One directory, one identity, one conversation: sessions in it share a read state, which is what
+ * makes them the same participant rather than rivals for the same messages. Decided in one place
+ * because the server, the hook and the CLI must agree — when they did not, a hook marked messages
+ * read under one key while a waiter watched another and fired on everything.
+ */
+export function cursorKey(): string {
+	return process.env.VOLENET_MCP_SESSION?.trim() || 'session'
+}
+
 /** Where every identity on this machine is kept, one directory each. */
 export function baseDir(): string {
 	return path.join(os.homedir(), '.openvole', 'volenet-mcp')
@@ -123,8 +135,6 @@ export async function resolveSettings(): Promise<Settings> {
 		// 0 by default: a session dials out, and several projects open at once would otherwise
 		// queue for one number. A peer that can dial you wants a fixed one — set it then.
 		port: (Number.isFinite(envPort) && envPort > 0 ? envPort : stored.port) || 0,
-		// One directory, one identity, one conversation: sessions in it share a read state, which
-		// is what makes them the same participant rather than rivals for the same messages.
-		session: process.env.VOLENET_MCP_SESSION?.trim() || 'session',
+		session: cursorKey(),
 	}
 }

@@ -199,3 +199,31 @@ describe('a cursor moved by another process', () => {
 		expect(a.unread()).toHaveLength(0)
 	})
 })
+
+describe('when the cursor key changes', () => {
+	it('carries over a reader renamed by the move to per-project identities', async () => {
+		const d = await dir()
+		const box = new Inbox(d, 'openvole-8c7bd921') // what a reader used to be called
+		await box.load()
+		await box.add(msg({ id: 'm1', ts: 1000 }))
+		await box.markRead()
+
+		// Same reader, new name. Replaying the conversation would be the wrong answer.
+		const renamed = new Inbox(d, 'session')
+		await renamed.load()
+		expect(renamed.unread()).toHaveLength(0)
+	})
+
+	it('still leaves a deliberately separate reader separate', async () => {
+		const d = await dir()
+		const mine = new Inbox(d, 'session')
+		await mine.load()
+		await mine.add(msg({ id: 'm1', ts: 1000 }))
+		await mine.markRead()
+
+		// A name someone chose with VOLENET_MCP_SESSION is not an old name for this one.
+		const other = new Inbox(d, 'my-other-reader')
+		await other.load()
+		expect(other.unread()).toHaveLength(1)
+	})
+})
