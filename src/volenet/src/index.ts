@@ -41,6 +41,14 @@ import {
 } from './protocol.js'
 import { RemoteTaskManager } from './remote-task.js'
 import { DEFAULT_RESULT_TTL_MS, ResultOutbox } from './result-outbox.js'
+import {
+	MAX_ROOM_MEMBERS,
+	type RoomError,
+	type RoomInfo,
+	type RoomMember,
+	type RoomRecord,
+	RoomStore,
+} from './rooms.js'
 import { type SealedBox, relayPairAllow, seal, unseal } from './seal.js'
 import { type SyncConfig, VoleNetSync } from './sync.js'
 import { type ToolProvider, isControlPlanePaw } from './tools.js'
@@ -431,6 +439,10 @@ export class VoleNetManager {
 	private relayNotices: RelayNotices | null = null
 	/** Brain answers whose asker had gone by the time they were ready — see result-outbox.ts. */
 	private resultOutbox: ResultOutbox | null = null
+	/** Hub side: who is in which room (§7c). Only a relay hub keeps these. */
+	private roomStore: RoomStore | null = null
+	/** Member side: rooms this node is in, as the hub last described them. */
+	private rooms = new Map<string, RoomInfo>()
 	/** Peers a flush is already running for, so a burst of pings does not send an answer twice. */
 	private flushingResults = new Set<string>()
 	/** The polling timers waiting on delegated tasks, so stopping cancels them. */
@@ -517,6 +529,12 @@ export class VoleNetManager {
 			hoursToMs(this.config.relay?.outboxTtlHours, DEFAULT_RESULT_TTL_MS),
 		)
 		await this.resultOutbox.load().catch(() => undefined)
+		if (this.config.relay?.enabled) {
+			// Membership survives a restart; without that, restarting a hub would dissolve every
+			// room on it. The hub still holds no post and no history.
+			this.roomStore = new RoomStore(path.join(netDir, 'rooms.json'))
+			await this.roomStore.load().catch(() => undefined)
+		}
 		if (this.config.relay?.enabled) {
 			this.relayNotices = new RelayNotices(
 				path.join(netDir, 'relay_notices.json'),
@@ -1128,6 +1146,64 @@ export class VoleNetManager {
 			this.deliverSealed(payload.from, payload.box, messageBus, message.from)
 		})
 
+		// ── Rooms (§7c) ──────────────────────────────────────────────────────────────────
+		// Hub side: membership, and nothing else. Control messages arrive signed and unsealed,
+		// because the hub has to read them and none of it is private — only posts are sealed.
+		this.transport.onMessage((message) => {
+			if (!message.type.startsWith('room:') || !this.roomStore || !this.keyPair) return
+			if (message.type === 'room:info' || message.type === 'room:members') return // hub → member
+			if (message.type === 'room:list:response' || message.type === 'room:error') return
+			if (!this.discovery?.verifyMessageFrom(message)) return
+			void this.handleRoomCommand(message)
+		})
+
+		// Member side: what the hub says a room is. Directory data, exactly like the roster —
+		// the keys it hands over cannot be altered undetected, because every post is signed by
+		// its author and verified against them.
+		this.transport.onMessage((message) => {
+			if (message.type !== 'room:info' && message.type !== 'room:members') return
+			if (!this.discovery?.verifyMessageFrom(message)) return
+			const info = message.payload as RoomInfo
+			if (!info?.room || !Array.isArray(info.members)) return
+
+			// A member's own absence from the list is how it learns it is out — on leaving, or on
+			// being removed by somebody else. Self-correcting, and it needs no separate message.
+			const mine = this.keyPair?.instanceId
+			if (mine && !info.members.some((m) => m.instanceId === mine)) {
+				this.rooms.delete(info.room)
+				messageBus?.emit('volenet:room:members', {
+					room: info.room,
+					name: info.name,
+					members: [],
+				})
+				return
+			}
+			this.rooms.set(info.room, info)
+
+			// The room's members are vouched by the same hub as the roster, and carry the same
+			// keys. Folding them in is what lets a post be sealed to somebody this node has not
+			// otherwise been told about — which is the entire reason room:info carries keys.
+			const roster = this.hubRosters.get(message.from) ?? new Map<string, RosterMember>()
+			for (const m of info.members) {
+				if (!m?.instanceId || m.instanceId === mine) continue
+				if (roster.has(m.instanceId)) continue // never clobber live connection state
+				roster.set(m.instanceId, {
+					instanceId: m.instanceId,
+					name: m.name,
+					publicKey: m.publicKey,
+					xPublicKey: m.xPublicKey,
+					mlkemPublicKey: m.mlkemPublicKey,
+					connected: false,
+				})
+			}
+			this.hubRosters.set(message.from, roster)
+			messageBus?.emit('volenet:room:members', {
+				room: info.room,
+				name: info.name,
+				members: info.members.map((m) => ({ instanceId: m.instanceId, name: m.name })),
+			})
+		})
+
 		// Member side: hub-vouched member directory, enables sealed addressing of members
 		// we have no direct trust relationship with. Directory data only — never authority.
 		this.transport.onMessage((message) => {
@@ -1727,6 +1803,8 @@ export class VoleNetManager {
 	private async sendChatViaRelay(
 		peerRef: string,
 		text: string,
+		/** A room post is the same message with the room named on it (§7c). */
+		opts?: { room?: string },
 	): Promise<{
 		ok: boolean
 		delivered?: boolean
@@ -1742,7 +1820,7 @@ export class VoleNetManager {
 		const r = await this.sealToMemberViaRelay(
 			peerRef,
 			'chat:message',
-			{ text, fromName, sentAt },
+			{ text, fromName, sentAt, ...(opts?.room ? { room: opts.room } : {}) },
 			ref,
 		)
 		if (!r.ok || !r.member || !r.inner) {
@@ -2136,8 +2214,13 @@ export class VoleNetManager {
 			return
 		}
 
-		// chat:message
-		const payload = inner.payload as { text?: string; fromName?: string; sentAt?: number }
+		// chat:message — a post carries the room it belongs to (§7c); without one it is private.
+		const payload = inner.payload as {
+			text?: string
+			fromName?: string
+			sentAt?: number
+			room?: string
+		}
 		if (!payload?.text) return
 		const fromName = payload.fromName || fromId.substring(0, 8)
 		// A message that waited in the sender's outbox says when it was written. That is the time
@@ -2174,6 +2257,10 @@ export class VoleNetManager {
 			messageId: inner.id,
 			timestamp: sentAt,
 			relayed: true,
+			// Present when this was a room post, so a client files it under the room rather than
+			// as a private conversation. A client that ignores it sees a direct message from
+			// someone it has already consented to — degraded, never silently dropped.
+			...(payload.room ? { room: payload.room } : {}),
 		})
 	}
 
@@ -2227,6 +2314,179 @@ export class VoleNetManager {
 	}
 
 	/** Hub: push the current member directory to every connected member. */
+	// ── Rooms: a member's side ───────────────────────────────────────────────────────────
+
+	/** Rooms this node is in, as its hub last described them. */
+	getRooms(): RoomInfo[] {
+		return [...this.rooms.values()]
+	}
+
+	/** Ask a hub to make a room, join one, leave one, invite to one, or list what it has. */
+	async roomCommand(
+		hubRef: string,
+		type: 'room:create' | 'room:join' | 'room:leave' | 'room:invite' | 'room:list',
+		payload: Record<string, unknown>,
+	): Promise<{ ok: boolean; error?: string }> {
+		if (!this.keyPair || !this.transport) return { ok: false, error: 'VoleNet not started' }
+		const hub = this.getInstances().find(
+			(i) => i.id === hubRef || i.name === hubRef || i.id.startsWith(hubRef),
+		)
+		if (!hub) return { ok: false, error: `no hub found: "${hubRef}"` }
+		const sent = await this.transport.sendToPeer(
+			hub.id,
+			createMessage(
+				type,
+				this.keyPair.instanceId,
+				hub.id,
+				payload,
+				this.keyPair.privateKey,
+				this.keyPair.pqPrivateKey,
+			),
+		)
+		// The answer arrives as room:info / room:members / room:error, not as a return value.
+		return sent ? { ok: true } : { ok: false, error: 'could not reach that hub' }
+	}
+
+	/**
+	 * Post to a room: one sealed copy per member.
+	 *
+	 * There is no room key, so this is the fan-out itself — the same `chat:message` sealed to each
+	 * member in turn (§7c). Everything §7 gives a private message therefore applies to each copy:
+	 * a member who is away has theirs held in this node's outbox and delivered when they return,
+	 * and consent still gates whether they accept anything from us at all.
+	 */
+	async postToRoom(
+		roomId: string,
+		text: string,
+	): Promise<{ ok: boolean; sent: number; held: number; skipped: number; error?: string }> {
+		const room = this.rooms.get(roomId)
+		if (!room) return { ok: false, sent: 0, held: 0, skipped: 0, error: 'not in that room' }
+		if (room.members.length > MAX_ROOM_MEMBERS) {
+			return { ok: false, sent: 0, held: 0, skipped: 0, error: 'room is over the member limit' }
+		}
+		let sent = 0
+		let held = 0
+		let skipped = 0
+		for (const m of room.members) {
+			if (m.instanceId === this.keyPair?.instanceId) continue
+			const res = await this.sendChatViaRelay(m.instanceId, text, { room: roomId })
+			if (!res.ok) skipped++
+			else if (res.queued) held++
+			else sent++
+		}
+		return { ok: true, sent, held, skipped }
+	}
+
+	// ── Rooms: the hub's side ────────────────────────────────────────────────────────────
+
+	/** Act on a member's room command and answer it. */
+	private async handleRoomCommand(message: VoleNetMessage): Promise<void> {
+		const store = this.roomStore
+		if (!store || !this.keyPair) return
+		const from = message.from
+		const p = (message.payload ?? {}) as {
+			room?: string
+			name?: string
+			topic?: string
+			member?: string
+		}
+
+		const fail = (reason: RoomError, room?: string) =>
+			this.sendToMember(from, 'room:error', { ...(room ? { room } : {}), reason })
+
+		switch (message.type) {
+			case 'room:create': {
+				const room = await store.create(p.name ?? 'room', from, p.topic)
+				this.sendToMember(from, 'room:info', this.describeRoom(room))
+				return
+			}
+			case 'room:list': {
+				this.sendToMember(from, 'room:list:response', {
+					rooms: store.list().map((r) => ({
+						room: r.id,
+						name: r.name,
+						topic: r.topic,
+						members: r.members.length,
+						joined: r.members.includes(from),
+					})),
+				})
+				return
+			}
+			case 'room:join': {
+				if (!p.room) return fail('no-such-room')
+				const res = await store.join(p.room, from)
+				if (typeof res === 'string') return fail(res, p.room)
+				this.sendToMember(from, 'room:info', this.describeRoom(res))
+				this.pushRoomMembers(res)
+				return
+			}
+			case 'room:leave': {
+				if (!p.room) return fail('no-such-room')
+				const res = await store.leave(p.room, from)
+				if (typeof res === 'string') return fail(res, p.room)
+				// Told before being dropped from the push, so the leaver knows it worked.
+				this.sendToMember(from, 'room:info', this.describeRoom(res))
+				this.pushRoomMembers(res)
+				return
+			}
+			case 'room:invite': {
+				if (!p.room || !p.member) return fail('no-such-room', p.room)
+				const room = store.get(p.room)
+				if (!room) return fail('no-such-room', p.room)
+				// Only somebody already in the room may bring somebody into it.
+				if (!room.members.includes(from)) return fail('not-a-member', p.room)
+				const res = await store.join(p.room, p.member)
+				if (typeof res === 'string') return fail(res, p.room)
+				this.sendToMember(from, 'room:info', this.describeRoom(res))
+				this.sendToMember(p.member, 'room:info', this.describeRoom(res))
+				this.pushRoomMembers(res)
+				return
+			}
+			default:
+				return
+		}
+	}
+
+	/** A room as its members need to see it: ids *and keys*, since a sender fans out itself. */
+	private describeRoom(room: RoomRecord): RoomInfo {
+		const known = new Map(this.discovery?.getInstances().map((i) => [i.id, i]) ?? [])
+		const members: RoomMember[] = []
+		for (const id of room.members) {
+			const i = known.get(id)
+			if (!i) continue // a member the hub cannot currently describe cannot be sealed to
+			members.push({
+				instanceId: i.id,
+				name: i.name,
+				publicKey: i.publicKey,
+				xPublicKey: i.xPublicKey,
+				mlkemPublicKey: i.mlkemPublicKey,
+			})
+		}
+		return { room: room.id, name: room.name, topic: room.topic, members }
+	}
+
+	/** Tell everyone in a room who is in it now. */
+	private pushRoomMembers(room: RoomRecord): void {
+		const info = this.describeRoom(room)
+		for (const id of room.members) this.sendToMember(id, 'room:members', info)
+	}
+
+	/** Signed, unsealed, straight to one member. Room control is hub business, not private. */
+	private sendToMember(to: string, type: VoleNetMessageType, payload: unknown): void {
+		if (!this.keyPair || !this.transport) return
+		void this.transport.sendToPeer(
+			to,
+			createMessage(
+				type,
+				this.keyPair.instanceId,
+				to,
+				payload,
+				this.keyPair.privateKey,
+				this.keyPair.pqPrivateKey,
+			),
+		)
+	}
+
 	private broadcastRoster(): void {
 		if (!this.keyPair || !this.transport || !this.discovery) return
 		const connected = new Set(
@@ -3018,6 +3278,12 @@ export class VoleNetManager {
 }
 
 // Re-export key types and functions for CLI use
+export {
+	MAX_ROOM_MEMBERS,
+	EMPTY_ROOM_TTL_MS,
+	RoomStore,
+} from './rooms.js'
+export type { RoomError, RoomInfo, RoomMember, RoomRecord } from './rooms.js'
 export {
 	generateKeyPair,
 	loadKeyPair,

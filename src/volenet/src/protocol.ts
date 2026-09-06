@@ -43,6 +43,17 @@ export type VoleNetMessageType =
 	// sealed:direct envelope and unwrapped on receipt, transparent to every other handler.
 	| 'sealed:direct'
 	| 'relay:deliver'
+	// Rooms (§7c). Control only, sent to the hub signed and unsealed — the hub has to read these
+	// and none of it is private. The posts themselves are ordinary sealed chat.
+	| 'room:create'
+	| 'room:join'
+	| 'room:leave'
+	| 'room:invite'
+	| 'room:list'
+	| 'room:list:response'
+	| 'room:info'
+	| 'room:members'
+	| 'room:error'
 	| 'relay:error'
 	// Hub → sender: the envelope it attached this ref to was forwarded. Lets an outbox let go.
 	| 'relay:ack'
