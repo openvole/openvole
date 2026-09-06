@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "npx -y @openvole/volenet-mcp session-start --catch-up"
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/bin/volenet-mcp session-start --catch-up"
           }
         ]
       }

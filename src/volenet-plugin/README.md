@@ -14,6 +14,7 @@ to check.
 | Component | What it is |
 | --- | --- |
 | MCP server | `@openvole/volenet-mcp` — the tools, the prompts, the identity, the daemon |
+| `bin/volenet-mcp` | launcher: a build next to the plugin if there is one, else the published package |
 | Channel | the server pushes an arriving message straight into the session |
 | Monitor | `volenet-mcp listen`, started by the client at session start |
 | Hook | `SessionStart` hands over whatever arrived while nothing was open |
@@ -42,6 +43,23 @@ delivers each line it prints as a notification.
 
 Both read the same cursor, so exactly one of them delivers any given message, and the
 `SessionStart` catch-up cannot double up with either.
+
+## Installing from a checkout
+
+`/plugin marketplace add` takes a local path, so the working tree installs as it stands:
+
+```
+/plugin marketplace add /path/to/openvole
+/plugin install volenet@openvole
+```
+
+Everything runs through `bin/volenet-mcp`, which uses `../../volenet-mcp/dist` when that exists —
+so a checkout gets the code you just built, and a marketplace install, which has no `dist`, gets
+the published package. Build first:
+
+```bash
+pnpm -C src/volenet-mcp build
+```
 
 ## What it still cannot do
 

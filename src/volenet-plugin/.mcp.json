@@ -1,8 +1,7 @@
 {
   "mcpServers": {
     "volenet": {
-      "command": "npx",
-      "args": ["-y", "@openvole/volenet-mcp"]
+      "command": "${CLAUDE_PLUGIN_ROOT}/bin/volenet-mcp"
     }
   }
 }
