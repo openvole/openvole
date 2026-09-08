@@ -15,12 +15,13 @@ import * as path from 'node:path'
 import { loadKeyPair } from '@openvole/volenet'
 import { baseDir, cursorKey, defaultDir, defaultName, loadStored, saveStored } from './config.js'
 import { Inbox } from './inbox.js'
-import { install } from './install.js'
+import { install, uninstall } from './install.js'
 import { holdListenerLock, waitForMessages, watchInbox } from './watch.js'
 
 const USAGE = `volenet-mcp — VoleNet as an MCP server
 
   volenet-mcp install [--local]    register with Claude Code (default: every project)
+  volenet-mcp uninstall            remove that registration and its hooks; keeps your identity
   volenet-mcp whoami               this machine's identity on the mesh
   volenet-mcp daemon               run the node in the foreground (normally started for you)
   volenet-mcp hub [url|--leave]    which hub to use; takes effect on the next session
@@ -56,6 +57,8 @@ export async function run(argv: string[], out = process.stdout): Promise<number>
 	}
 
 	if (command === 'install') return install(rest, out)
+
+	if (command === 'uninstall') return uninstall(rest, out)
 
 	if (command === 'daemon') {
 		// The node itself: one per identity, outliving every session. Sessions start this for

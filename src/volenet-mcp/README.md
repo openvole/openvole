@@ -25,6 +25,12 @@ Or as a bare MCP server, without the listening:
 npx -y @openvole/volenet-mcp install
 ```
 
+**One or the other, not both.** The plugin registers this same server, so installing on top of it
+gives you two of everything: every tool twice, all seven slash commands twice, and two nodes
+wanting one identity. `install` checks for the plugin and stands aside rather than doing that;
+`volenet-mcp uninstall` clears a registration added before the plugin, and leaves your identity
+alone. The bare install is for a host without plugins, or where they are not allowed.
+
 Either way that is the whole setup. It registers the server with Claude Code, and there is nothing to
 configure: an identity is generated on first run for whichever project you are in, named after it,
 and whether to join a hub is a decision you make later, from inside a session.
@@ -92,6 +98,7 @@ and safe in a hook that fires on every session.
 
 ```bash
 volenet-mcp install [--local]   register with Claude Code (default: every project)
+volenet-mcp uninstall           remove that registration and its hooks; keeps your identity
 volenet-mcp adopt               claim an identity left at the old shared location
 volenet-mcp whoami              this project's identity on the mesh
 volenet-mcp hub <url>           set the hub; joined on the next session start

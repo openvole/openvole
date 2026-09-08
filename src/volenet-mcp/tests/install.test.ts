@@ -1,10 +1,52 @@
-import { describe, expect, it } from 'vitest'
-import { SERVER_NAME, addArgs, install, installHooks, launchCommand } from '../src/install.js'
+import * as fs from 'node:fs'
+import * as os from 'node:os'
+import * as path from 'node:path'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import {
+	SERVER_NAME,
+	addArgs,
+	install,
+	installHooks,
+	launchCommand,
+	pluginMarketplace,
+	removeHooks,
+	uninstall,
+} from '../src/install.js'
 
 /** A stdout that can be read back, so the installer's output is an assertion rather than a guess. */
 const capture = () => {
 	const lines: string[] = []
 	return { sink: { write: (s: string) => lines.push(s) }, text: () => lines.join('') }
+}
+
+/**
+ * A config directory of our own, for every test in this file.
+ *
+ * The installer reads the real one to find out whether the plugin is installed, and a developer
+ * who has it would otherwise see these fail on their machine and nowhere else.
+ */
+let config: string
+let previousConfig: string | undefined
+
+beforeEach(() => {
+	config = fs.mkdtempSync(path.join(os.tmpdir(), 'volenet-config-'))
+	previousConfig = process.env.CLAUDE_CONFIG_DIR
+	process.env.CLAUDE_CONFIG_DIR = config
+})
+
+afterEach(() => {
+	if (previousConfig === undefined) delete process.env.CLAUDE_CONFIG_DIR
+	else process.env.CLAUDE_CONFIG_DIR = previousConfig
+	fs.rmSync(config, { recursive: true, force: true })
+})
+
+/** Record this plugin as installed, so the installer sees it. */
+const withPlugin = (key: string) => {
+	fs.mkdirSync(path.join(config, 'plugins'), { recursive: true })
+	fs.writeFileSync(
+		path.join(config, 'plugins', 'installed_plugins.json'),
+		JSON.stringify({ version: 2, plugins: { [key]: [{ scope: 'user' }] } }),
+	)
 }
 
 describe('install', () => {
@@ -140,5 +182,83 @@ describe('installing makes a session listen', () => {
 			if (prev === undefined) delete process.env.CLAUDE_CONFIG_DIR
 			else process.env.CLAUDE_CONFIG_DIR = prev
 		}
+	})
+})
+
+describe('standing aside for the plugin', () => {
+	it('finds the plugin and names the marketplace it came from', () => {
+		expect(pluginMarketplace()).toBeNull()
+		withPlugin('volenet@openvole')
+		expect(pluginMarketplace()).toBe('openvole')
+	})
+
+	it('is not fooled by another plugin whose name merely contains ours', () => {
+		withPlugin('volenet-extras@somebody')
+		expect(pluginMarketplace()).toBeNull()
+	})
+
+	it('refuses to register a second copy, and says what to do instead', () => {
+		withPlugin('volenet@openvole')
+		const { sink, text } = capture()
+		let ran = false
+		const code = install([], sink as NodeJS.WriteStream, () => {
+			ran = true
+			return { status: 0, stdout: '', stderr: '' }
+		})
+		expect(code).toBe(0)
+		// The point: it did not touch the config at all.
+		expect(ran).toBe(false)
+		expect(text()).toContain('volenet@openvole')
+		expect(text()).toContain('uninstall')
+	})
+
+	it('registers anyway when told to', () => {
+		withPlugin('volenet@openvole')
+		const { sink } = capture()
+		let ran = false
+		install(['--anyway', '--no-hooks'], sink as NodeJS.WriteStream, () => {
+			ran = true
+			return { status: 0, stdout: '', stderr: '' }
+		})
+		expect(ran).toBe(true)
+	})
+})
+
+describe('uninstall', () => {
+	it("takes out our hooks and leaves everyone else's", () => {
+		fs.writeFileSync(
+			path.join(config, 'settings.json'),
+			JSON.stringify({
+				hooks: {
+					SessionStart: [
+						{ hooks: [{ type: 'command', command: 'volenet-mcp session-start' }] },
+						{ hooks: [{ type: 'command', command: 'somebody-else --init' }] },
+					],
+					PostToolUse: [{ hooks: [{ type: 'command', command: 'volenet-mcp inbox --read' }] }],
+				},
+				other: 'kept',
+			}),
+		)
+
+		expect(removeHooks().sort()).toEqual(['PostToolUse', 'SessionStart'])
+
+		const after = JSON.parse(fs.readFileSync(path.join(config, 'settings.json'), 'utf-8'))
+		expect(after.other).toBe('kept')
+		// The event with somebody else's hook survives, holding only theirs.
+		expect(after.hooks.SessionStart).toHaveLength(1)
+		expect(JSON.stringify(after.hooks.SessionStart)).toContain('somebody-else')
+		// The event that was only ours goes entirely, rather than being left empty.
+		expect(after.hooks.PostToolUse).toBeUndefined()
+	})
+
+	it('removes the registration from both scopes and says the identity is safe', () => {
+		const scopes: string[] = []
+		const { sink, text } = capture()
+		uninstall(['--keep-hooks'], sink as NodeJS.WriteStream, (args) => {
+			if (args[0] === 'mcp' && args[1] === 'remove') scopes.push(args[args.indexOf('-s') + 1])
+			return { status: 0, stdout: '', stderr: '' }
+		})
+		expect(scopes).toEqual(['user', 'local'])
+		expect(text()).toContain('identity is untouched')
 	})
 })

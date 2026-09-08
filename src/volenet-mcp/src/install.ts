@@ -138,11 +138,54 @@ const spawnClaude: ClaudeExec = (args) =>
 		timeout: 30_000,
 	})
 
+/** Where Claude Code records the plugins it has installed. */
+function installedPluginsPath(): string {
+	const dir = process.env.CLAUDE_CONFIG_DIR?.trim() || path.join(os.homedir(), '.claude')
+	return path.join(dir, 'plugins', 'installed_plugins.json')
+}
+
+/**
+ * The marketplace this identity's plugin came from, if the plugin is installed.
+ *
+ * The plugin registers this same server, the same seven prompts and its own SessionStart hook. A
+ * second registration alongside it is not a fallback, it is a duplicate: two entries in the tool
+ * list, two copies of every slash command, and two nodes wanting one identity. So installing has
+ * to know the plugin exists.
+ */
+export function pluginMarketplace(): string | null {
+	try {
+		const file = JSON.parse(fs.readFileSync(installedPluginsPath(), 'utf-8')) as {
+			plugins?: Record<string, unknown>
+		}
+		for (const key of Object.keys(file.plugins ?? {})) {
+			const [name, marketplace] = key.split('@')
+			if (name === SERVER_NAME && marketplace) return marketplace
+		}
+	} catch {
+		// no plugins file, or unreadable — treat as not installed
+	}
+	return null
+}
+
 export function install(
 	argv: string[],
 	out = process.stdout,
 	exec: ClaudeExec = spawnClaude,
 ): number {
+	// The plugin is the whole of this, packaged. Installing on top of it is the one case where
+	// doing what was asked leaves things worse than before.
+	const marketplace = pluginMarketplace()
+	if (marketplace && !argv.includes('--anyway')) {
+		out.write(
+			`The ${SERVER_NAME} plugin is already installed (${SERVER_NAME}@${marketplace}), and it ` +
+				'registers this server itself.\n\n' +
+				'Installing again would add a second copy: every tool and slash command twice, and two ' +
+				'nodes wanting one identity. Nothing was changed.\n\n' +
+				'  volenet-mcp uninstall           remove a registration added before the plugin\n' +
+				'  volenet-mcp install --anyway    register anyway, if you know you want both\n',
+		)
+		return 0
+	}
 	// User scope by default, because the identity is: one keypair per machine, in the home
 	// directory, shared by every session. Registering per project meant installing once and then
 	// finding no tools in the next directory you opened — the identity was global, the
@@ -212,4 +255,59 @@ export function install(
 	}
 	out.write(NEXT_STEPS)
 	return 0
+}
+
+/**
+ * Undo an install: the registration in both scopes, and the hooks this installer wrote.
+ *
+ * Mostly for the person who installed the server, then installed the plugin, and now has each
+ * thing twice. Nothing else is touched — the identity, its keys, its peers and its history all
+ * live in the store directory and are none of this command's business.
+ */
+export function uninstall(
+	argv: string[],
+	out = process.stdout,
+	exec: ClaudeExec = spawnClaude,
+): number {
+	const removed: string[] = []
+	for (const scope of ['user', 'local'] as const) {
+		if (exec(['mcp', 'remove', SERVER_NAME, '-s', scope]).status === 0) removed.push(scope)
+	}
+	const events = argv.includes('--keep-hooks') ? [] : removeHooks()
+	out.write(
+		(removed.length
+			? `Removed the ${SERVER_NAME} registration (${removed.join(', ')} scope).\n`
+			: `No ${SERVER_NAME} registration to remove.\n`) +
+			(events.length ? `Removed the hooks it wrote (${events.join(', ')}).\n` : '') +
+			'Your identity is untouched: keys, peers and history live in the store directory.\n',
+	)
+	return 0
+}
+
+/** Take out only the hook entries this installer wrote, leaving anyone else's alone. */
+export function removeHooks(): string[] {
+	const file = settingsPath()
+	let settings: Record<string, unknown>
+	try {
+		settings = JSON.parse(fs.readFileSync(file, 'utf-8')) as Record<string, unknown>
+	} catch {
+		return []
+	}
+	fs.copyFileSync(file, `${file}.bak-volenet`)
+	const hooks = (settings.hooks ?? {}) as Record<string, Array<Record<string, unknown>>>
+	const cleared: string[] = []
+	for (const event of Object.keys(hooks)) {
+		const kept = (hooks[event] ?? []).filter((e) => !JSON.stringify(e).includes('volenet-mcp'))
+		if (kept.length === (hooks[event] ?? []).length) continue
+		cleared.push(event)
+		if (kept.length) hooks[event] = kept
+		// An event left with nothing in it is noise in a file someone reads; drop it.
+		else hooks[event] = undefined as unknown as Array<Record<string, unknown>>
+	}
+	if (cleared.length === 0) return []
+	const left = Object.fromEntries(Object.entries(hooks).filter(([, v]) => v !== undefined))
+	if (Object.keys(left).length) settings.hooks = left
+	else settings.hooks = undefined
+	fs.writeFileSync(file, `${JSON.stringify(settings, null, 2)}\n`, 'utf-8')
+	return cleared
 }
