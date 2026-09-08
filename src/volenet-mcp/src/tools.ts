@@ -89,7 +89,11 @@ export const TOOLS: ToolDef[] = [
 				`listening   port ${key?.port ?? node.options.port} (reachable only from networks that can dial it)`,
 				`store       ${node.options.dir}`,
 				'identity    this project directory — another project is a different peer',
-				`node        ${node.where === 'daemon' ? 'a daemon, so this identity stays reachable when no session is open' : 'in this session, so it is only reachable while this session is'}`,
+				`node        ${
+					node.where === 'daemon'
+						? 'a daemon shared by every session on this identity, which leaves shortly after the last one does'
+						: 'in this session, so it is only reachable while this session is'
+				}`,
 			]
 			// The hybrid key string is ~2.5 KB — most of an ML-DSA-65 key — and spending that on
 			// every call would be a real cost to the session for something rarely needed.

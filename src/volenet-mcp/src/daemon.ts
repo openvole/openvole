@@ -35,14 +35,31 @@ interface Response {
 	error?: string
 }
 
+export interface ServeOptions {
+	/** A session attached. */
+	onBusy?: () => void
+	/** The last session detached — nobody is holding this identity open any more. */
+	onIdle?: () => void
+}
+
 /** Serve a node over a unix socket until the process is stopped. */
-export async function serve(dir: string, node: NetLike): Promise<net.Server> {
+export async function serve(
+	dir: string,
+	node: NetLike,
+	options: ServeOptions = {},
+): Promise<net.Server> {
 	const sock = socketPath(dir)
 	await fs.mkdir(dir, { recursive: true })
 	// A socket file outlives the process that made it. If nothing answers, it is stale.
 	await fs.rm(sock, { force: true })
 
+	// How many sessions are attached. The caller decides what an empty house means; all this knows
+	// is when the number changes.
+	let attached = 0
+
 	const server = net.createServer((conn) => {
+		attached += 1
+		options.onBusy?.()
 		let buffer = ''
 		conn.setEncoding('utf-8')
 		conn.on('data', (chunk) => {
@@ -55,6 +72,10 @@ export async function serve(dir: string, node: NetLike): Promise<net.Server> {
 		})
 		// A session going away is ordinary; it must never take the daemon with it.
 		conn.on('error', () => undefined)
+		conn.on('close', () => {
+			attached = Math.max(0, attached - 1)
+			if (attached === 0) options.onIdle?.()
+		})
 	})
 	server.on('error', () => undefined)
 	await new Promise<void>((done) => server.listen(sock, done))

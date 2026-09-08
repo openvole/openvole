@@ -5,15 +5,16 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { connect, remoteNet, serve, socketPath } from '../src/daemon.js'
 import { Inbox } from '../src/inbox.js'
 import type { NetLike } from '../src/net-api.js'
-import { startLocal } from '../src/node.js'
+import { lingerMs, startLocal } from '../src/node.js'
 
 /**
  * A node that outlives the session that wanted it.
  *
- * The point of a daemon is presence: an identity that only exists while an editor is open is
- * offline most of the time, so senders hold their messages and nothing arrives until you come
- * back. These check that a session can attach to a node it did not start, act through it, and go
- * away without taking it with them.
+ * The point of a daemon is that several sessions share one identity, and that quitting one does not
+ * take the node down with it. It does not outlive all of them: an identity still listed as online
+ * with nobody there to answer is a worse lie than being away. These check both halves — a session
+ * can attach to a node it did not start and leave without ending it, and the daemon is told when
+ * the last one has gone.
  */
 
 const servers: Array<{ close: () => void }> = []
@@ -34,6 +35,53 @@ async function daemonOn(dir: string): Promise<NetLike> {
 	})
 	return node.net
 }
+
+describe('leaving when the last session does', () => {
+	it('reports the first attach and the last detach', async () => {
+		// What the roster shows other people depends on this: a daemon that never leaves means an
+		// identity that is online long after there is anybody there to answer.
+		const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'volenet-idle-'))
+		const inbox = new Inbox(dir, 'daemon')
+		await inbox.load()
+		const node = await startLocal({ name: 'daemon', dir, port: 0, session: 'daemon' }, inbox)
+		const events: string[] = []
+		const server = await serve(dir, node.net, {
+			onBusy: () => events.push('busy'),
+			onIdle: () => events.push('idle'),
+		})
+		servers.push({
+			close: () => {
+				server.close()
+				void node.stop()
+			},
+		})
+
+		const first = await connect(dir)
+		const second = await connect(dir)
+		expect(events).toEqual(['busy', 'busy'])
+
+		// One session going does not empty the house.
+		first?.destroy()
+		await new Promise((r) => setTimeout(r, 80))
+		expect(events).toEqual(['busy', 'busy'])
+
+		second?.destroy()
+		await new Promise((r) => setTimeout(r, 80))
+		expect(events).toEqual(['busy', 'busy', 'idle'])
+	})
+
+	it('reads how long to linger, and honours a request to stay', () => {
+		expect(lingerMs(undefined)).toBe(20_000)
+		expect(lingerMs('')).toBe(20_000)
+		expect(lingerMs('5')).toBe(5000)
+		expect(lingerMs('0')).toBe(0)
+		// The machine whose whole job is being reachable.
+		expect(lingerMs('forever')).toBeNull()
+		// Nonsense falls back rather than leaving instantly.
+		expect(lingerMs('soon')).toBe(20_000)
+		expect(lingerMs('-3')).toBe(20_000)
+	})
+})
 
 describe('the daemon', () => {
 	it('answers a session that did not start it, and keeps its identity', async () => {

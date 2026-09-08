@@ -202,16 +202,21 @@ is lost, but there is no session for a message to reach. That is a real limit, n
 
 ## The node runs in a daemon
 
-An identity that exists only while an editor is open is offline most of the time: senders hold what
-they cannot deliver, hubs record that somebody tried, and nothing arrives until you come back. So
-the node lives in a small daemon — one per identity, started the first time a session wants it,
-outliving every session. You are reachable whether or not anything is open.
+The node lives in a small daemon — one per identity, started the first time a session wants it,
+shared by every session after that. It settles what two open editors would otherwise do to each
+other: two nodes on one identity means a hub binds one socket and the other goes deaf. One node,
+many sessions attached, no race. Quitting one session does not take it down.
 
-It also settles what two open editors would otherwise do to each other: two nodes on one identity
-means a hub binds one socket and the other goes deaf. One node, many sessions attached, no race.
+Quitting the *last* one does. Twenty seconds after the last session detaches, the daemon stops and
+the identity goes offline, because an identity a peer sees as online with nobody there to answer is
+a worse lie than being away — and it costs nothing to be away, since a sender holds what it cannot
+deliver and flushes when you return. The pause is for restarts: reopening an editor or reloading
+plugins drops the socket for a few seconds and should not mean a new node and a fresh dial-out.
 
 ```bash
-volenet-mcp daemon    # run it in the foreground; normally it is started for you
+volenet-mcp daemon              # run it in the foreground; normally it is started for you
+VOLENET_MCP_LINGER=60           # seconds to wait after the last session leaves
+VOLENET_MCP_LINGER=forever      # stay up regardless, for a machine whose job is being reachable
 ```
 
 Reading does not go through it. Messages are an append-only file, so a session reads them directly

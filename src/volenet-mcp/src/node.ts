@@ -215,9 +215,54 @@ export async function runDaemon(options: NodeOptions): Promise<void> {
 	const inbox = new Inbox(options.dir, 'daemon')
 	await inbox.load()
 	const node = await startLocal(options, inbox, notifier())
-	await serve(options.dir, node.net)
-	// Nothing else to do: the node is running and the socket is answering.
+
+	// The daemon outlives any one session, but not all of them.
+	//
+	// It used to run for ever, so an identity stayed online long after the last editor closed —
+	// and a peer looking at the roster saw somebody there to talk to when there was nobody. That
+	// is a worse lie than being offline: a sender holds what it cannot deliver and flushes it when
+	// you are back, so going away costs nothing and pretending to be present costs a reply.
+	//
+	// The linger is for restarts. Quitting and reopening, or reloading plugins, drops the socket
+	// for a few seconds; leaving on the first empty moment would mean a new node, a new port and a
+	// fresh dial-out every time.
+	const linger = lingerMs()
+	let leaving: ReturnType<typeof setTimeout> | undefined
+	const leave = (after: number) => {
+		if (linger === null) return // asked to stay
+		clearTimeout(leaving)
+		leaving = setTimeout(() => {
+			void node.stop().finally(() => process.exit(0))
+		}, after)
+	}
+
+	await serve(options.dir, node.net, {
+		onBusy: () => clearTimeout(leaving),
+		onIdle: () => leave(linger ?? 0),
+	})
+	// Nobody has attached yet. A daemon spawned for a session that then failed to reach it would
+	// otherwise sit here for ever, so give it a generous window and then go.
+	leave(STARTUP_GRACE_MS)
 	await new Promise(() => undefined)
+}
+
+/** How long to wait for the first session before concluding nobody is coming. */
+const STARTUP_GRACE_MS = 60_000
+
+/** The default pause between the last session leaving and the daemon following it. */
+const DEFAULT_LINGER_MS = 20_000
+
+/**
+ * How long to stay after the last session goes, or null to stay indefinitely.
+ *
+ * `VOLENET_MCP_LINGER` is seconds; `forever` keeps the old always-on behaviour, which is what you
+ * want on a machine whose whole job is to be reachable.
+ */
+export function lingerMs(value = process.env.VOLENET_MCP_LINGER?.trim()): number | null {
+	if (!value) return DEFAULT_LINGER_MS
+	if (value === 'forever') return null
+	const seconds = Number(value)
+	return Number.isFinite(seconds) && seconds >= 0 ? seconds * 1000 : DEFAULT_LINGER_MS
 }
 
 /**
