@@ -83,6 +83,58 @@ describe('leaving when the last session does', () => {
 	})
 })
 
+describe('a daemon that goes away under a live session', () => {
+	it('fails a call made after the line died, instead of hanging on it', async () => {
+		// The shape of a real hang: the daemon leaves, the session stays, and the next tool call
+		// waits for an answer nobody is going to send.
+		const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'volenet-dead-'))
+		const inbox = new Inbox(dir, 'daemon')
+		await inbox.load()
+		const node = await startLocal({ name: 'daemon', dir, port: 0, session: 'daemon' }, inbox)
+		const server = await serve(dir, node.net)
+		const conn = await connect(dir)
+		if (!conn) throw new Error('no connection')
+		// No dir passed: nowhere to reconnect to, so it must fail rather than wait.
+		const net = remoteNet(conn)
+
+		server.close()
+		await node.stop()
+		conn.destroy()
+		await new Promise((r) => setTimeout(r, 50))
+
+		await expect(net.identity()).rejects.toThrow()
+		await fs.rm(dir, { recursive: true, force: true })
+	})
+
+	it('reopens the line when it knows where to look', async () => {
+		const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'volenet-again-'))
+		const inbox = new Inbox(dir, 'daemon')
+		await inbox.load()
+		const node = await startLocal({ name: 'daemon', dir, port: 0, session: 'daemon' }, inbox)
+		const first = await serve(dir, node.net)
+		const conn = await connect(dir)
+		if (!conn) throw new Error('no connection')
+		const net = remoteNet(conn, dir)
+		expect(await net.identity()).toBeTruthy()
+
+		// The daemon goes. A second one comes up on the same socket, as a restart would.
+		first.close()
+		conn.destroy()
+		await new Promise((r) => setTimeout(r, 50))
+		const second = await serve(dir, node.net)
+		servers.push({
+			close: () => {
+				second.close()
+				void node.stop()
+			},
+		})
+
+		// Same handle, new line underneath, no reconnect asked for by the caller.
+		expect(await net.identity()).toBeTruthy()
+		await fs.rm(dir, { recursive: true, force: true })
+	})
+})
+
 describe('the daemon', () => {
 	it('answers a session that did not start it, and keeps its identity', async () => {
 		const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'volenet-daemon-'))

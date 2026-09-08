@@ -109,42 +109,87 @@ async function handle(line: string, conn: net.Socket, node: NetLike): Promise<vo
 }
 
 /** Talk to a daemon over its socket, as if the node were here. */
-export function remoteNet(conn: net.Socket): NetLike {
+/**
+ * Talk to a node over the socket, surviving the daemon going away.
+ *
+ * The daemon is not permanent — it leaves once the last session does, and it can be killed or
+ * crash under a session that is still open. Rejecting whatever was in flight is only half of that:
+ * a request made *after* the connection died would sit in `pending` for ever, because nothing was
+ * ever going to answer it, and the caller sees a tool that hangs rather than one that failed.
+ *
+ * So the connection is a thing that can be dead, and asking again is how it comes back. Given a
+ * `dir`, a call that finds the line down opens a new one — starting a daemon if none is listening —
+ * and goes through that. Without one there is nowhere to reconnect to, and it fails at once.
+ */
+export function remoteNet(conn: net.Socket, dir?: string): NetLike {
 	let next = 1
 	const pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>()
-	let buffer = ''
-	conn.setEncoding('utf-8')
-	conn.on('data', (chunk) => {
-		buffer += chunk
-		for (let nl = buffer.indexOf('\n'); nl >= 0; nl = buffer.indexOf('\n')) {
-			const line = buffer.slice(0, nl)
-			buffer = buffer.slice(nl + 1)
-			if (!line.trim()) continue
-			try {
-				const res = JSON.parse(line) as Response
-				const waiter = pending.get(res.id)
-				if (!waiter) continue
-				pending.delete(res.id)
-				if (res.ok) waiter.resolve(res.result)
-				else waiter.reject(new Error(res.error ?? 'daemon error'))
-			} catch {
-				// not ours
-			}
-		}
-	})
+	let socket = conn
+	let live = true
+
 	const fail = (why: string) => {
+		live = false
 		for (const [, w] of pending) w.reject(new Error(why))
 		pending.clear()
 	}
-	conn.on('close', () => fail('the volenet daemon closed the connection'))
-	conn.on('error', (e) => fail(e.message))
 
-	const call = (method: string, ...args: unknown[]) =>
-		new Promise<unknown>((resolve, reject) => {
+	const wire = (s: net.Socket) => {
+		let buffer = ''
+		s.setEncoding('utf-8')
+		s.on('data', (chunk) => {
+			buffer += chunk
+			for (let nl = buffer.indexOf('\n'); nl >= 0; nl = buffer.indexOf('\n')) {
+				const line = buffer.slice(0, nl)
+				buffer = buffer.slice(nl + 1)
+				if (!line.trim()) continue
+				try {
+					const res = JSON.parse(line) as Response
+					const waiter = pending.get(res.id)
+					if (!waiter) continue
+					pending.delete(res.id)
+					if (res.ok) waiter.resolve(res.result)
+					else waiter.reject(new Error(res.error ?? 'daemon error'))
+				} catch {
+					// not ours
+				}
+			}
+		})
+		// Only the socket we are currently using gets to declare the line dead; an old one closing
+		// after we have already moved on says nothing about the new one.
+		s.on('close', () => {
+			if (s === socket) fail('the volenet daemon closed the connection')
+		})
+		s.on('error', (e) => {
+			if (s === socket) fail(e.message)
+		})
+	}
+	wire(socket)
+
+	/** Get a working line, opening a new one if the last is gone. */
+	const ready = async (): Promise<void> => {
+		if (live && !socket.destroyed) return
+		if (!dir) throw new Error('the volenet daemon is not running')
+		const fresh = (await connect(dir)) ?? (await spawnDaemon(dir))
+		if (!fresh) throw new Error('could not reach or start the volenet daemon')
+		socket = fresh
+		live = true
+		wire(socket)
+	}
+
+	const call = async (method: string, ...args: unknown[]) => {
+		await ready()
+		return new Promise<unknown>((resolve, reject) => {
 			const id = next++
 			pending.set(id, { resolve, reject })
-			conn.write(`${JSON.stringify({ id, method, args })}\n`)
+			// A write that cannot go out must reject rather than wait for an answer that is not
+			// coming — this is the shape the hang took.
+			socket.write(`${JSON.stringify({ id, method, args })}\n`, (err) => {
+				if (!err) return
+				pending.delete(id)
+				reject(err)
+			})
 		})
+	}
 
 	return Object.fromEntries(
 		NET_METHODS.map((m) => [m, (...args: unknown[]) => call(m, ...args)]),

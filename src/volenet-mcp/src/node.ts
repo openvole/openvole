@@ -20,7 +20,7 @@ import {
 	parsePublicKey,
 } from '@openvole/volenet'
 import { type Settings, loadStored, rememberPeer, resolveSettings } from './config.js'
-import { connect, remoteNet, serve, spawnDaemon } from './daemon.js'
+import { connect, remoteNet, serve, socketPath, spawnDaemon } from './daemon.js'
 import { Inbox, type Message } from './inbox.js'
 import { type NetLike, localNet } from './net-api.js'
 import { type Notifier, notifier, preview } from './notify.js'
@@ -82,7 +82,9 @@ export async function startNode(options: NodeOptions): Promise<Node> {
 		const conn = (await connect(options.dir)) ?? (await spawnDaemon(options.dir))
 		if (conn) {
 			return {
-				net: remoteNet(conn),
+				// With the directory, a call that finds the daemon gone reopens the line rather than
+				// hanging on an answer that is not coming.
+				net: remoteNet(conn, options.dir),
 				inbox,
 				requests: [],
 				notices: [],
@@ -226,14 +228,32 @@ export async function runDaemon(options: NodeOptions): Promise<void> {
 	// The linger is for restarts. Quitting and reopening, or reloading plugins, drops the socket
 	// for a few seconds; leaving on the first empty moment would mean a new node, a new port and a
 	// fresh dial-out every time.
+	// Going away tidily rather than just stopping. The socket file outlives the process — `serve`
+	// clears a stale one on the way in, so leaving it costs only a refused connect — but a daemon
+	// that now has a way out should take its own door with it. Stopping the node first also closes
+	// the links properly, so a peer sees us leave instead of timing us out.
+	let going = false
+	const depart = async () => {
+		if (going) return
+		going = true
+		await node.stop().catch(() => undefined)
+		try {
+			fsSync.rmSync(socketPath(options.dir), { force: true })
+		} catch {
+			// already gone, or not ours to remove
+		}
+		process.exit(0)
+	}
+	// Killed by hand, or by whatever is managing this machine.
+	process.on('SIGINT', () => void depart())
+	process.on('SIGTERM', () => void depart())
+
 	const linger = lingerMs()
 	let leaving: ReturnType<typeof setTimeout> | undefined
 	const leave = (after: number) => {
 		if (linger === null) return // asked to stay
 		clearTimeout(leaving)
-		leaving = setTimeout(() => {
-			void node.stop().finally(() => process.exit(0))
-		}, after)
+		leaving = setTimeout(() => void depart(), after)
 	}
 
 	await serve(options.dir, node.net, {
