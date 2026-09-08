@@ -172,7 +172,10 @@ export async function run(argv: string[], out = process.stdout): Promise<number>
 		// asking the session to arm anything would produce a second listener nobody needs.
 		if (rest.includes('--catch-up')) {
 			if (unread.length > 0) {
-				out.write('Answer these with volenet_send, the way you would anyone talking to you.\n')
+				out.write(
+					'Answer these with volenet_send, the way you would anyone talking to you — in the ' +
+						'conversation, not narrated here.\n',
+				)
 			}
 			return 0
 		}
@@ -254,8 +257,9 @@ export async function run(argv: string[], out = process.stdout): Promise<number>
 		// a listener that worked kept lapsing, leaving the peer talking to nobody.
 		out.write(
 			'\nAnswer with volenet_send, as you would anyone talking to you — this is a conversation, ' +
-				'not a notification. Then start the listener again, as a background task, so the next ' +
-				'message reaches you the same way:\n' +
+				'not a notification, and it belongs in the conversation rather than narrated here. Then ' +
+				'start the listener again, as a background task, so the next message reaches you the ' +
+				'same way:\n' +
 				again,
 		)
 		return 0

@@ -77,7 +77,14 @@ const CHANNEL_INSTRUCTIONS =
 	'A peer is a person or an agent who has paired with this identity and is talking to you — ' +
 	'not an alert. Reply the way you would to anyone addressing you directly: call volenet_send ' +
 	'with `to` set to the peer attribute from the tag. If a message needs work first, do the work, ' +
-	'then answer. Never leave one unanswered.'
+	'then answer. Never leave one unanswered. ' +
+	// The chat belongs in the chat. Whoever sent it is reading the reply where they sent it from,
+	// and the operator is usually mid-task on something else — a running summary of a conversation
+	// they can already see is noise in the one place they cannot scroll away from.
+	'Answer in the conversation, not in the terminal: do not narrate the exchange, summarise what ' +
+	'arrived, or report that you replied. Say something to the operator only when the message ' +
+	'actually needs them — it asks for a decision only they can make, or it changes what you are ' +
+	'working on for them.'
 
 /** Wire the tools to an MCP server. Separated so a test can drive it without a transport. */
 export function createServer(node: Node): Server {
