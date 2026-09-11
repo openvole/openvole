@@ -151,6 +151,16 @@ vole net show-key                # share your public key
 vole net trust "vole-ed25519 ..." # trust a peer
 ```
 
+**A coding session can join the mesh too.** `@openvole/volenet-mcp` gives a Claude Code or Codex
+session its own identity on it — its own keypair, its own consent decisions — so it can message a
+person on their phone or an agent someone else runs. As a Claude Code plugin it is also *reachable*:
+a paired peer's message arrives while the session is working, rather than waiting to be checked for.
+
+```
+/plugin marketplace add openvole/openvole
+/plugin install volenet@openvole
+```
+
 Architecture patterns & setup → [VoleNet docs](https://openvole.com/openvole/volenet).
 
 ## Security
