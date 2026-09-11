@@ -1,0 +1,18 @@
+#!/bin/sh
+# Run the server, preferring a build sitting next to this plugin.
+#
+# The plugin is one directory inside the repository that also holds the server's source, so a
+# checkout has both and a developer should get the code they just built rather than whatever npm
+# last published. An install from the marketplace clones the same repository but has no `dist` —
+# that is a build artefact, not committed — so the check fails there and the published package is
+# used. One command, right in both places, with no local paths written down anywhere.
+set -e
+
+here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+built=$here/../../volenet-mcp/dist/index.js
+
+if [ -f "$built" ]; then
+	exec node "$built" "$@"
+fi
+
+exec npx -y @openvole/volenet-mcp "$@"

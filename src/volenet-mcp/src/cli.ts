@@ -1,4 +1,3 @@
-import * as fsSync from 'node:fs'
 /**
  * The command line, for the things you want before a session exists — or without one.
  *
@@ -15,16 +14,20 @@ import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 import { loadKeyPair } from '@openvole/volenet'
 import { baseDir, cursorKey, defaultDir, defaultName, loadStored, saveStored } from './config.js'
-import { Inbox, type Message } from './inbox.js'
-import { install } from './install.js'
+import { Inbox } from './inbox.js'
+import { install, uninstall } from './install.js'
+import { holdListenerLock, waitForMessages, watchInbox } from './watch.js'
 
 const USAGE = `volenet-mcp — VoleNet as an MCP server
 
   volenet-mcp install [--local]    register with Claude Code (default: every project)
+  volenet-mcp uninstall            remove that registration and its hooks; keeps your identity
   volenet-mcp whoami               this machine's identity on the mesh
   volenet-mcp daemon               run the node in the foreground (normally started for you)
   volenet-mcp hub [url|--leave]    which hub to use; takes effect on the next session
   volenet-mcp adopt                take over an identity left at the old shared location
+  volenet-mcp session-start        what a session should know and do on opening (for a hook)
+  volenet-mcp listen               print each message as it arrives and keep going (for a monitor)
   volenet-mcp wait [--timeout <s>]  block until a message arrives, then print it and exit
   volenet-mcp inbox [--read] [--quiet]
                                    messages waiting. --read marks them seen, --quiet says
@@ -54,6 +57,8 @@ export async function run(argv: string[], out = process.stdout): Promise<number>
 	}
 
 	if (command === 'install') return install(rest, out)
+
+	if (command === 'uninstall') return uninstall(rest, out)
 
 	if (command === 'daemon') {
 		// The node itself: one per identity, outliving every session. Sessions start this for
@@ -146,6 +151,88 @@ export async function run(argv: string[], out = process.stdout): Promise<number>
 		return 0
 	}
 
+	if (command === 'session-start') {
+		// For a SessionStart hook. Two jobs: hand over what arrived while nothing was open, and
+		// ask the session to arm a listener.
+		//
+		// The asking is the point. Nothing here can wake a session — an MCP server has no way to,
+		// and a hook's own exit does not either. What *does* wake one is a background task the
+		// client is tracking, and only the session itself can start one. So this cannot arm the
+		// listener; it can only tell the session to, and let it decide.
+		const inbox = new Inbox(dir, cursorKey())
+		await inbox.load()
+		const unread = inbox.unread()
+		if (unread.length > 0) {
+			out.write(
+				`${unread.length} VoleNet message${unread.length === 1 ? '' : 's'} arrived while you were away:\n\n`,
+			)
+			for (const m of unread) out.write(`  [${when(m.ts)}] ${m.peerName}: ${m.text}\n`)
+			out.write('\n')
+			await inbox.markRead()
+		}
+		// --catch-up is the plugin's form: something else is doing the listening — a channel push or
+		// a monitor the client started — so handing over what was missed is the whole job, and
+		// asking the session to arm anything would produce a second listener nobody needs.
+		if (rest.includes('--catch-up')) {
+			if (unread.length > 0) {
+				out.write(
+					'Answer these with volenet_send, the way you would anyone talking to you — in the ' +
+						'conversation, not narrated here.\n',
+				)
+			}
+			return 0
+		}
+		const self = process.argv[1]?.endsWith('.js') ? `node ${process.argv[1]}` : 'volenet-mcp'
+		out.write(
+			'VoleNet is connected for this project. Peers you have paired with can reach you, and you ' +
+				'are expected to be reachable: start the listener now, as a background task, and again ' +
+				'every time it returns.\n\n' +
+				`  ${self} wait --timeout 3000\n\n` +
+				'It blocks until a message arrives, then exits — a process exiting is what reaches a ' +
+				'session that is otherwise idle. Answer what arrives with volenet_send, the way you ' +
+				'would anyone talking to you: a paired peer is in a conversation with you, not leaving ' +
+				'notifications.\n',
+		)
+		return 0
+	}
+
+	if (command === 'listen') {
+		// The monitor form: never exits, prints one line per message, and the client turns each
+		// line into a notification. Nothing has to ask for this and nothing has to re-arm it —
+		// Claude Code starts it at session start and stops it at session end.
+		//
+		// `wait` exists for the case where that is not available: it exits, and a background task
+		// exiting is the only other thing that reaches a session nobody is typing in.
+		//
+		// Whatever was already unread is delivered too, rather than skipped as "before my time".
+		// The SessionStart hook may or may not have got there first — the order the client starts
+		// them in is not ours to decide — and they share one read cursor, so exactly one of them
+		// delivers each message. Skipping the backlog here would mean losing it on every race the
+		// monitor won.
+		const inbox = new Inbox(dir, cursorKey())
+		await inbox.load()
+		// Claim delivery, so the server's channel watcher stands aside instead of racing us for
+		// the cursor and silently discarding a message the client never registered it to receive.
+		const release = holdListenerLock(dir)
+		for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) {
+			process.on(signal, () => {
+				release()
+				process.exit(0)
+			})
+		}
+		process.on('exit', release)
+		watchInbox(inbox, dir, (messages) => {
+			for (const m of messages) {
+				// One line per message: a newline is what ends a notification, so the text is
+				// flattened rather than wrapped.
+				out.write(`${m.peerName}: ${m.text.replace(/\s*\n\s*/g, ' ')}\n`)
+			}
+		})
+		// Hold the process open for the lifetime of the session. The client kills it at the end.
+		await new Promise<never>(() => {})
+		return 0
+	}
+
 	if (command === 'wait') {
 		// Blocks until something lands. A client that cannot be woken by a server can still be
 		// woken by a process that *exits* — this is the thing to run in the background so a
@@ -154,41 +241,30 @@ export async function run(argv: string[], out = process.stdout): Promise<number>
 		await inbox.load()
 		const seconds = Number(rest[rest.indexOf('--timeout') + 1])
 		const limit = Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : 3600_000
-		const log = path.join(dir, 'messages.jsonl')
-
-		const arrived = await new Promise<Message[]>((resolve) => {
-			const done = (v: Message[]) => {
-				clearInterval(timer)
-				clearTimeout(cap)
-				watcher?.close()
-				resolve(v)
-			}
-			const check = async () => {
-				await inbox.refresh().catch(() => undefined)
-				const unread = inbox.unread()
-				if (unread.length > 0) done(unread)
-			}
-			let watcher: import('node:fs').FSWatcher | undefined
-			try {
-				watcher = fsSync.watch(path.dirname(log), (_e, name) => {
-					if (name === 'messages.jsonl') void check()
-				})
-			} catch {
-				// no watcher here; the poll below still gets there
-			}
-			const timer = setInterval(() => void check(), 1000)
-			const cap = setTimeout(() => done([]), limit)
-			void check()
+		const arrived = await waitForMessages(inbox, dir, limit, {
+			markRead: !rest.includes('--keep'),
 		})
 
+		const self = process.argv[1]?.endsWith('.js') ? `node ${process.argv[1]}` : 'volenet-mcp'
+		const again = `  ${self} wait --timeout ${Math.round(limit / 1000)}\n`
 		if (arrived.length === 0) {
-			out.write(`Nothing arrived within ${Math.round(limit / 1000)}s.\n`)
+			out.write(
+				`Nothing arrived within ${Math.round(limit / 1000)}s.\n\n` +
+					`Start the listener again now, as a background task, so this peer stays live:\n${again}`,
+			)
 			return 0
 		}
 		out.write(`${arrived.length} new VoleNet message${arrived.length === 1 ? '' : 's'}:\n\n`)
 		for (const m of arrived) out.write(`  [${when(m.ts)}] ${m.peerName}: ${m.text}\n`)
-		if (!rest.includes('--keep')) await inbox.markRead()
-		out.write('\n')
+		// Every wake carries what to do next. Otherwise the loop runs exactly once — which is how
+		// a listener that worked kept lapsing, leaving the peer talking to nobody.
+		out.write(
+			'\nAnswer with volenet_send, as you would anyone talking to you — this is a conversation, ' +
+				'not a notification, and it belongs in the conversation rather than narrated here. Then ' +
+				'start the listener again, as a background task, so the next message reaches you the ' +
+				'same way:\n' +
+				again,
+		)
 		return 0
 	}
 

@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "volenet": {
+      "command": "${CLAUDE_PLUGIN_ROOT}/bin/volenet-mcp"
+    }
+  }
+}

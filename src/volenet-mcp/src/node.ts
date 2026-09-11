@@ -20,7 +20,7 @@ import {
 	parsePublicKey,
 } from '@openvole/volenet'
 import { type Settings, loadStored, rememberPeer, resolveSettings } from './config.js'
-import { connect, remoteNet, serve, spawnDaemon } from './daemon.js'
+import { connect, remoteNet, serve, socketPath, spawnDaemon } from './daemon.js'
 import { Inbox, type Message } from './inbox.js'
 import { type NetLike, localNet } from './net-api.js'
 import { type Notifier, notifier, preview } from './notify.js'
@@ -56,8 +56,9 @@ export interface Node {
 	/** What happened when the node last tried to join the configured hub. */
 	hubStatus: string
 	/**
-	 * Whether the client will run a model when the server asks — MCP's `sampling` capability, and
-	 * the only way an arriving message could ever answer itself. Set once the client has connected.
+	 * Whether the client will run a model when the server asks — MCP's `sampling` capability. Set
+	 * once the client has connected. Claude Code does not offer it; a channel notification is what
+	 * gets an arriving message in front of the model there.
 	 */
 	canSample: boolean
 	/** Where this node is running, which decides whether it is there when nothing is open. */
@@ -81,7 +82,9 @@ export async function startNode(options: NodeOptions): Promise<Node> {
 		const conn = (await connect(options.dir)) ?? (await spawnDaemon(options.dir))
 		if (conn) {
 			return {
-				net: remoteNet(conn),
+				// With the directory, a call that finds the daemon gone reopens the line rather than
+				// hanging on an answer that is not coming.
+				net: remoteNet(conn, options.dir),
 				inbox,
 				requests: [],
 				notices: [],
@@ -214,9 +217,72 @@ export async function runDaemon(options: NodeOptions): Promise<void> {
 	const inbox = new Inbox(options.dir, 'daemon')
 	await inbox.load()
 	const node = await startLocal(options, inbox, notifier())
-	await serve(options.dir, node.net)
-	// Nothing else to do: the node is running and the socket is answering.
+
+	// The daemon outlives any one session, but not all of them.
+	//
+	// It used to run for ever, so an identity stayed online long after the last editor closed —
+	// and a peer looking at the roster saw somebody there to talk to when there was nobody. That
+	// is a worse lie than being offline: a sender holds what it cannot deliver and flushes it when
+	// you are back, so going away costs nothing and pretending to be present costs a reply.
+	//
+	// The linger is for restarts. Quitting and reopening, or reloading plugins, drops the socket
+	// for a few seconds; leaving on the first empty moment would mean a new node, a new port and a
+	// fresh dial-out every time.
+	// Going away tidily rather than just stopping. The socket file outlives the process — `serve`
+	// clears a stale one on the way in, so leaving it costs only a refused connect — but a daemon
+	// that now has a way out should take its own door with it. Stopping the node first also closes
+	// the links properly, so a peer sees us leave instead of timing us out.
+	let going = false
+	const depart = async () => {
+		if (going) return
+		going = true
+		await node.stop().catch(() => undefined)
+		try {
+			fsSync.rmSync(socketPath(options.dir), { force: true })
+		} catch {
+			// already gone, or not ours to remove
+		}
+		process.exit(0)
+	}
+	// Killed by hand, or by whatever is managing this machine.
+	process.on('SIGINT', () => void depart())
+	process.on('SIGTERM', () => void depart())
+
+	const linger = lingerMs()
+	let leaving: ReturnType<typeof setTimeout> | undefined
+	const leave = (after: number) => {
+		if (linger === null) return // asked to stay
+		clearTimeout(leaving)
+		leaving = setTimeout(() => void depart(), after)
+	}
+
+	await serve(options.dir, node.net, {
+		onBusy: () => clearTimeout(leaving),
+		onIdle: () => leave(linger ?? 0),
+	})
+	// Nobody has attached yet. A daemon spawned for a session that then failed to reach it would
+	// otherwise sit here for ever, so give it a generous window and then go.
+	leave(STARTUP_GRACE_MS)
 	await new Promise(() => undefined)
+}
+
+/** How long to wait for the first session before concluding nobody is coming. */
+const STARTUP_GRACE_MS = 60_000
+
+/** The default pause between the last session leaving and the daemon following it. */
+const DEFAULT_LINGER_MS = 20_000
+
+/**
+ * How long to stay after the last session goes, or null to stay indefinitely.
+ *
+ * `VOLENET_MCP_LINGER` is seconds; `forever` keeps the old always-on behaviour, which is what you
+ * want on a machine whose whole job is to be reachable.
+ */
+export function lingerMs(value = process.env.VOLENET_MCP_LINGER?.trim()): number | null {
+	if (!value) return DEFAULT_LINGER_MS
+	if (value === 'forever') return null
+	const seconds = Number(value)
+	return Number.isFinite(seconds) && seconds >= 0 ? seconds * 1000 : DEFAULT_LINGER_MS
 }
 
 /**

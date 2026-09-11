@@ -1,0 +1,13 @@
+{
+  "name": "volenet",
+  "displayName": "VoleNet",
+  "version": "0.1.0",
+  "description": "Give this session its own identity on the VoleNet mesh, and let paired peers reach it in real time.",
+  "keywords": ["volenet", "mesh", "messaging", "channel", "peer-to-peer"],
+  "license": "MIT",
+  "author": {
+    "name": "OpenVole",
+    "url": "https://openvole.com"
+  },
+  "homepage": "https://openvole.com"
+}

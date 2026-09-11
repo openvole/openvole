@@ -1,5 +1,40 @@
 # Changelog
 
+## `@openvole/volenet-mcp` 0.4.0 (2026-09-12)
+
+> The MCP server and a new Claude Code plugin. `openvole` stays at 4.21.0 and `@openvole/volenet` at 1.1.1.
+
+### Added
+
+- **A Claude Code plugin, which is what makes a session actually reachable.** Installing the server alone gives a session tools it reaches for when asked; a message arrives and nothing says so. The plugin bundles the server with two mechanisms that carry a message *into* a working session, plus a session-start catch-up, so installing it is the whole setup:
+
+  ```
+  /plugin marketplace add openvole/openvole
+  /plugin install volenet@openvole
+  ```
+
+- **A channel.** The server declares the `claude/channel` capability, so an arriving message is pushed straight into the running session as `<channel source="volenet" peer="..." >text</channel>` rather than waiting to be checked for. Reply with `volenet_send`, passing the peer from the tag.
+
+- **A monitor.** The plugin declares a background process the client starts itself at session start — `volenet-mcp listen`, which prints one line per arriving message, each line reaching the session as a notification. It needs no flag, and nothing has to ask for it or re-arm it.
+
+- **`volenet-mcp uninstall`** removes a registration and only the hooks this installer wrote, leaving anyone else's alone. Your identity is untouched: keys, peers and history live in the store directory.
+
+### Changed
+
+- **The daemon leaves when the last session does**, about twenty seconds after. It used to run for ever, so an identity stayed online long after every editor closed and a peer looking at the roster saw somebody there to talk to when there was nobody. Going away costs nothing — a sender holds what it cannot deliver and flushes on return — while pretending to be present costs a reply. The pause covers a restart; `VOLENET_MCP_LINGER` tunes it, and `forever` keeps the old behaviour for a machine whose job is being reachable.
+
+- **`install` stands aside when the plugin is present.** The plugin registers the same server, so installing on top of it gave every tool and slash command twice and two nodes wanting one identity. `--anyway` overrides.
+
+- **A message is answered in the conversation, not narrated in the terminal.** The sender is reading the reply where they sent it from, and the operator is usually mid-task on something else.
+
+### Fixed
+
+- **A message could be lost between two listeners.** The channel and the monitor share one read cursor, and the channel marked a message read on a push it could not confirm — a client that has not registered the server as a channel drops it in silence and returns no error. When the channel won the race the message went nowhere and was marked seen. Delivery is now claimed: the monitor takes a lock because a line it prints demonstrably reaches the session, and the channel stands aside while it is held. The push is also only made to a client known to carry it.
+
+- **A session outliving its daemon hung on every tool call.** Only requests already in flight were rejected when the connection died; one made afterwards waited for an answer nobody would send. The connection can now be dead and reopens on demand. The daemon also leaves on a signal, closing its links and taking its socket with it.
+
+- **`whoami` said a message could not reach a session**, which a channel disproves.
+
 ## `@openvole/volenet-mcp` 0.3.0 (2026-09-06)
 
 > The MCP server alone. `openvole` stays at 4.21.0 and `@openvole/volenet` at 1.1.1.

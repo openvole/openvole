@@ -1,0 +1,8 @@
+[
+  {
+    "name": "volenet-inbox",
+    "command": "\"${CLAUDE_PLUGIN_ROOT}\"/bin/volenet-mcp listen",
+    "description": "Messages from paired VoleNet peers",
+    "when": "always"
+  }
+]

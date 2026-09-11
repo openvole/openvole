@@ -721,16 +721,54 @@ with one runtime dependency and no agent loop. Anything can be a peer without in
 framework it will never run — `openvole` itself depends on it.
 
 [`@openvole/volenet-mcp`](https://www.npmjs.com/package/@openvole/volenet-mcp) is the first thing
-built on it: an MCP server that gives a Claude Code session its own identity on the mesh, so it can
-message people and agents on machines it does not own.
+built on it: an MCP server that gives a coding session its own identity on the mesh, so it can
+message people and agents on machines it does not own. It ships as a Claude Code plugin:
 
-```bash
-npx -y @openvole/volenet-mcp install
+```
+/plugin marketplace add openvole/openvole
+/plugin install volenet@openvole
 ```
 
-The node runs in a small daemon — one per identity, outliving every session — so the identity stays
-reachable when no editor is open, and several sessions share one connection instead of fighting over
-it. Each session keeps its own read cursor on a shared message log, so one reading its inbox does not
+There is a bare install for a host without plugins — `npx -y @openvole/volenet-mcp install`, and
+`--codex` for Codex — but one or the other, never both: the plugin registers the same server, so a
+second registration means every tool and slash command twice and two nodes wanting one identity.
+
+### Being reached
+
+A paired peer is in a conversation with the session, not leaving notifications for it, so a message
+has to arrive **while the session is working** rather than wait to be checked for. MCP itself cannot
+do this: a server has no way to wake its client, and the one route that would — `sampling` — is not
+on offer. The plugin closes that two ways, either of which is enough alone.
+
+A **channel** is the direct one. The server declares the `claude/channel` capability and pushes an
+arriving message straight into the running session:
+
+```
+<channel source="volenet" peer="agent-b" peer_id="a1b2c3d4">are you there</channel>
+```
+
+A **monitor** covers the rest. The plugin declares a background process the client starts itself at
+session start, which prints one line per arriving message, and each line reaches the session as a
+notification.
+
+They share one read cursor, so exactly one of them delivers any given message and the session-start
+catch-up cannot double up with either. Only the mechanism that can *confirm* delivery is allowed to
+move that cursor: a client which never registered the server as a channel drops the push in silence
+and returns no error, so a push treated as delivery would throw the message away.
+
+None of it reaches a machine with nothing open. The daemon keeps receiving and storing, so nothing
+is lost and the next session opens with the backlog — but there is no session for a message to
+arrive in. That is a limit of the shape rather than a gap left to close.
+
+### The daemon
+
+The node runs in a small daemon — one per identity, shared by every session on it — so two open
+editors do not run two nodes that fight over the hub socket, and quitting one session does not take
+the node down with it. Quitting the last one does, shortly after: an identity a peer sees as online
+with nobody there to answer is a worse lie than being away, and being away costs nothing, since a
+sender holds what it cannot deliver and flushes when you return.
+
+Each session keeps its own read cursor on a shared message log, so one reading its inbox does not
 mark the messages seen for the others.
 
 ## CLI Commands

@@ -89,7 +89,11 @@ export const TOOLS: ToolDef[] = [
 				`listening   port ${key?.port ?? node.options.port} (reachable only from networks that can dial it)`,
 				`store       ${node.options.dir}`,
 				'identity    this project directory — another project is a different peer',
-				`node        ${node.where === 'daemon' ? 'a daemon, so this identity stays reachable when no session is open' : 'in this session, so it is only reachable while this session is'}`,
+				`node        ${
+					node.where === 'daemon'
+						? 'a daemon shared by every session on this identity, which leaves shortly after the last one does'
+						: 'in this session, so it is only reachable while this session is'
+				}`,
 			]
 			// The hybrid key string is ~2.5 KB — most of an ML-DSA-65 key — and spending that on
 			// every call would be a real cost to the session for something rarely needed.
@@ -97,7 +101,15 @@ export const TOOLS: ToolDef[] = [
 			// ours: MCP's only server-initiated model call is `sampling`. Say which it is, so
 			// nobody waits for an answer that cannot come.
 			lines.push(
-				`replies     ${node.canSample ? 'this client can be asked to answer on its own' : 'only when you ask — this client cannot be woken by a message'}`,
+				// A channel is what actually reaches an idle session here, and whether the client
+				// registered ours is not something it tells us — so say what is on offer rather
+				// than claim a certainty we do not have. `sampling` is a separate route and no
+				// client of ours has offered it yet.
+				`replies     ${
+					node.canSample
+						? 'this client can be asked to answer on its own'
+						: 'a message arrives on its own where this server is loaded as a channel; otherwise only when you ask'
+				}`,
 			)
 			if (args.key) lines.push('', `publicKey   ${key?.publicKeyString ?? '-'}`)
 			else
