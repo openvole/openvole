@@ -1,3 +1,4 @@
+import * as fsSync from 'node:fs'
 import * as fs from 'node:fs/promises'
 import * as os from 'node:os'
 import * as path from 'node:path'
@@ -75,6 +76,19 @@ describe('the channel capability', () => {
 			| { experimental?: Record<string, unknown> }
 			| undefined
 		expect(caps?.experimental?.['claude/channel']).toEqual({})
+	})
+
+	it('introduces itself as the version it actually is', () => {
+		// It sat at a hardcoded 0.1.0 through four releases, telling every client a version that
+		// had not existed for weeks. Reading it is what keeps that from happening again.
+		const pkg = JSON.parse(
+			fsSync.readFileSync(new URL('../package.json', import.meta.url), 'utf-8'),
+		) as { version: string }
+		const server = createServer(fakeNode(new Inbox(dir, 'session')))
+		const info = (server as unknown as { _serverInfo?: { name?: string; version?: string } })
+			._serverInfo
+		expect(info?.name).toBe('volenet')
+		expect(info?.version).toBe(pkg.version)
 	})
 
 	it('tells the session a peer is talking to it, not leaving a notification', () => {

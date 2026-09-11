@@ -1,6 +1,6 @@
 # Changelog
 
-## `@openvole/volenet-mcp` 0.4.0 (2026-09-09)
+## `@openvole/volenet-mcp` 0.4.0 (2026-09-12)
 
 > The MCP server and a new Claude Code plugin. `openvole` stays at 4.21.0 and `@openvole/volenet` at 1.1.1.
 

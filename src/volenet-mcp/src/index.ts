@@ -1,3 +1,4 @@
+import { createRequire } from 'node:module'
 /**
  * VoleNet as an MCP server.
  *
@@ -86,10 +87,19 @@ const CHANNEL_INSTRUCTIONS =
 	'actually needs them — it asks for a decision only they can make, or it changes what you are ' +
 	'working on for them.'
 
+/**
+ * What this server calls itself in the handshake.
+ *
+ * Read rather than written down, because a literal drifts: it sat at 0.1.0 through four releases,
+ * telling every client it was a version that had not existed for weeks. `../package.json` resolves
+ * the same from `src` and from `dist`, both being one level under the package root.
+ */
+const VERSION = (createRequire(import.meta.url)('../package.json') as { version: string }).version
+
 /** Wire the tools to an MCP server. Separated so a test can drive it without a transport. */
 export function createServer(node: Node): Server {
 	const server = new Server(
-		{ name: 'volenet', version: '0.1.0' },
+		{ name: 'volenet', version: VERSION },
 		{
 			capabilities: {
 				tools: {},
