@@ -58,7 +58,7 @@
 		"url": "https://github.com/openvole/openvole",
 		"directory": "src/core"
 	},
-	"homepage": "https://openvole.com/openvole/",
+	"homepage": "https://openvole.github.io/openvole/",
 	"keywords": [
 		"ai",
 		"agent",

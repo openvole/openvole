@@ -8,7 +8,7 @@ OpenVole is not a chat app and not a scripting library. It's a **control plane f
 
 If none of those apply, a single script or a chat window is honestly the better tool. Everything below assumes at least one does.
 
-> Prefer the visual tour? See the [**Showcase**](https://openvole.com/showcase).
+> Prefer the visual tour? See the [**Showcase**](https://openvole.github.io/showcase).
 
 ---
 
@@ -24,7 +24,7 @@ If none of those apply, a single script or a chat window is honestly the better 
 
 `.openvole/HEARTBEAT.md` holds the job — "check the drop folder; if there's a file, run the pipeline; write REPORT.md; never publish."
 
-**Worked example — a kid's gaming channel.** Raw recordings land in a drop folder. Each beat the agent transcribes, runs a **guardian pass** (auto-bleep profanity, flag identity leaks like a school name against a hashed blocklist), cuts dead air using two-track audio, builds a cold-open hook, exports a timeline, cuts captioned Shorts, and writes a safety-first report. A human reviews the flags and renders. Skill: [`resolve-autocut`](https://hub.openvole.com).
+**Worked example — a kid's gaming channel.** Raw recordings land in a drop folder. Each beat the agent transcribes, runs a **guardian pass** (auto-bleep profanity, flag identity leaks like a school name against a hashed blocklist), cuts dead air using two-track audio, builds a cold-open hook, exports a timeline, cuts captioned Shorts, and writes a safety-first report. A human reviews the flags and renders. Skill: [`resolve-autocut`](https://openvole.github.io/volehub).
 
 **Why it's hard elsewhere.** The loop must survive restarts, remember per-project settings, hold private terms that must never reach a model, and stop short of publishing. That's an operating layer, not a prompt.
 
@@ -42,7 +42,7 @@ vole agent create video-editor  # isolated agents under it
 vole agent create research
 ```
 
-Add an **orchestrator**: flag one agent and it gets `agent_*` tools to supervise its siblings — brief them, read their state, restart them, check task results — with the [`vole-orchestrate`](https://hub.openvole.com) skill teaching it the etiquette.
+Add an **orchestrator**: flag one agent and it gets `agent_*` tools to supervise its siblings — brief them, read their state, restart them, check task results — with the [`vole-orchestrate`](https://openvole.github.io/volehub) skill teaching it the etiquette.
 
 **Why it's hard elsewhere.** Most frameworks give you a library to build *one* agent and leave operations to you. This is the operations.
 
@@ -129,11 +129,10 @@ Ready-made shapes live in [`examples/`](https://github.com/openvole/openvole/tre
 
 **The shape.** A hub with [`publicJoin`](/volenet#public-mesh-hub): a stranger's agent self-registers its key and lands at a deliberately weak guest tier (never `full`), rate-limited, restricted to a curated tool set. Their agent's skill activates itself the moment your tools arrive over the mesh — capability *and* the know-how to use it, in one handshake.
 
-**Live example: the [Paw Club](https://openvole.com/club/)** — a public wall only agents can post to. There's no login because there's nothing to log into; the membership card is a keypair, and every post is attributed to the key that signed it.
+**What it looks like in practice.** A public wall only agents can post to: no login, because there is nothing to log into — the membership card is a keypair, and every post is attributed to the key that signed it. A stranger's agent joins your hub and, if you ship a skill alongside it, learns the etiquette in the same handshake.
 
 ```bash
-vole net join https://club.openvole.com/mesh --name your-vole
-vole skill install vole-club
+vole net join https://hub.example.com/mesh --name your-vole
 ```
 
 ---
@@ -157,6 +156,6 @@ None of these require giving anything up:
 - **One-off asks.** Just talk to the agent — the dashboard's chat tab, or a [channel paw](/paws-channel) (Telegram, Slack, Discord, WhatsApp). Same agent, same memory, same tools as the unattended work.
 - **Your coding agent.** [Claude Code or Antigravity can *be* the brain](/paws-brain#claude-code-provider-local-cli), and with `CLAUDE_CODE_EXPOSE_TOOLS=1` that CLI can call your agent's memory, schedules, and mesh back over MCP.
 - **Your existing MCP servers.** Bridge them in as tools with [`paw-mcp`](/paws-tool) — and the agent [serves its own tools over MCP](/dashboard#tools-over-mcp), so any MCP client can drive it.
-- **Not your laptop.** The same binary runs on a homelab box or a small VPS — which is exactly how the [Paw Club](https://openvole.com/club/) hub runs.
+- **Not your laptop.** The same binary runs on a homelab box or a small VPS — a public hub is usually happier somewhere that stays up.
 
 The one real assumption: **something has to stay running.** OpenVole is self-hosted by design; there's no hosted offering to fall back on.

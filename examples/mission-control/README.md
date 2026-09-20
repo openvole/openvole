@@ -45,7 +45,7 @@ Each agent's brain is `@openvole/paw-brain` in **mock scenario mode**: `BRAIN_MO
 
 Edit `agents/*/.openvole/paws/paw-brain/scenario.json` and restart the agent — the show is yours to rewrite.
 
-## Hosting it publicly (demo.openvole.com-style)
+## Hosting it publicly (behind your own domain)
 
 - Every agent runs `"demo": true` — the dashboard **refuses config and identity writes**, so visitors can look but not rewire.
 - `vole serve` prints a **tokenized URL** — share that link; the token gates everything.

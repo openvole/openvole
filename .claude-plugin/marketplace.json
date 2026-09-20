@@ -2,7 +2,7 @@
   "name": "openvole",
   "owner": {
     "name": "OpenVole",
-    "url": "https://openvole.com"
+    "url": "https://openvole.github.io"
   },
   "plugins": [
     {
@@ -10,7 +10,7 @@
       "source": "./src/volenet-plugin",
       "description": "Give this session its own identity on the VoleNet mesh, and let paired peers reach it in real time.",
       "version": "0.1.0",
-      "homepage": "https://openvole.com",
+      "homepage": "https://openvole.github.io",
       "license": "MIT",
       "keywords": ["volenet", "mesh", "messaging", "channel", "peer-to-peer"]
     }

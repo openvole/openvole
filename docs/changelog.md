@@ -471,7 +471,7 @@ Connecting two of your own nodes used to be a four-step manual key exchange. Now
 
 ### Changed
 
-- **Dashboard links.** The OpenVole logo now links to [openvole.com](https://openvole.com). In the footer, PawHub and VoleHub point at their `openvole.com` subdomains (`paw.openvole.com`, `hub.openvole.com`), a new **VoleNet** link (`net.openvole.com`) is added, the three hubs are grouped together, and `npm` moves next to ClawHub.
+- **Dashboard links.** The OpenVole logo now links to the project site. In the footer, PawHub and VoleHub point at their own pages, a new **VoleNet** link is added, the three hubs are grouped together, and `npm` moves next to ClawHub.
 - **Refreshed logo and favicon** assets.
 
 **Upgrading a running `vole serve`:** restart after upgrading and hard-refresh the browser.
@@ -1038,7 +1038,7 @@ Sharing a relay hub no longer means two agents can reach each other. A member's 
 ## v1.1.0 (2026-03-26)
 - Error recovery — `paw:crashed` event emitted on subprocess exit, running tasks auto-fail instead of hanging
 - `vole tool list --live` — boots engine in headless mode to discover MCP tools
-- Documentation site at [openvole.com/openvole](https://openvole.com/openvole/)
+- Documentation site at [openvole.github.io/openvole](https://openvole.github.io/openvole/)
 - paw-mcp: runtime MCP server management (`mcp_add_server`, `mcp_remove_server`, `mcp_list_servers`)
 - Vulnerability fixes: esbuild, picomatch, yaml, nodemailer, undici, file-type
 
