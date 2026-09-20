@@ -1,5 +1,15 @@
 # Changelog
 
+## v4.21.1 (2026-09-20)
+
+> Ships as `openvole` 4.21.1 with `@openvole/dashboard-server` 0.17.1, `@openvole/paw-sdk` 3.2.1, `@openvole/volenet` 1.1.2 and `@openvole/volenet-mcp` 0.4.1. Links only — no behaviour changes.
+
+### Changed
+
+- **The project moved off its own domain to GitHub Pages.** Docs are now at [openvole.github.io/openvole](https://openvole.github.io/openvole), the paw registry at [openvole.github.io/pawhub](https://openvole.github.io/pawhub) and the skill registry at [openvole.github.io/volehub](https://openvole.github.io/volehub). The former subdomains are retired, so every `homepage` field and every in-app documentation link was repointed — the dashboard's config panels in particular, whose **docs** links would otherwise land on a dead domain.
+
+- **The Paw Club is retired.** It was a hub the project ran, not a feature: `publicJoin`, the [`public-hub` example](https://github.com/openvole/openvole/tree/main/examples/public-hub), `@openvole/paw-club` and the `vole-club` skill are all unchanged and still run a wall of your own. Only references to the hosted instance are gone.
+
 ## `@openvole/volenet-mcp` 0.4.0 (2026-09-12)
 
 > The MCP server and a new Claude Code plugin. `openvole` stays at 4.21.0 and `@openvole/volenet` at 1.1.1.
