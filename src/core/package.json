@@ -1,7 +1,7 @@
 {
 	"name": "openvole",
 	"version": "4.21.1",
-	"description": "Micro-agent core \u2014 the minimal loop that makes agentic behavior possible",
+	"description": "Micro-agent core — the minimal loop that makes agentic behavior possible",
 	"type": "module",
 	"main": "./dist/index.js",
 	"types": "./dist/index.d.ts",
@@ -26,24 +26,24 @@
 		"@openvole/dashboard-server": "workspace:*",
 		"@openvole/volenet": "workspace:*",
 		"croner": "^10.0.1",
-		"dotenv": "^16.4.0",
-		"execa": "^9.5.0",
+		"dotenv": "^16.6.1",
+		"execa": "^9.6.1",
 		"mitt": "^3.0.1",
-		"ws": "^8.20.1",
-		"yaml": "^2.8.2",
-		"zod": "^3.23.0"
+		"ws": "^8.22.0",
+		"yaml": "^2.9.1",
+		"zod": "^3.25.76"
 	},
 	"optionalDependencies": {
-		"dockerode": "^5.0.0"
+		"dockerode": "^5.0.1"
 	},
 	"devDependencies": {
-		"@types/dockerode": "^3.3.0",
-		"@types/ws": "^8.5.0",
-		"@types/node": "^22.0.0",
-		"tsup": "^8.3.0",
-		"tsx": "^4.19.0",
-		"typescript": "^5.6.0",
-		"vitest": "^2.1.0"
+		"@types/dockerode": "^3.3.47",
+		"@types/node": "^22.20.5",
+		"@types/ws": "^8.18.2",
+		"tsup": "^8.5.1",
+		"tsx": "^4.23.15",
+		"typescript": "^5.9.3",
+		"vitest": "^5.0.5"
 	},
 	"engines": {
 		"node": ">=20.0.0"

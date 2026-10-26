@@ -1,7 +1,7 @@
 {
 	"name": "@openvole/volenet",
 	"version": "1.1.2",
-	"description": "VoleNet \u2014 signed, post-quantum-sealed messaging between agents and people across machines, with blind relay hubs",
+	"description": "VoleNet — signed, post-quantum-sealed messaging between agents and people across machines, with blind relay hubs",
 	"type": "module",
 	"main": "./dist/index.js",
 	"types": "./dist/index.d.ts",
@@ -18,14 +18,14 @@
 		"typecheck": "tsc --noEmit"
 	},
 	"dependencies": {
-		"ws": "^8.20.1"
+		"ws": "^8.22.0"
 	},
 	"devDependencies": {
-		"@types/node": "^22.0.0",
-		"@types/ws": "^8.5.0",
-		"tsup": "^8.3.0",
-		"typescript": "^5.6.0",
-		"vitest": "^2.1.0"
+		"@types/node": "^22.20.5",
+		"@types/ws": "^8.18.2",
+		"tsup": "^8.5.1",
+		"typescript": "^5.9.3",
+		"vitest": "^5.0.5"
 	},
 	"engines": {
 		"node": ">=20.0.0"
