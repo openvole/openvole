@@ -12,7 +12,7 @@ overrides:
   dockerode>@grpc/grpc-js: '>=1.14.4'
   vite: '>=6.4.3'
   postcss: '>=8.5.18'
-  vitest: '>=4.1.11'
+  vitest: '>=5.0.3'
   '@hono/node-server@<2.0.5': '>=2.0.5'
   fast-uri@>=3.0.0 <=3.1.3: '>=3.1.4'
   fast-uri@>=3.0.0 <3.1.3: '>=3.1.3'
@@ -67,7 +67,7 @@ importers:
         specifier: ^8.22.0
         version: 8.22.0
       yaml:
-        specifier: ^2.9.1
+        specifier: '>=2.8.3'
         version: 2.9.1
       zod:
         specifier: ^3.25.76
@@ -92,7 +92,7 @@ importers:
         specifier: ^5.9.3
         version: 5.9.3
       vitest:
-        specifier: ^5.0.5
+        specifier: '>=5.0.3'
         version: 5.0.5(@types/node@22.20.5)(vite@8.3.5(@types/node@22.20.5)(esbuild@0.28.2)(tsx@4.23.15)(yaml@2.9.1))
     optionalDependencies:
       dockerode:
@@ -137,7 +137,7 @@ importers:
         specifier: ^5.9.3
         version: 5.9.3
       vitest:
-        specifier: ^5.0.5
+        specifier: '>=5.0.3'
         version: 5.0.5(@types/node@22.20.5)(vite@8.3.5(@types/node@22.20.5)(esbuild@0.28.2)(tsx@4.23.15)(yaml@2.9.1))
 
   src/volenet:
@@ -159,7 +159,7 @@ importers:
         specifier: ^5.9.3
         version: 5.9.3
       vitest:
-        specifier: ^5.0.5
+        specifier: '>=5.0.3'
         version: 5.0.5(@types/node@22.20.5)(vite@8.3.5(@types/node@22.20.5)(esbuild@0.28.2)(tsx@4.23.15)(yaml@2.9.1))
 
   src/volenet-mcp:
@@ -181,7 +181,7 @@ importers:
         specifier: ^5.9.3
         version: 5.9.3
       vitest:
-        specifier: ^5.0.5
+        specifier: '>=5.0.3'
         version: 5.0.5(@types/node@22.20.5)(vite@8.3.5(@types/node@22.20.5)(esbuild@0.28.2)(tsx@4.23.15)(yaml@2.9.1))
 
 packages:
